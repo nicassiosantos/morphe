@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<deploy
+ date="2026.04.14.16:01:40"
+ outputDirectory="/home/coordenador/Documentos/tcc/adcltc2308_controller/">
+ <perimeter>
+  <parameter
+     name="AUTO_GENERATION_ID"
+     type="Integer"
+     defaultValue="0"
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_UNIQUE_ID"
+     type="String"
+     defaultValue=""
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_DEVICE_FAMILY"
+     type="String"
+     defaultValue="Cyclone V"
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_DEVICE"
+     type="String"
+     defaultValue="5CSEMA5F31C6"
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_DEVICE_SPEEDGRADE"
+     type="String"
+     defaultValue="6"
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_CLK_CLOCK_RATE"
+     type="Long"
+     defaultValue="-1"
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_CLK_CLOCK_DOMAIN"
+     type="Integer"
+     defaultValue="-1"
+     onHdl="0"
+     affectsHdl="1" />
+  <parameter
+     name="AUTO_CLK_RESET_DOMAIN"
+     type="Integer"
+     defaultValue="-1"
+     onHdl="0"
+     affectsHdl="1" />
+  <interface name="clk" kind="clock" start="0">
+   <property name="clockRate" value="0" />
+   <property name="externallyDriven" value="false" />
+   <property name="ptfSchematicName" value="" />
+   <port name="CLOCK" direction="input" role="clk" width="1" />
+  </interface>
+  <interface name="external_interface" kind="conduit" start="0">
+   <property name="associatedClock" value="" />
+   <property name="associatedReset" value="" />
+   <port name="ADC_SCLK" direction="output" role="SCLK" width="1" />
+   <port name="ADC_CS_N" direction="output" role="CS_N" width="1" />
+   <port name="ADC_DOUT" direction="input" role="DOUT" width="1" />
+   <port name="ADC_DIN" direction="output" role="DIN" width="1" />
+  </interface>
+  <interface name="readings" kind="conduit" start="0">
+   <property name="associatedClock" value="" />
+   <property name="associatedReset" value="" />
+   <port name="CH0" direction="output" role="CH0" width="12" />
+   <port name="CH1" direction="output" role="CH1" width="12" />
+   <port name="CH2" direction="output" role="CH2" width="12" />
+   <port name="CH3" direction="output" role="CH3" width="12" />
+   <port name="CH4" direction="output" role="CH4" width="12" />
+   <port name="CH5" direction="output" role="CH5" width="12" />
+   <port name="CH6" direction="output" role="CH6" width="12" />
+   <port name="CH7" direction="output" role="CH7" width="12" />
+  </interface>
+  <interface name="reset" kind="reset" start="0">
+   <property name="associatedClock" value="clk" />
+   <property name="synchronousEdges" value="DEASSERT" />
+   <port name="RESET" direction="input" role="reset" width="1" />
+  </interface>
+ </perimeter>
+ <entity
+   path=""
+   parameterizationKey="adcltc2308_controller:1.0:AUTO_CLK_CLOCK_DOMAIN=-1,AUTO_CLK_CLOCK_RATE=-1,AUTO_CLK_RESET_DOMAIN=-1,AUTO_DEVICE=5CSEMA5F31C6,AUTO_DEVICE_FAMILY=Cyclone V,AUTO_DEVICE_SPEEDGRADE=6,AUTO_GENERATION_ID=1776193297,AUTO_UNIQUE_ID=(altera_up_avalon_adc_mega:18.0:AUTO_CLK_CLOCK_RATE=0,AUTO_DEVICE_FAMILY=Cyclone V,board=DE1-SoC,board_rev=F or newer,max10plldivby=1,max10pllmultby=1,numch=1,numch_=2,sclk_freq=20.0,sys_clk_freq=50,tsclk=3)"
+   instancePathKey="adcltc2308_controller"
+   kind="adcltc2308_controller"
+   version="1.0"
+   name="adcltc2308_controller">
+  <parameter name="AUTO_CLK_CLOCK_RATE" value="-1" />
+  <parameter name="AUTO_GENERATION_ID" value="1776193297" />
+  <parameter name="AUTO_DEVICE" value="5CSEMA5F31C6" />
+  <parameter name="AUTO_DEVICE_FAMILY" value="Cyclone V" />
+  <parameter name="AUTO_CLK_RESET_DOMAIN" value="-1" />
+  <parameter name="AUTO_CLK_CLOCK_DOMAIN" value="-1" />
+  <parameter name="AUTO_UNIQUE_ID" value="" />
+  <parameter name="AUTO_DEVICE_SPEEDGRADE" value="6" />
+  <generatedFiles>
+   <file
+       path="/home/coordenador/Documentos/tcc/adcltc2308_controller/synthesis/adcltc2308_controller.v"
+       type="VERILOG" />
+  </generatedFiles>
+  <childGeneratedFiles>
+   <file
+       path="/home/coordenador/Documentos/tcc/adcltc2308_controller/synthesis/submodules/altera_up_avalon_adv_adc.v"
+       type="VERILOG" />
+   <file
+       path="/home/coordenador/Documentos/tcc/adcltc2308_controller/synthesis/submodules/adcltc2308_controller_adc_mega_0.v"
+       type="VERILOG" />
+  </childGeneratedFiles>
+  <sourceFiles>
+   <file path="/home/coordenador/Documentos/tcc/adcltc2308_controller.qsys" />
+  </sourceFiles>
+  <childSourceFiles>
+   <file
+       path="/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/altera_up_avalon_adc_mega_hw.tcl" />
+   <file
+       path="/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v" />
+  </childSourceFiles>
+  <messages>
+   <message level="Debug" culprit="adcltc2308_controller">queue size: 0 starting:adcltc2308_controller "adcltc2308_controller"</message>
+   <message level="Progress" culprit="min"></message>
+   <message level="Progress" culprit="max"></message>
+   <message level="Progress" culprit="current"></message>
+   <message level="Debug">Transform: CustomInstructionTransform</message>
+   <message level="Debug">No custom instruction connections, skipping transform </message>
+   <message level="Debug" culprit="merlin_custom_instruction_transform"><![CDATA[After transform: <b>1</b> modules, <b>0</b> connections]]></message>
+   <message level="Debug">Transform: MMTransform</message>
+   <message level="Debug">Transform: InterruptMapperTransform</message>
+   <message level="Debug">Transform: InterruptSyncTransform</message>
+   <message level="Debug">Transform: InterruptFanoutTransform</message>
+   <message level="Debug">Transform: AvalonStreamingTransform</message>
+   <message level="Debug">Transform: ResetAdaptation</message>
+   <message level="Debug" culprit="adcltc2308_controller"><![CDATA["<b>adcltc2308_controller</b>" reuses <b>altera_up_avalon_adc_mega</b> "<b>submodules/adcltc2308_controller_adc_mega_0</b>"]]></message>
+   <message level="Debug" culprit="adcltc2308_controller">queue size: 0 starting:altera_up_avalon_adc_mega "submodules/adcltc2308_controller_adc_mega_0"</message>
+   <message level="Info" culprit="adc_mega_0">Starting Generation of ADC Controller for DE-series Board</message>
+   <message level="Info" culprit="adc_mega_0">/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v /tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v</message>
+   <message level="Debug">set ALTERA_HW_TCL_KEEP_TEMP_FILES=1 to retain temp files</message>
+   <message level="Debug">Command: /home/coordenador/intelFPGA_lite/20.1/quartus/linux64/quartus_map not_a_project --generate_hdl_interface=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --source=/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v --source=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --set=HDL_INTERFACE_OUTPUT_PATH=/tmp/alt0557_3679151487749518428.dir/0003_sopcqmap/ --ini=disable_check_quartus_compatibility_qsys_only=on</message>
+   <message level="Debug">Command took 1.182s</message>
+   <message level="Debug">set ALTERA_HW_TCL_KEEP_TEMP_FILES=1 to retain temp files</message>
+   <message level="Debug">Command: /home/coordenador/intelFPGA_lite/20.1/quartus/linux64/quartus_map not_a_project --generate_hdl_interface=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --source=/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v --source=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --set=HDL_INTERFACE_OUTPUT_PATH=/tmp/alt0557_3679151487749518428.dir/0004_sopcqmap/ --set=HDL_INTERFACE_INSTANCE_NAME=inst --set=HDL_INTERFACE_INSTANCE_ENTITY=adcltc2308_controller_adc_mega_0 --set=HDL_INTERFACE_INSTANCE_PARAMETERS=board=S"DE1-SoC";board_rev=S"F or newer";tsclk=D"3";numch=D"1";max10pllmultby=D"1";max10plldivby=D"1"; --ini=disable_check_quartus_compatibility_qsys_only=on</message>
+   <message level="Debug">Command took 1.324s</message>
+   <message level="Info" culprit="adc_mega_0"><![CDATA["<b>adcltc2308_controller</b>" instantiated <b>altera_up_avalon_adc_mega</b> "<b>adc_mega_0</b>"]]></message>
+  </messages>
+ </entity>
+ <entity
+   path="submodules/"
+   parameterizationKey="altera_up_avalon_adc_mega:18.0:AUTO_CLK_CLOCK_RATE=0,AUTO_DEVICE_FAMILY=Cyclone V,board=DE1-SoC,board_rev=F or newer,max10plldivby=1,max10pllmultby=1,numch=1,numch_=2,sclk_freq=20.0,sys_clk_freq=50,tsclk=3"
+   instancePathKey="adcltc2308_controller:.:adc_mega_0"
+   kind="altera_up_avalon_adc_mega"
+   version="18.0"
+   name="adcltc2308_controller_adc_mega_0">
+  <parameter name="AUTO_CLK_CLOCK_RATE" value="0" />
+  <parameter name="AUTO_DEVICE_FAMILY" value="Cyclone V" />
+  <parameter name="max10plldivby" value="1" />
+  <parameter name="sys_clk_freq" value="50" />
+  <parameter name="tsclk" value="3" />
+  <parameter name="sclk_freq" value="20.0" />
+  <parameter name="numch_" value="2" />
+  <parameter name="board_rev" value="F or newer" />
+  <parameter name="max10pllmultby" value="1" />
+  <parameter name="board" value="DE1-SoC" />
+  <parameter name="numch" value="1" />
+  <generatedFiles>
+   <file
+       path="/home/coordenador/Documentos/tcc/adcltc2308_controller/synthesis/submodules/altera_up_avalon_adv_adc.v"
+       type="VERILOG" />
+   <file
+       path="/home/coordenador/Documentos/tcc/adcltc2308_controller/synthesis/submodules/adcltc2308_controller_adc_mega_0.v"
+       type="VERILOG" />
+  </generatedFiles>
+  <childGeneratedFiles/>
+  <sourceFiles>
+   <file
+       path="/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/altera_up_avalon_adc_mega_hw.tcl" />
+   <file
+       path="/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v" />
+  </sourceFiles>
+  <childSourceFiles/>
+  <instantiator instantiator="adcltc2308_controller" as="adc_mega_0" />
+  <messages>
+   <message level="Debug" culprit="adcltc2308_controller">queue size: 0 starting:altera_up_avalon_adc_mega "submodules/adcltc2308_controller_adc_mega_0"</message>
+   <message level="Info" culprit="adc_mega_0">Starting Generation of ADC Controller for DE-series Board</message>
+   <message level="Info" culprit="adc_mega_0">/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v /tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v</message>
+   <message level="Debug">set ALTERA_HW_TCL_KEEP_TEMP_FILES=1 to retain temp files</message>
+   <message level="Debug">Command: /home/coordenador/intelFPGA_lite/20.1/quartus/linux64/quartus_map not_a_project --generate_hdl_interface=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --source=/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v --source=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --set=HDL_INTERFACE_OUTPUT_PATH=/tmp/alt0557_3679151487749518428.dir/0003_sopcqmap/ --ini=disable_check_quartus_compatibility_qsys_only=on</message>
+   <message level="Debug">Command took 1.182s</message>
+   <message level="Debug">set ALTERA_HW_TCL_KEEP_TEMP_FILES=1 to retain temp files</message>
+   <message level="Debug">Command: /home/coordenador/intelFPGA_lite/20.1/quartus/linux64/quartus_map not_a_project --generate_hdl_interface=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --source=/home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v --source=/tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v --set=HDL_INTERFACE_OUTPUT_PATH=/tmp/alt0557_3679151487749518428.dir/0004_sopcqmap/ --set=HDL_INTERFACE_INSTANCE_NAME=inst --set=HDL_INTERFACE_INSTANCE_ENTITY=adcltc2308_controller_adc_mega_0 --set=HDL_INTERFACE_INSTANCE_PARAMETERS=board=S"DE1-SoC";board_rev=S"F or newer";tsclk=D"3";numch=D"1";max10pllmultby=D"1";max10plldivby=D"1"; --ini=disable_check_quartus_compatibility_qsys_only=on</message>
+   <message level="Debug">Command took 1.324s</message>
+   <message level="Info" culprit="adc_mega_0"><![CDATA["<b>adcltc2308_controller</b>" instantiated <b>altera_up_avalon_adc_mega</b> "<b>adc_mega_0</b>"]]></message>
+  </messages>
+ </entity>
+</deploy>

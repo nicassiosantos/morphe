@@ -1,0 +1,30 @@
+Info: Starting: Create block symbol file (.bsf)
+Info: qsys-generate /home/coordenador/Documentos/tcc/adcltc2308_controller.qsys --block-symbol-file --output-directory=/home/coordenador/Documentos/tcc/adcltc2308_controller --family="Cyclone V" --part=5CSEMA5F31C6
+Progress: Loading tcc/adcltc2308_controller.qsys
+Progress: Reading input file
+Progress: Adding adc_mega_0 [altera_up_avalon_adc_mega 18.0]
+Progress: Parameterizing module adc_mega_0
+Progress: Building connections
+Progress: Parameterizing connections
+Progress: Validating
+Progress: Done reading input file
+Info: qsys-generate succeeded.
+Info: Finished: Create block symbol file (.bsf)
+Info: 
+Info: Starting: Create HDL design files for synthesis
+Info: qsys-generate /home/coordenador/Documentos/tcc/adcltc2308_controller.qsys --synthesis=VERILOG --output-directory=/home/coordenador/Documentos/tcc/adcltc2308_controller/synthesis --family="Cyclone V" --part=5CSEMA5F31C6
+Progress: Loading tcc/adcltc2308_controller.qsys
+Progress: Reading input file
+Progress: Adding adc_mega_0 [altera_up_avalon_adc_mega 18.0]
+Progress: Parameterizing module adc_mega_0
+Progress: Building connections
+Progress: Parameterizing connections
+Progress: Validating
+Progress: Done reading input file
+Info: adcltc2308_controller: Generating adcltc2308_controller "adcltc2308_controller" for QUARTUS_SYNTH
+Info: adc_mega_0: Starting Generation of ADC Controller for DE-series Board
+Info: adc_mega_0: /home/coordenador/intelFPGA_lite/20.1/ip/altera/university_program/input_output/altera_up_avalon_adc/hdl/altera_up_avalon_adv_adc.v /tmp/alt0557_3679151487749518428.dir/0002_sopcgen/adcltc2308_controller_adc_mega_0.v
+Info: adc_mega_0: "adcltc2308_controller" instantiated altera_up_avalon_adc_mega "adc_mega_0"
+Info: adcltc2308_controller: Done "adcltc2308_controller" with 2 modules, 3 files
+Info: qsys-generate succeeded.
+Info: Finished: Create HDL design files for synthesis

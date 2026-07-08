@@ -1,0 +1,205 @@
+///*
+//    hn e xn são apenas para leitura
+//    yn apenas para leitura
+//    assumindo que o tipo de dados é float de 32 bits
+//
+//    XN_LENGTH
+//    HN_LENGTH
+//    YN_LENGTH terms of elements number
+//
+//    XN_ADDR_N_BITS
+//    HN_ADDR_N_BITS
+//    YN_ADDR_N_BITS number of bits used for representing all of addr
+//                    of the memory
+//
+//*/
+//
+//module conv1d #(
+//    parameter DATA_WIDTH = 32,
+//    parameter XN_LENGTH = 32,
+//    parameter HN_LENGTH = 32,
+//    parameter YN_LENGTH = 32,
+//    parameter XN_ADDR_N_BITS = 5,
+//    parameter HN_ADDR_N_BITS = 5,
+//    parameter YN_ADDR_N_BITS = 5
+//)(
+//    // cond1d inputs
+//    input wire clk,
+//    input wire start_conv,
+//    input wire reset_n,
+//    
+//    input wire hn_read_done,
+//    input wire xn_read_done,
+//    input wire yn_write_done,
+//
+//    // Valores lidos da SRAM XN e HN
+//    input wire[DATA_WIDTH-1:0] hn_readdata,
+//    input wire[DATA_WIDTH-1:0] xn_readdata,
+//
+//    // Valor a ser escrito na SRAM YN
+//    output reg[DATA_WIDTH-1:0] yn_writedata,
+//
+//    // Endereco onde as informacoes serao lidas
+//    output reg[HN_ADDR_N_BITS-1:0] hn_addr,
+//    output reg[XN_ADDR_N_BITS-1:0] xn_addr,
+//    // Endereco onde a informacao sera escrita em YN
+//    output reg[YN_ADDR_N_BITS-1:0] yn_addr,
+//    
+//    // Flags de termino de leitura e escrita em HN, XN e YN
+//    output reg xn_start_read,
+//    output reg hn_start_read,
+//    output reg yn_start_write,
+//
+//    // conv1d output (convolucao terminada)
+//    output reg conv_done
+//);
+//
+//    localparam IDLE       = 3'b_000;
+//    localparam COMPUTING  = 3'b_001;
+//    localparam READ_ADDR  = 3'b_010;
+//    localparam WAIT_SRAM  = 3'b_011;
+//    localparam WAIT_FPU   = 3'b_100;
+//    localparam ACCUMULATE = 3'b_101;
+//    localparam WRITE_YN   = 3'b_110;
+//    localparam DONE       = 3'b_111;
+//
+//    wire underflow, overflow;
+//
+//    reg signed[HN_ADDR_N_BITS-1:0] hn_idx = {HN_ADDR_N_BITS{1'b_0}};
+//    reg [XN_ADDR_N_BITS-1:0] k = {XN_ADDR_N_BITS{1'b_0}};
+//    reg [YN_ADDR_N_BITS-1:0] n = {YN_ADDR_N_BITS{1'b_0}};
+//
+//    reg [DATA_WIDTH-1:0] Multiplier_A, Multiplier_B;
+//
+//    reg[1:0] fpu_add_delay_reg = 2'b_00;
+//    reg[1:0] fpu_mult_delay_reg = 2'b_00;
+//
+//    reg[2:0] state = IDLE;
+//
+//    wire[DATA_WIDTH-1:0] multiplier_reg, adder_reg, result_reg;
+//
+//    reg[DATA_WIDTH-1:0] accumulator_reg = {DATA_WIDTH{1'b_0}};
+//    reg[HN_ADDR_N_BITS-1:0] hn_addr_reg = {HN_ADDR_N_BITS{1'b_0}};
+//    reg[XN_ADDR_N_BITS-1:0] xn_addr_reg = {XN_ADDR_N_BITS{1'b_0}};
+//
+//    /*
+//        É preciso trabalhar com registradores
+//        intermediários para fazer os cálculos
+//        e manipular as saídas do módulo para pegar
+//        as informações da memória SRAM
+//
+//        o load das informações é feito apenas após o término
+//        de todo o processamento de cálculo do índice e verificação dele
+//        bem como o correto incremento dos índices para os arrays XN e YN
+//		  
+//		  --
+//		  
+//		  Vou precisar de dois registradores, um para guardar a soma e servira como o
+//		  primeiro estagio, e outro para a multiplicacao, que servira como um segundo estagio
+//          
+//          Será necessário um delay para computar a multiplicação e a soma
+//          4 ciclos de clock para cada operação, 4 para multiplicação e 4 para soma
+//		  
+//    */
+//
+//    fpu_sp_multiplier fpu_sp_multiplier_inst (
+//        .A(xn_readdata),
+//        .B(hn_readdata),
+//        .result(multiplier_reg),
+//        .underflow(underflow),
+//        .overflow(overflow)
+//    );
+//
+//    fpu_sp_adder fpu_sp_adder_inst(
+//        .a(Multiplier_A),
+//        .b(Multiplier_B),
+//        .result(result_reg),
+//        .overflow(overflow),
+//        .underflow(underflow)
+//    );
+//
+//    always @ (posedge clk or negedge reset_n) begin
+//        if(!reset_n) begin
+//            xn_start_read <= 1'b_0;
+//            hn_start_read <= 1'b_0;
+//            yn_start_write <= 1'b_0;
+//            hn_addr <= {HN_ADDR_N_BITS{1'b_0}}; // refazer com o operador de repeticao e concatenacao
+//            xn_addr <= {XN_ADDR_N_BITS{1'b_0}};
+//            yn_addr <= {YN_ADDR_N_BITS{1'b_0}};
+//            yn_writedata <= {DATA_WIDTH{1'b_0}};
+//            conv_done <= 1'b_0;
+//            state <= IDLE;
+//        end
+//        else begin
+//            case (state)
+//                IDLE: begin
+//                    if (start_conv) begin
+//                        state <= LOAD;
+//                    end
+//                end
+//                /*
+//                    Computar as informações referentes aos valores
+//                    de indice de HN, XN e YN
+//                */
+//                COMPUTING: begin
+//                    if ((n < YN_LENGTH)) begin
+//                        if (k < XN_LENGTH) begin
+//                            hn_idx <= $signed(n) - $signed(k);
+//                            if ( (hn_idx >= $signed(1'b_0)) && (hn_idx < $signed(XN_LENGTH)) ) begin
+//                                hn_addr <= hn_idx;
+//                                xn_addr <= k;
+//                                state <= READ_ADDR;
+//                            end
+//                            else begin
+//                                k <= (k + 1'b_1);
+//                            end
+//                        end
+//                        // Reseta k logo após ele chegar ao final de XN e incrementa n
+//                        else begin
+//                            k <= {XN_ADDR_N_BITS{1'b_0}};
+//                            n <= (n + 1'b_1);
+//                        end
+//                    end
+//                end
+//                /*
+//                As informacoes devem ser lidas do endereco
+//                    HN -> hn_idx
+//                    XN -> k
+//                */
+//                READ_ADDR: begin
+//                    xn_start_read <= 1'b_1;
+//                    hn_start_read <= 1'b_1;
+//                    state <= WAIT_SRAM;
+//                    // k <= (k + 1'b_1);
+//                end
+//                WAIT_SRAM: begin
+//                    if (xn_read_done && hn_read_done) begin
+//                        state <= WAIT_FPU;
+//                    end
+//                end
+//                WAIT_MULT: begin // Vou precisar de um estado para fazer o delay com o adder
+//                    if (fpu_mult_delay_reg == 2'b_11) begin
+//
+//                    end
+//                    else begin
+//                        fpu_mult_delay_reg <= (fpu_mult_delay_reg + 1'b_1);
+//                    end
+//                end
+//                WAIT_ADDER: begin
+//                    
+//                end
+//                ACCUMULATE: begin
+//                end
+//                /*
+//                A informacao deve ser escrita em YN no endereco n
+//                */
+//                WRITE_YN: begin
+//                end
+//                // Termino da convolucao
+//                DONE: begin
+//                    conv_done <= 1'b_1;
+//                end
+//            endcase
+//        end
+//    end
+//endmodule

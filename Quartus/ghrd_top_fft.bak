@@ -1,0 +1,233 @@
+/*
+assign LEDR[0] = fft_wrapper_done;
+assign LEDR[1] = fft_wrapper_start;
+*/
+
+/*
+    read and write working fine
+*/
+
+
+/*
+    O que fazer agora? 07/04/2026  15:08
+    
+    Testar a comunicacao entre o PIO e o FPGA
+    (O PIO e sempre como se fosse da visao do HPS)
+    [1] - start - output
+    [2] - inverse - output
+    [3] - done - input
+    [4] - fft_expoent - input
+
+*/
+
+/*
+memory_write_controller #(
+    .MEM_ADDRESS_N_BITS(10),
+    .DATA_WIDTH(16)
+) memory_write_controller_fft_xn_re (
+    .clk        (CLOCK_50),
+    .reset_n    (reset_n_xn),
+    .start_write(!KEY[0]),
+    .data_in_addr(10'd_1023),
+    .data_in    (16'h_31),
+
+    .mem_address (fft_xn_re_address),
+    .mem_wdata   (fft_xn_re_writedata),
+    .mem_write   (fft_xn_re_write),
+    .write_done  (HEX5[0]),
+    .clken       (fft_xn_re_clken),
+    .chipselect  (fft_xn_re_chipselect)
+);
+
+memory_write_controller #(
+    .MEM_ADDRESS_N_BITS(10),
+    .DATA_WIDTH(16)
+) memory_write_controller_fft_xn_imag (
+    .clk        (CLOCK_50),
+    .reset_n    (reset_n_xn),
+    .start_write(!KEY[1]),
+    .data_in_addr(10'd_1023),
+    .data_in    (16'h_17),
+
+    .mem_address (fft_xn_imag_address),
+    .mem_wdata   (fft_xn_imag_writedata),
+    .mem_write   (fft_xn_imag_write),
+    .write_done  (HEX5[1]),
+    .clken       (fft_xn_imag_clken),
+    .chipselect  (fft_xn_imag_chipselect)
+);
+
+memory_write_controller #(
+    .MEM_ADDRESS_N_BITS(10),
+    .DATA_WIDTH(16)
+) memory_write_controller_fft_yn_re (
+    .clk        (CLOCK_50),
+    .reset_n    (reset_n_yn),
+    .start_write(!KEY[2]),
+    .data_in_addr(10'd_1023),
+    .data_in    (16'h_19),
+
+    .mem_address (fft_yn_re_address),
+    .mem_wdata   (fft_yn_re_writedata),
+    .mem_write   (fft_yn_re_write),
+    .write_done  (HEX5[2]),
+    .clken       (fft_yn_re_clken),
+    .chipselect  (fft_yn_re_chipselect)
+);
+
+memory_write_controller #(
+    .MEM_ADDRESS_N_BITS(10),
+    .DATA_WIDTH(16)
+) memory_write_controller_fft_yn_imag (
+    .clk        (CLOCK_50),
+    .reset_n    (reset_n_yn),
+    .start_write(!KEY[3]),
+    .data_in_addr(10'd_1023),
+    .data_in    (16'h_23),
+
+    .mem_address (fft_yn_imag_address),
+    .mem_wdata   (fft_yn_imag_writedata),
+    .mem_write   (fft_yn_imag_write),
+    .write_done  (HEX5[3]),
+    .clken       (fft_yn_imag_clken),
+    .chipselect  (fft_yn_imag_chipselect)
+);
+*/
+
+/*
+        fft_wrapper inst
+*/
+
+// wire [3:0] fft_debug_state;
+
+/*
+
+assign LEDR[5:2] = fft_debug_state;
+
+
+// No ghrd_top.v, adicionar temporariamente:
+
+
+// Temporarily mapping the SRAM output to the LEDs for debugging
+assign LEDR[9:0] = fft_xn_re_readdata[9:0];
+
+fft_wrapper #(
+    .FFT_N(1024),
+    .DATA_WIDTH(16),
+    .ADDR_BITS(10),    // log2(FFT_N)
+    .EXP_WIDTH(6)
+) u_fft_wrapper (
+    .clk(CLOCK_50),
+    .reset_n(hps_fpga_reset_n),
+
+    // ========================================================================
+    // Interface de controle (PIOs do HPS)
+    // ========================================================================
+    .start(fft_wrapper_start),        // PIO: HPS seta 1 para iniciar
+    .inverse(fft_inverse),            // PIO: 0 = FFT, 1 = IFFT
+    .done(fft_wrapper_done),          // PIO: 1 quando operação completa
+    .fft_exponent(fft_bfp_exponent),   // PIO: expoente BFP do bloco | Block Float Point Para Toda a Saida
+
+    // ========================================================================
+    // Input SRAM Real — porta B (leitura pelo FPGA)
+    // ========================================================================
+    .in_real_mem_address(fft_xn_re_address),
+    .in_real_mem_write(fft_xn_re_write),
+    .in_real_clken(fft_xn_re_clken),
+    .in_real_chipselect(fft_xn_re_chipselect),
+    .in_real_sram_readdata(fft_xn_re_readdata),
+
+    // ========================================================================
+    // Input SRAM Imag — porta B (leitura pelo FPGA)
+    // ========================================================================
+    .in_imag_mem_address(fft_xn_imag_address),
+    .in_imag_mem_write(fft_xn_imag_write),
+    .in_imag_clken(fft_xn_imag_clken),
+    .in_imag_chipselect(fft_xn_imag_chipselect),
+    .in_imag_sram_readdata(fft_xn_imag_readdata),
+
+    // ========================================================================
+    // Output SRAM Real — porta B (escrita pelo FPGA)
+    // ========================================================================
+    .out_real_mem_address(fft_yn_re_address),
+    .out_real_mem_wdata(fft_yn_re_writedata),
+    .out_real_mem_write(fft_yn_re_write),
+    .out_real_clken(fft_yn_re_clken),
+    .out_real_chipselect(fft_yn_re_chipselect),
+
+    // ========================================================================
+    // Output SRAM Imag — porta B (escrita pelo FPGA)
+    // ========================================================================
+    .out_imag_mem_address(fft_yn_imag_address),
+    .out_imag_mem_wdata(fft_yn_imag_writedata),
+    .out_imag_mem_write(fft_yn_imag_write),
+    .out_imag_clken(fft_yn_imag_clken),
+    .out_imag_chipselect(fft_yn_imag_chipselect),
+    .debug_state(fft_debug_state)
+);
+
+*/
+
+// ============================================================================
+// TRECHO PARA SUBSTITUIR NO ghrd_top.v
+//
+// Substitua o bloco do fft_wrapper (linhas ~397-449) por este.
+// As SRAMs de entrada (xn_re, xn_imag) ficam desconectadas neste teste.
+// ============================================================================
+/*
+// --- Wires de debug ---
+wire [3:0] fft_debug_state;
+wire       fft_debug_source_valid;
+wire       fft_debug_sink_ready;
+
+// --- LEDs de debug ---
+assign LEDR[5:2] = fft_debug_state;
+assign LEDR[8]   = fft_debug_sink_ready;
+assign LEDR[9]   = fft_debug_source_valid;
+
+// --- SRAMs de entrada desconectadas (dados gerados internamente) ---
+assign fft_xn_re_address    = {FFT_ADDRESS_WIDTH{1'b0}};
+assign fft_xn_re_write      = 1'b0;
+assign fft_xn_re_clken      = 1'b0;
+assign fft_xn_re_chipselect = 1'b0;
+
+assign fft_xn_imag_address    = {FFT_ADDRESS_WIDTH{1'b0}};
+assign fft_xn_imag_write      = 1'b0;
+assign fft_xn_imag_clken      = 1'b0;
+assign fft_xn_imag_chipselect = 1'b0;
+
+// --- Módulo de teste com impulso ---
+fft_impulse_test #(
+    .FFT_N(1024),
+    .DATA_WIDTH(16),
+    .ADDR_BITS(10),
+    .EXP_WIDTH(6)
+) u_fft_test (
+    .clk(CLOCK_50),
+    .reset_n(hps_fpga_reset_n),
+
+    // Controle via PIOs
+    .start(fft_wrapper_start),
+    .done(fft_wrapper_done),
+    .fft_exponent(fft_bfp_exponent),
+
+    // Output SRAM Real — porta B
+    .out_real_mem_address(fft_yn_re_address),
+    .out_real_mem_wdata(fft_yn_re_writedata),
+    .out_real_mem_write(fft_yn_re_write),
+    .out_real_clken(fft_yn_re_clken),
+    .out_real_chipselect(fft_yn_re_chipselect),
+
+    // Output SRAM Imag — porta B
+    .out_imag_mem_address(fft_yn_imag_address),
+    .out_imag_mem_wdata(fft_yn_imag_writedata),
+    .out_imag_mem_write(fft_yn_imag_write),
+    .out_imag_clken(fft_yn_imag_clken),
+    .out_imag_chipselect(fft_yn_imag_chipselect),
+
+    // Debug
+    .debug_state(fft_debug_state),
+    .debug_source_valid(fft_debug_source_valid),
+    .debug_sink_ready(fft_debug_sink_ready)
+);
+*/

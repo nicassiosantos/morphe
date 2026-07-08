@@ -1,0 +1,445 @@
+// ============================================================================
+// morphe_fft_wrapper.v
+//
+// Wrapper que orquestra a comunicação entre o HPS e o FFT IP Core da Intel
+// através de SRAMs on-chip na FPGA (DE1-SoC / Cyclone V).
+//
+// Arquitetura de memória (4 SRAMs, todas 16 bits × 1024 posições):
+//
+//   HPS → [Avalon-MM] → Input SRAM Real  (port A) ← (port B) ← read_ctrl_real  ← FSM
+//   HPS → [Avalon-MM] → Input SRAM Imag  (port A) ← (port B) ← read_ctrl_imag  ← FSM
+//   FSM → write_ctrl_real → (port B) → Output SRAM Real (port A) → [Avalon-MM] → HPS
+//   FSM → write_ctrl_imag → (port B) → Output SRAM Imag (port A) → [Avalon-MM] → HPS
+//   FSM ↔ FFT Core (Avalon-ST sink/source)
+//
+// Protocolo de operação:
+//   1. HPS escreve 1024 amostras reais na Input SRAM Real via Avalon-MM
+//   2. HPS escreve 1024 amostras imaginárias na Input SRAM Imag via Avalon-MM
+//   3. HPS seta start=1 via PIO
+//   4. Wrapper lê real+imag em paralelo, alimenta o FFT Core (Avalon-ST)
+//   5. Wrapper recebe os resultados do FFT, escreve real+imag em paralelo
+//   6. Wrapper seta done=1 e expõe o expoente BFP via PIO
+//   7. HPS lê os resultados das Output SRAMs via Avalon-MM
+//
+// Formato dos dados (todas as SRAMs são 16 bits):
+//   Input SRAM Real  [15:0]: parte real da amostra (int16)
+//   Input SRAM Imag  [15:0]: parte imaginária da amostra (int16)
+//   Output SRAM Real [15:0]: parte real do bin FFT (int16)
+//   Output SRAM Imag [15:0]: parte imaginária do bin FFT (int16)
+//   Expoente BFP (PIO):     valor = source_data × 2^(-source_exp)
+//
+// ============================================================================
+
+module fft_wrapper #(
+    parameter FFT_N      = 1024,
+    parameter DATA_WIDTH = 16,
+    parameter ADDR_BITS  = 10,    // log2(FFT_N)
+    parameter EXP_WIDTH  = 6
+)(
+    input wire clk,
+    input wire reset_n,
+
+    // ========================================================================
+    // Interface de controle (PIOs do HPS)
+    // ========================================================================
+    input  wire                    start,          // PIO: HPS seta 1 para iniciar
+    input  wire                    inverse,        // PIO: 0 = FFT, 1 = IFFT
+    output reg                     done,           // PIO: 1 quando operação completa
+    output reg  [EXP_WIDTH-1:0]    fft_exponent,   // PIO: expoente BFP do bloco
+
+    // ========================================================================
+    // Input SRAM Real — porta B (leitura pelo FPGA)
+    // ========================================================================
+    output wire [ADDR_BITS-1:0]    in_real_mem_address,
+    output wire                    in_real_mem_write,
+    output wire                    in_real_clken,
+    output wire                    in_real_chipselect,
+    input  wire [DATA_WIDTH-1:0]   in_real_sram_readdata,
+
+    // ========================================================================
+    // Input SRAM Imag — porta B (leitura pelo FPGA)
+    // ========================================================================
+    output wire [ADDR_BITS-1:0]    in_imag_mem_address,
+    output wire                    in_imag_mem_write,
+    output wire                    in_imag_clken,
+    output wire                    in_imag_chipselect,
+    input  wire [DATA_WIDTH-1:0]   in_imag_sram_readdata,
+
+    // ========================================================================
+    // Output SRAM Real — porta B (escrita pelo FPGA)
+    // ========================================================================
+    output wire [ADDR_BITS-1:0]    out_real_mem_address,
+    output wire [DATA_WIDTH-1:0]   out_real_mem_wdata,
+    output wire                    out_real_mem_write,
+    output wire                    out_real_clken,
+    output wire                    out_real_chipselect,
+
+    // ========================================================================
+    // Output SRAM Imag — porta B (escrita pelo FPGA)
+    // ========================================================================
+    output wire [ADDR_BITS-1:0]    out_imag_mem_address,
+    output wire [DATA_WIDTH-1:0]   out_imag_mem_wdata,
+    output wire                    out_imag_mem_write,
+    output wire                    out_imag_clken,
+    output wire                    out_imag_chipselect,
+    
+    // Debug
+    output wire [3:0]              debug_state
+);
+
+    // ========================================================================
+    // Estados da FSM principal
+    // ========================================================================
+    localparam S_IDLE        = 4'd0;
+    localparam S_READ_START  = 4'd1;
+    localparam S_READ_WAIT   = 4'd2;
+    localparam S_FEED_FFT    = 4'd3;
+    localparam S_RECV_WAIT   = 4'd4;
+    localparam S_WRITE_START = 4'd5;
+    localparam S_WRITE_WAIT  = 4'd6;
+    localparam S_COMPLETE    = 4'd7;
+
+    reg [3:0] state;
+    assign debug_state = state;
+
+    // ========================================================================
+    // Contadores de endereço
+    // ========================================================================
+    reg [ADDR_BITS-1:0] feed_addr;
+    reg [ADDR_BITS-1:0] recv_addr;
+
+    // ========================================================================
+    // Detecção de borda de subida do start
+    // ========================================================================
+    reg start_prev;
+    wire start_rising = start & ~start_prev;
+
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n)
+            start_prev <= 1'b0;
+        else
+            start_prev <= start;
+    end
+
+    // ========================================================================
+    // Registro do inverse no momento do start
+    // ========================================================================
+    reg inverse_reg;
+
+    // ========================================================================
+    // Sinais internos — Memory Read Controllers (real + imag em paralelo)
+    // ========================================================================
+    reg                    rd_start;
+    reg  [ADDR_BITS-1:0]  rd_addr;
+
+    wire [DATA_WIDTH-1:0]  rd_real_data_out;
+    wire                   rd_real_done;
+
+    wire [DATA_WIDTH-1:0]  rd_imag_data_out;
+    wire                   rd_imag_done;
+
+    // Ambos recebem o mesmo start/addr → terminam no mesmo ciclo.
+    // AND como guarda de segurança.
+    wire rd_done = rd_real_done & rd_imag_done;
+
+    // ========================================================================
+    // Sinais internos — Memory Write Controllers (real + imag em paralelo)
+    // ========================================================================
+    reg                    wr_start;
+    reg  [ADDR_BITS-1:0]  wr_addr;
+    reg  [DATA_WIDTH-1:0]  wr_real_data;
+    reg  [DATA_WIDTH-1:0]  wr_imag_data;
+
+    wire                   wr_real_done;
+    wire                   wr_imag_done;
+
+    wire wr_done = wr_real_done & wr_imag_done;
+
+    // ========================================================================
+    // Sinais internos — FFT Core (Avalon-ST)
+    // ========================================================================
+    // Sink (entrada do FFT)
+    reg                         sink_valid;
+    wire                        sink_ready;
+    reg  [1:0]                  sink_error;
+    reg                         sink_sop;
+    reg                         sink_eop;
+    reg  [DATA_WIDTH-1:0]       sink_real;
+    reg  [DATA_WIDTH-1:0]       sink_imag;
+
+    // Source (saída do FFT)
+    wire                        source_valid;
+    reg                         source_ready;
+    wire [1:0]                  source_error;
+    wire                        source_sop;
+    wire                        source_eop;
+    wire [DATA_WIDTH-1:0]       source_real;
+    wire [DATA_WIDTH-1:0]       source_imag;
+    wire [EXP_WIDTH-1:0]        source_exp;
+
+    // Registros para captura da saída do FFT
+    reg [DATA_WIDTH-1:0]        capt_real;
+    reg [DATA_WIDTH-1:0]        capt_imag;
+
+    // ========================================================================
+    // FSM Principal
+    // ========================================================================
+    always @(posedge clk or negedge reset_n) begin
+        // No ghrd_top.v, adicionar temporariamente:
+        if (!reset_n) begin
+            state        <= S_IDLE;
+            done         <= 1'b0;
+            fft_exponent <= {EXP_WIDTH{1'b0}};
+            feed_addr    <= {ADDR_BITS{1'b0}};
+            recv_addr    <= {ADDR_BITS{1'b0}};
+            inverse_reg  <= 1'b0;
+
+            sink_valid   <= 1'b0;
+            sink_error   <= 2'b00;
+            sink_sop     <= 1'b0;
+            sink_eop     <= 1'b0;
+            sink_real    <= {DATA_WIDTH{1'b0}};
+            sink_imag    <= {DATA_WIDTH{1'b0}};
+
+            source_ready <= 1'b0;
+
+            capt_real    <= {DATA_WIDTH{1'b0}};
+            capt_imag    <= {DATA_WIDTH{1'b0}};
+
+            rd_start     <= 1'b0;
+            rd_addr      <= {ADDR_BITS{1'b0}};
+            wr_start     <= 1'b0;
+            wr_addr      <= {ADDR_BITS{1'b0}};
+            wr_real_data <= {DATA_WIDTH{1'b0}};
+            wr_imag_data <= {DATA_WIDTH{1'b0}};
+        end
+        else begin
+            // ----------------------------------------------------------------
+            // Default assignments: pulsos duram apenas 1 ciclo
+            // ----------------------------------------------------------------
+            rd_start   <= 1'b0;
+            wr_start   <= 1'b0;
+            sink_valid <= 1'b0;
+
+            case (state)
+                // ============================================================
+                // IDLE: Aguarda o HPS sinalizar start
+                // ============================================================
+                S_IDLE: begin
+                    done         <= 1'b0;
+                    source_ready <= 1'b0;
+                    if (start_rising) begin
+                        feed_addr   <= {ADDR_BITS{1'b0}};
+                        recv_addr   <= {ADDR_BITS{1'b0}};
+                        inverse_reg <= inverse;
+                        state       <= S_READ_START;
+                    end
+                end
+
+                // ============================================================
+                // FASE 1: Alimentação — Leitura das SRAMs + Envio ao FFT
+                // ============================================================
+
+                // Dispara leitura simultânea nas SRAMs real e imaginária
+                S_READ_START: begin
+                    rd_addr  <= feed_addr;
+                    rd_start <= 1'b1;
+                    state    <= S_READ_WAIT;
+                end
+
+                // Aguarda ambos os memory_read_controllers concluírem
+                S_READ_WAIT: begin
+                    if (rd_done) begin
+                        sink_real  <= rd_real_data_out;
+                        sink_imag  <= rd_imag_data_out;
+                        sink_error <= 2'b00;
+                        sink_sop   <= (feed_addr == {ADDR_BITS{1'b0}});
+                        sink_eop   <= (feed_addr == FFT_N - 1);
+                        state      <= S_FEED_FFT;
+                    end
+                end
+
+                // Apresenta dado ao FFT Core e aguarda handshake valid/ready
+                S_FEED_FFT: begin
+                    sink_valid <= 1'b1;
+
+                    if (sink_ready) begin
+                        sink_valid <= 1'b0;
+
+                        if (feed_addr == FFT_N - 1) begin
+                            // Todas as amostras enviadas → fase de recepção
+                            source_ready <= 1'b1;
+                            state        <= S_RECV_WAIT;
+                        end
+                        else begin
+                            feed_addr <= feed_addr + 1'b1;
+                            state     <= S_READ_START;
+                        end
+                    end
+                end
+
+                // ============================================================
+                // FASE 2: Recepção — Leitura do FFT + Escrita nas SRAMs
+                // ============================================================
+
+                // Aguarda o FFT Core produzir um resultado válido
+                S_RECV_WAIT: begin
+                    source_ready <= 1'b1;
+
+                    if (source_valid) begin
+                        capt_real <= source_real;
+                        capt_imag <= source_imag;
+
+                        if (source_sop)
+                            fft_exponent <= source_exp;
+
+                        source_ready <= 1'b0;
+                        state        <= S_WRITE_START;
+                    end
+                end
+
+                // Dispara escrita simultânea nas SRAMs de saída
+                S_WRITE_START: begin
+                    wr_addr      <= recv_addr;
+                    wr_real_data <= capt_real;
+                    wr_imag_data <= capt_imag;
+                    wr_start     <= 1'b1;
+                    state        <= S_WRITE_WAIT;
+                end
+
+                // Aguarda ambos os memory_write_controllers concluírem
+                S_WRITE_WAIT: begin
+                    if (wr_done) begin
+                        if (recv_addr == FFT_N - 1) begin
+                            state <= S_COMPLETE;
+                        end
+                        else begin
+                            recv_addr    <= recv_addr + 1'b1;
+                            source_ready <= 1'b1;
+                            state        <= S_RECV_WAIT;
+                        end
+                    end
+                end
+
+                // ============================================================
+                // COMPLETE: Sinaliza conclusão ao HPS
+                // ============================================================
+                S_COMPLETE: begin
+                    done         <= 1'b1;
+                    source_ready <= 1'b0;
+
+                    if (!start)
+                        state <= S_IDLE;
+                end
+
+                default: state <= S_IDLE;
+            endcase
+        end
+    end
+
+    // ========================================================================
+    // Instanciação — Memory Read Controller: Input SRAM Real (porta B)
+    // ========================================================================
+    memory_read_controller #(
+        .DATA_WIDTH         (DATA_WIDTH),
+        .MEM_ADDRESS_N_BITS (ADDR_BITS)
+    ) u_read_real (
+        .clk            (clk),
+        .reset_n        (reset_n),
+        .start_read     (rd_start),
+        .sram_readdata  (in_real_sram_readdata),
+        .data_addr      (rd_addr),
+        .mem_write      (in_real_mem_write),
+        .data_out       (rd_real_data_out),
+        .mem_address    (in_real_mem_address),
+        .read_done      (rd_real_done),
+        .clken          (in_real_clken),
+        .chipselect     (in_real_chipselect)
+    );
+
+    // ========================================================================
+    // Instanciação — Memory Read Controller: Input SRAM Imag (porta B)
+    // ========================================================================
+    memory_read_controller #(
+        .DATA_WIDTH         (DATA_WIDTH),
+        .MEM_ADDRESS_N_BITS (ADDR_BITS)
+    ) u_read_imag (
+        .clk            (clk),
+        .reset_n        (reset_n),
+        .start_read     (rd_start),
+        .sram_readdata  (in_imag_sram_readdata),
+        .data_addr      (rd_addr),
+        .mem_write      (in_imag_mem_write),
+        .data_out       (rd_imag_data_out),
+        .mem_address    (in_imag_mem_address),
+        .read_done      (rd_imag_done),
+        .clken          (in_imag_clken),
+        .chipselect     (in_imag_chipselect)
+    );
+
+    // ========================================================================
+    // Instanciação — Memory Write Controller: Output SRAM Real (porta B)
+    // ========================================================================
+    memory_write_controller #(
+        .MEM_ADDRESS_N_BITS (ADDR_BITS),
+        .DATA_WIDTH         (DATA_WIDTH)
+    ) u_write_real (
+        .clk            (clk),
+        .reset_n        (reset_n),
+        .start_write    (wr_start),
+        .data_in_addr   (wr_addr),
+        .data_in        (wr_real_data),
+        .mem_address    (out_real_mem_address),
+        .mem_wdata      (out_real_mem_wdata),
+        .mem_write      (out_real_mem_write),
+        .write_done     (wr_real_done),
+        .clken          (out_real_clken),
+        .chipselect     (out_real_chipselect)
+    );
+
+    // ========================================================================
+    // Instanciação — Memory Write Controller: Output SRAM Imag (porta B)
+    // ========================================================================
+    memory_write_controller #(
+        .MEM_ADDRESS_N_BITS (ADDR_BITS),
+        .DATA_WIDTH         (DATA_WIDTH)
+    ) u_write_imag (
+        .clk            (clk),
+        .reset_n        (reset_n),
+        .start_write    (wr_start),
+        .data_in_addr   (wr_addr),
+        .data_in        (wr_imag_data),
+        .mem_address    (out_imag_mem_address),
+        .mem_wdata      (out_imag_mem_wdata),
+        .mem_write      (out_imag_mem_write),
+        .write_done     (wr_imag_done),
+        .clken          (out_imag_clken),
+        .chipselect     (out_imag_chipselect)
+    );
+
+    // ========================================================================
+    // Instanciação — FFT IP Core (Intel/Altera)
+    // 1024 pontos, 16-bit fixed-point, Buffered Burst I/O, saída BFP
+    // ========================================================================
+    fft_core u_fft (
+        .clk          (clk),
+        .reset_n      (reset_n),
+        .sink_valid   (sink_valid),
+        .sink_ready   (sink_ready),
+        .sink_error   (sink_error),
+        .sink_sop     (sink_sop),
+        .sink_eop     (sink_eop),
+        .sink_real    (sink_real),
+        .sink_imag    (sink_imag),
+        .inverse      (inverse_reg),
+        .source_valid (source_valid),
+        .source_ready (source_ready),
+        .source_error (source_error),
+        .source_sop   (source_sop),
+        .source_eop   (source_eop),
+        .source_real  (source_real),
+        .source_imag  (source_imag),
+        .source_exp   (source_exp)
+    );
+
+endmodule
