@@ -94,7 +94,9 @@ Quartus Lite time-limited: **só roda enquanto o programador estiver
 conectado**. A placa perde a configuração ao ser desconectada.
 
 Build de referência: Quartus Prime **20.1.0** Build 711 SJ Lite, em Ubuntu
-22.04.5. A síntese com 23.1std produz resultados diferentes.
+22.04.5 (`LABPS-47723`), compilação completa concluída em **2026-09-08 às
+16:53**, a partir de `~/Documentos/morphe/tcc`. A síntese com 23.1std produz
+resultados diferentes. Ver o item 12 antes de trocar esse arquivo por outro.
 
 ## 9. Nunca rode `make clean` no diretório do servidor da placa
 
@@ -141,3 +143,100 @@ memoria de saida"), que na epoca foi atribuido a defeito de RTL.
 esta desatualizado em relacao ao binario que roda ali, exatamente como o
 `morphe_protocol.h` do item 10. Os cabecalhos que estao na placa nao sao a
 fonte da verdade -- este repositorio e.
+
+## 12. Existem sete cópias do `.sof` na estação e só uma funciona
+
+Em 2026-09-09, `find ~ -name "soc_system_time_limited.sof"` na estação devolveu
+**sete** arquivos, quatro deles na lixeira, com cinco hashes diferentes. Dois
+compartilham o mesmo dia:
+
+| Caminho | Hash | Concluído |
+|---|---|---|
+| `~/Documentos/tcc/output_files/` | `178ff65e…` | 08/09 **15:29** |
+| `~/Documentos/morphe/tcc/output_files/` | `92a5dc35…` | 08/09 **16:53** |
+
+**O que funciona é o das 16:53**, de `~/Documentos/morphe/tcc`. O das 15:29
+compila, sintetiza, fecha timing, é aceito pelo programador e levanta `done` —
+e não computa nada.
+
+O commit `3cc794f` versionou o errado por isso. Um manifesto de sha256 prova
+que os bytes chegaram íntegros, mas **não diz de qual diretório eles saíram**.
+Por isso o `PROVENIENCIA.sha256` passou a registrar máquina e caminho de origem
+no cabeçalho.
+
+**How to apply:** antes de gerar qualquer manifesto, rode `pwd` e confira que
+está em `~/Documentos/morphe/tcc`.
+
+## 13. O tempo de resposta é o indicador de saúde do core
+
+Uma convolução de 1024×1024 executa ~8,4 milhões de ciclos a 50 MHz, ou seja
+**~168 ms**. Medido de ponta a ponta pelo cliente: **213,9 ms**.
+
+Se a resposta vier **muito abaixo disso**, o core não computou, mesmo que o
+`done` suba e o servidor logue `CONV OK`. Com o bitstream defeituoso das 15:29
+o `done` subia em **3,3 ms** — cerca de 50× rápido demais. A FSM percorria os
+2047 valores de `n` sem multiplicar nada e sem escrever a memória de saída.
+
+Este é o único sintoma que denuncia um bitstream ruim. Nenhuma verificação
+estática pega: as fontes RTL e o `soc_system.qsys` dos dois builds são **byte a
+byte idênticos** — a diferença está só na compilação, provavelmente
+resultados intermediários velhos em `db/`. Ao suspeitar, recompile do zero.
+
+## 14. O que o `gen_hps_header.py --check` prova, e o que não prova
+
+Ele prova que `C/hps_0.h` corresponde ao `Quartus/soc_system.sopcinfo`
+versionado ao lado. **Não** prova que o `.sof` foi compilado a partir desse
+projeto.
+
+Em 2026-09-09 o `--check` passou com folga enquanto o sistema devolvia zeros,
+porque os dois builds do mesmo dia têm o mesmo mapa de endereços — o
+`hps_0.h` regenerado a partir do `.sopcinfo` correto saiu **idêntico** ao
+anterior. O `--check` continua sendo o primeiro teste a rodar, mas passar nele
+não encerra o diagnóstico.
+
+## 15. Como diagnosticar direto na memória, sem o servidor
+
+Quando o resultado sai zerado, o teste que separa hardware de software é
+escrever e ler `/dev/mem` na mão. Endereços absolutos, retirados do
+`.sopcinfo`:
+
+| Sinal | Endereço |
+|---|---|
+| `conv1d_yn` | `0xC0012000` |
+| `conv1d_hn` | `0xC0016000` |
+| `conv1d_xn` | `0xC0017000` |
+| `conv1d_done` | `0xFF200030` |
+| `conv1d_start` | `0xFF200040` |
+| `sysid_qsys` | `0xFF210000` |
+
+Roteiro que resolveu o caso de 2026-09-09:
+
+1. Preencher `yn` inteira com um marcador (`0xA5A5A5A5`) antes de disparar.
+   Se o marcador sobreviver, o core **não escreveu** — é diferente de ter
+   escrito zeros.
+2. Escrever em `xn[0]`, `xn[127]` e `xn[1023]` e reler. Confirma se o bitstream
+   carregado tem as memórias de 1024 ou as de 128.
+3. Ler `start` e `done` **em repouso**. `done=1` parado é normal: a FSM termina
+   em `done <= 1'b1` e segura até o próximo pulso. Sob reset ela iria para
+   `done <= 0`.
+4. Pulsar `start` (0, espera, 1 — o `conv1d.v` tem detector de borda) e
+   **cronometrar** até `done` subir. É o item 13.
+5. Anotar o `sysid`: `id` e `timestamp` mudam a cada *Generate* do Platform
+   Designer, então servem de impressão digital do bitstream carregado.
+
+Compile a sonda com as mesmas flags do Makefile do projeto, senão falta
+`-std=gnu99` e `-lrt`:
+
+    gcc -O2 -std=gnu99 -D_GNU_SOURCE -o probe probe.c -lrt
+
+Rode com o `morphe_server` **parado**, senão os dois disputam o mesmo core.
+
+## 16. O teste 4 do `morphe_ping.py` está quebrado
+
+`Quartus/morphe_ping.py:185` chama `build_fft_request(x, DTYPE_FLOAT32)` com
+dois argumentos, mas a assinatura em `Python/morphe_protocol.py:135` é
+`build_fft_request(x_float)`, com um só — a FFT sempre codifica em Q15.8, e o
+parâmetro de dtype saiu da API sem que a ferramenta de teste acompanhasse.
+
+A falha é da ferramenta, não do sistema: com o bitstream correto, a FFT
+funciona normalmente pela interface gráfica.
