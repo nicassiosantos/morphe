@@ -60,6 +60,24 @@ _MODE_ADV = "avancado"
 #: taps o stem fica ilegivel e lento.
 _STEM_LIMIT = 128
 
+#: Largura da coluna de controles. Ela e rolavel, entao a altura da tela
+#: nao limita quantos campos cabem.
+_SIDEBAR_W = 360
+_WRAP = _SIDEBAR_W - 40
+
+
+def _stretch_fields(frame):
+    """Faz os campos da coluna 1 acompanharem a largura do frame.
+
+    Sem isto os Entry ficam com a largura fixa que pediram e sobra buraco
+    a direita quando a barra lateral e mais larga que o conteudo.
+    """
+    frame.columnconfigure(1, weight=1)
+    for child in frame.winfo_children():
+        info = child.grid_info()
+        if info and int(info.get("column", 0)) == 1:
+            child.grid_configure(sticky="ew")
+
 
 # Cores de acao -- tk.Button (ttk ignora bg em alguns temas). Tons
 # "tailwind" alinhados a paleta do tema e a janela FIR (verde aplicar /
@@ -102,8 +120,11 @@ class FIRDesignerWindow(tk.Toplevel):
     def __init__(self, master, on_apply: Callable[[np.ndarray, str], None]):
         super().__init__(master)
         self.title("Morphe — Projetar filtro FIR")
-        self.geometry("1180x760")
         self.configure(bg=theme.COLORS["bg"])
+        # Cabe em telas pequenas: nunca ocupa mais que a area disponivel.
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        self.geometry("%dx%d" % (min(1180, sw - 80), min(880, sh - 80)))
+        self.minsize(880, 520)
 
         theme.setup_styles(self)
 
@@ -122,8 +143,8 @@ class FIRDesignerWindow(tk.Toplevel):
         root = ttk.Frame(self, style="Main.TFrame", padding=8)
         root.pack(fill="both", expand=True)
 
-        left = ttk.Frame(root, style="Main.TFrame")
-        left.pack(side="left", fill="y", padx=(0, 8))
+        left_outer, left = self._make_scroll_column(root, _SIDEBAR_W)
+        left_outer.pack(side="left", fill="y", padx=(0, 8))
         right = ttk.Frame(root, style="Main.TFrame")
         right.pack(side="right", fill="both", expand=True)
 
@@ -140,9 +161,56 @@ class FIRDesignerWindow(tk.Toplevel):
     # Construcao da UI
     # ==================================================================
 
+    def _make_scroll_column(self, parent, width: int):
+        """Coluna de controles com rolagem vertical.
+
+        Devolve (outer, inner): empacote o outer, coloque os widgets no
+        inner. A barra de rolagem so aparece quando o conteudo nao cabe,
+        entao em telas grandes nada muda visualmente.
+        """
+        outer = ttk.Frame(parent, style="Main.TFrame")
+        canvas = tk.Canvas(outer, width=width, bd=0, highlightthickness=0,
+                           background=theme.COLORS["bg"])
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas, style="Main.TFrame")
+        canvas.configure(yscrollcommand=vsb.set)
+        item = canvas.create_window((0, 0), window=inner, anchor="nw",
+                                    width=width)
+        canvas.pack(side="left", fill="y", expand=False)
+        estado = {"w": width}
+
+        def _on_inner_config(_ev=None):
+            # A largura util e a maior entre o minimo pedido aqui e o que
+            # os controles realmente precisam -- assim nenhum rotulo fica
+            # cortado quando a fonte do sistema e maior.
+            req = max(width, inner.winfo_reqwidth())
+            if req != estado["w"]:
+                estado["w"] = req
+                canvas.itemconfigure(item, width=req)
+                canvas.configure(width=req)
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            precisa = inner.winfo_reqheight() > canvas.winfo_height()
+            if precisa and not vsb.winfo_ismapped():
+                vsb.pack(side="right", fill="y")
+            elif not precisa and vsb.winfo_ismapped():
+                vsb.pack_forget()
+
+        inner.bind("<Configure>", _on_inner_config)
+        canvas.bind("<Configure>", _on_inner_config)
+
+        def _on_wheel(ev):
+            if inner.winfo_reqheight() > canvas.winfo_height():
+                canvas.yview_scroll(-1 if ev.delta > 0 else 1, "units")
+
+        canvas.bind("<Enter>",
+                    lambda e: canvas.bind_all("<MouseWheel>", _on_wheel))
+        canvas.bind("<Leave>",
+                    lambda e: canvas.unbind_all("<MouseWheel>"))
+        return outer, inner
+
     def _build_controls(self, parent):
         self._banner = theme.make_banner(
-            parent, kind="warn", text="", wraplength=330)
+            parent, kind="warn", text="", wraplength=_WRAP)
         self._banner.pack(fill="x", pady=(0, 6))
         # make_banner devolve um Frame com dois Labels: o icone e, depois,
         # o texto. Guardamos o SEGUNDO para poder trocar o texto quando o
@@ -155,15 +223,15 @@ class FIRDesignerWindow(tk.Toplevel):
         mode_box = ttk.LabelFrame(
             parent, text=" Modo de projeto ",
             style="Card.TLabelframe", padding=(14, 10, 14, 12))
-        mode_box.pack(fill="x", pady=4)
+        mode_box.pack(fill="x", pady=3)
 
         self.var_mode = tk.StringVar(value=_MODE_SPEC)
         ttk.Radiobutton(
-            mode_box, text="Por especificação (o programa escolhe N e janela)",
+            mode_box, text="Por especificação", 
             variable=self.var_mode, value=_MODE_SPEC,
             command=self._on_mode_change).pack(anchor="w")
         ttk.Radiobutton(
-            mode_box, text="Avançado (eu escolho N e a janela)",
+            mode_box, text="Avançado (N e janela na mão)", 
             variable=self.var_mode, value=_MODE_ADV,
             command=self._on_mode_change).pack(anchor="w")
 
@@ -173,7 +241,7 @@ class FIRDesignerWindow(tk.Toplevel):
             style="Card.TLabelframe",
             padding=(14, 12, 14, 14),
         )
-        type_box.pack(fill="x", pady=4)
+        type_box.pack(fill="x", pady=3)
 
         self.var_type = tk.StringVar(value="Passa-baixa")
         cb = ttk.Combobox(type_box, textvariable=self.var_type,
@@ -186,13 +254,14 @@ class FIRDesignerWindow(tk.Toplevel):
         common = ttk.LabelFrame(
             parent, text=" Amostragem ",
             style="Card.TLabelframe", padding=(14, 10, 14, 12))
-        common.pack(fill="x", pady=4)
+        common.pack(fill="x", pady=3)
         ttk.Label(common, text="fs (Hz):", style="Card.TLabel").grid(
             row=0, column=0, sticky="w")
         self.var_fs = tk.StringVar(value="200.0")
         e = ttk.Entry(common, textvariable=self.var_fs, width=12)
         e.grid(row=0, column=1, sticky="w", padx=4)
         e.bind("<KeyRelease>", lambda ev: self._schedule_redesign())
+        _stretch_fields(common)
 
         self._build_spec_frame(parent)
         self._build_adv_frame(parent)
@@ -237,6 +306,7 @@ class FIRDesignerWindow(tk.Toplevel):
         e = ttk.Entry(f, textvariable=self.var_ds, width=12)
         e.grid(row=4, column=1, sticky="w", padx=4, pady=(4, 0))
         e.bind("<KeyRelease>", lambda ev: self._schedule_redesign())
+        _stretch_fields(f)
 
     def _build_adv_frame(self, parent):
         """Campos do modo avancado -- os mesmos da versao anterior."""
@@ -273,6 +343,7 @@ class FIRDesignerWindow(tk.Toplevel):
                           state="readonly", width=12)
         cb.grid(row=3, column=1, sticky="w", padx=4, pady=(4, 0))
         cb.bind("<<ComboboxSelected>>", lambda e: self._schedule_redesign())
+        _stretch_fields(f)
 
     def _build_actions(self, parent):
         actions = ttk.LabelFrame(
@@ -280,7 +351,7 @@ class FIRDesignerWindow(tk.Toplevel):
             style="Card.TLabelframe",
             padding=(14, 12, 14, 14),
         )
-        actions.pack(fill="x", pady=4)
+        actions.pack(fill="x", pady=3)
 
         _make_action_button(actions, "Recalcular projeto",
                              _BTN_DESIGN_BG, self._on_design).pack(
@@ -304,12 +375,12 @@ class FIRDesignerWindow(tk.Toplevel):
             style="Card.TLabelframe",
             padding=(14, 12, 14, 14),
         )
-        summary.pack(fill="both", expand=True, pady=4)
+        summary.pack(fill="both", expand=True, pady=3)
         self.var_summary = tk.StringVar(value="(nenhum filtro projetado)")
         ttk.Label(summary, textvariable=self.var_summary,
                   style="Card.TLabel",
-                  wraplength=330, justify="left",
-                  font=("TkDefaultFont", 9)).pack(fill="x", anchor="w")
+                  wraplength=_WRAP, justify="left",
+                  font=("TkFixedFont", 8)).pack(fill="x", anchor="w")
 
     def _build_plots(self, parent):
         self.fig = Figure(figsize=(7.6, 6.4), dpi=100)
@@ -365,22 +436,19 @@ class FIRDesignerWindow(tk.Toplevel):
         spec = self.var_mode.get() == _MODE_SPEC
         if spec:
             self.frm_adv.pack_forget()
-            self.frm_spec.pack(fill="x", pady=4, before=None)
+            self.frm_spec.pack(fill="x", pady=3)
             self._set_banner(
-                "Projeto por especificação (método da janela)\n"
-                "• Você declara o desempenho; o programa escolhe a janela\n"
-                "  e calcula N — método do Prof. Armando S. Sanca\n"
-                "• δs máximo do método: 90 dB (janela de Kaiser)\n"
-                "• N nunca passa de %d taps: acima disso a especificação\n"
-                "  é recusada, com o Δf mínimo viável" % fd.MAX_TAPS)
+                "Declare o desempenho; o programa escolhe a janela e "
+                "calcula N (método do Prof. Armando S. Sanca).\n"
+                "δs máximo: 90 dB. Acima de %d taps a especificação é "
+                "recusada, com o Δf mínimo viável." % fd.MAX_TAPS)
         else:
             self.frm_spec.pack_forget()
-            self.frm_adv.pack(fill="x", pady=4)
+            self.frm_adv.pack(fill="x", pady=3)
             self._set_banner(
-                "Projeto FIR pelo método da janela\n"
-                "• N (taps) deve ser ÍMPAR (3..%d) para fase linear\n"
-                "• Cutoff deve ser < fs/2 (Nyquist)\n"
-                "• Hamming/Blackman: melhor stopband; Retangular: pior"
+                "N (taps) deve ser ÍMPAR entre 3 e %d, para fase "
+                "linear. Cutoff < fs/2 (Nyquist). Hamming e Blackman "
+                "dão melhor stopband; Retangular, o pior."
                 % fd.MAX_TAPS)
         self._on_type_change()
         self._layout_axes()
@@ -399,7 +467,7 @@ class FIRDesignerWindow(tk.Toplevel):
                 self._lbl_fp1.configure(text="fp1 borda inf. (Hz):")
                 self._lbl_fp2.configure(text="fp2 borda sup. (Hz):")
             self._lbl_fp2.grid(row=1, column=0, sticky="w", pady=(4, 0))
-            self._entry_fp2.grid(row=1, column=1, sticky="w",
+            self._entry_fp2.grid(row=1, column=1, sticky="ew",
                                  padx=4, pady=(4, 0))
         else:
             self._lbl_fp1.configure(text="fp (Hz):")
@@ -410,7 +478,7 @@ class FIRDesignerWindow(tk.Toplevel):
         if is_band:
             self._lbl_fc1.configure(text="fc1 (Hz):")
             self._lbl_fc2.grid(row=2, column=0, sticky="w", pady=(4, 0))
-            self._entry_fc2.grid(row=2, column=1, sticky="w",
+            self._entry_fc2.grid(row=2, column=1, sticky="ew",
                                   padx=4, pady=(4, 0))
         else:
             self._lbl_fc1.configure(text="fc (Hz):")
