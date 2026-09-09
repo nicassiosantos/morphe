@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+# Saidas de build do Quartus: regeneraveis e enormes. Os arquivos ja
+# versionados pelo autor original continuam versionados; isto so impede que
+# novas saidas de compilacao entrem no historico.
+# ---------------------------------------------------------------------------
+Quartus/db/
+Quartus/incremental_db/
+Quartus/.qsys_edit/
+Quartus/output_files/greybox_tmp/
+Quartus/output_files/*.fit.rpt
+Quartus/output_files/*.map.rpt
+Quartus/output_files/*.sta.rpt
+
+# Copias de trabalho trazidas de outras maquinas (centenas de MB)
+Quartus-funciona/
+*.zip
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# Backups locais da expansao 128 -> 1024
+*.bak128

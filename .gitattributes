@@ -1,0 +1,15 @@
+# Os arquivos cobertos por PROVENIENCIA.sha256 precisam sair do clone com os
+# bytes exatos que sairam da estacao de trabalho e da placa. Sem isto, a
+# conversao automatica de fim de linha no Windows quebraria a verificacao.
+Quartus/conv1d.v             -text
+Quartus/ghrd_top.v           -text
+Quartus/soc_system.qsys      -text
+Quartus/soc_system.sopcinfo  -text
+C/hps_0.h                    -text
+C/morphe_config.h            -text
+C/morphe_server.c            -text
+
+# Artefatos binarios
+*.sof   binary
+*.rbf   binary
+*.pof   binary
