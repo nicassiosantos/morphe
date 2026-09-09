@@ -241,19 +241,26 @@ localparam FFT_DATA_WIDTH       = 32;
 localparam FFT_ADDRESS_WIDTH    = 10;
 
 // --- FIR Parameters ---
-localparam FIR_DATA_WIDTH    = 16;
-localparam FIR_ADDRESS_WIDTH = 10;   // 1024 amostras
+// Integer: +-32767 | Float: ~0.000015
+localparam FIR_DATA_WIDTH    = 32;
+localparam FIR_XN_ADDR_WIDTH = 10;
+localparam FIR_HN_ADDR_WIDTH = 10;
+localparam FIR_YN_ADDR_WIDTH = FIR_XN_ADDR_WIDTH + 1;
+localparam FIR_XN_LENGTH     = 1024;
+localparam FIR_HN_LENGTH     = 1024;
+localparam FIR_YN_LENGTH     = FIR_XN_LENGTH + FIR_HN_LENGTH - 1;
+
 localparam FIR_SAMPLE_COUNT  = 1024;
 localparam FIR_SAMPLE_PERIOD = 96;   // 50 MHz / 0.52 MSPS
 
 // --- CONV1D Parameters (Fixed point Q16.16 signed) ---
 // Integer: +-32767 | Float: ~0.000015
 localparam CONV1d_DATA_WIDTH    = 32;
-localparam CONV1d_XN_ADDR_WIDTH = 7;
-localparam CONV1d_HN_ADDR_WIDTH = 7;
+localparam CONV1d_XN_ADDR_WIDTH = 10;
+localparam CONV1d_HN_ADDR_WIDTH = 10;
 localparam CONV1d_YN_ADDR_WIDTH = CONV1d_XN_ADDR_WIDTH + 1;
-localparam CONV1d_XN_LENGTH     = 128;
-localparam CONV1d_HN_LENGTH     = 128;
+localparam CONV1d_XN_LENGTH     = 1024;
+localparam CONV1d_HN_LENGTH     = 1024;
 localparam CONV1d_YN_LENGTH     = CONV1d_XN_LENGTH + CONV1d_HN_LENGTH - 1;
 
 
@@ -353,22 +360,32 @@ wire                             fir_done;
 wire                             fir_error;
 
 // --- SRAM Interface: X[n] — entrada do FIR (leitura pelo wrapper, escrita pela HPS) ---
-wire [FIR_ADDRESS_WIDTH-1:0]     fir_xn_address;
+wire [FIR_XN_ADDR_WIDTH-1:0]     fir_xn_address;
 wire                             fir_xn_clken;
 wire                             fir_xn_chipselect;
 wire                             fir_xn_write;
 wire [FIR_DATA_WIDTH-1:0]        fir_xn_readdata;
 wire [FIR_DATA_WIDTH-1:0]        fir_xn_writedata;
-wire [1:0]                       fir_xn_byteenable = 2'b11;   // 16 bits
+wire [3:0]                       fir_xn_byteenable = 4'b1111; // Updated to 4 bytes for 32-bit data
+
+// --- SRAM Interface: H[n] — coeficientes do FIR (leitura pelo wrapper, escrita pela HPS) ---
+wire [FIR_HN_ADDR_WIDTH-1:0]     fir_hn_address;
+wire                             fir_hn_clken;
+wire                             fir_hn_chipselect;
+wire                             fir_hn_write;
+wire [FIR_DATA_WIDTH-1:0]        fir_hn_readdata;
+wire [FIR_DATA_WIDTH-1:0]        fir_hn_writedata;
+wire [3:0]                       fir_hn_byteenable = 4'b1111; // Updated to 4 bytes for 32-bit data
 
 // --- SRAM Interface: Y[n] — saída do FIR (escrita pelo wrapper, leitura pela HPS) ---
-wire [FIR_ADDRESS_WIDTH-1:0]     fir_yn_address;
+wire [FIR_YN_ADDR_WIDTH-1:0]     fir_yn_address;
 wire                             fir_yn_clken;
 wire                             fir_yn_chipselect;
 wire                             fir_yn_write;
 wire [FIR_DATA_WIDTH-1:0]        fir_yn_readdata;
 wire [FIR_DATA_WIDTH-1:0]        fir_yn_writedata;
-wire [1:0]                       fir_yn_byteenable = 2'b11;   // 16 bits
+wire [3:0]                       fir_yn_byteenable = 4'b1111; // Updated to 4 bytes for 32-bit data
+
 
 
 /* ===========================================================================================
@@ -597,7 +614,7 @@ fft_wrapper #(
 //       como on-chip RAMs de 16 bits / 1024 palavras + PIOs de controle,
 //       seguindo o mesmo padrão das SRAMs do FFT e conv1d.
 // ===========================================================================================
-fir_wrapper #(
+/*fir_wrapper #(
     .SAMPLE_COUNT  (FIR_SAMPLE_COUNT),
     .ADDR_WIDTH    (FIR_ADDRESS_WIDTH),
     .SAMPLE_PERIOD (FIR_SAMPLE_PERIOD)
@@ -627,6 +644,52 @@ fir_wrapper #(
     // Debug (mapeado em LEDR[7:4])
     .state_dbg     (fir_debug_state)
 );
+*/
+
+
+
+// ===========================================================================================
+// INSTANTIATION: FIR Filter (using conv1d hardware accelerator)
+// ===========================================================================================
+conv1d #(
+    .DATA_WIDTH     (FIR_DATA_WIDTH),
+    .XN_LENGTH      (FIR_XN_LENGTH),
+    .HN_LENGTH      (FIR_HN_LENGTH),
+    .YN_LENGTH      (FIR_YN_LENGTH), // XN_LENGTH + HN_LENGTH - 1
+    .XN_ADDR_N_BITS (FIR_XN_ADDR_WIDTH),
+    .HN_ADDR_N_BITS (FIR_HN_ADDR_WIDTH),
+    .YN_ADDR_N_BITS (FIR_YN_ADDR_WIDTH)
+) fir_inst (
+    .clk                (CLOCK_50),
+    .reset_n            (hps_fpga_reset_n),
+
+    // PIO de controle (Platform Designer)
+    .start              (fir_start),          // HPS -> FPGA
+    .done               (fir_done),           // FPGA -> HPS
+
+    // Interface SRAM de x[n] (leitura da amostra)
+    .xn_sram_readdata   (fir_xn_readdata),
+    .xn_sram_address    (fir_xn_address),
+    .xn_sram_chipselect (fir_xn_chipselect),
+    .xn_sram_clken      (fir_xn_clken),
+    .xn_sram_write      (fir_xn_write),
+
+    // Interface SRAM de h[n] (leitura dos coeficientes do FIR)
+    .hn_sram_readdata   (fir_hn_readdata),
+    .hn_sram_address    (fir_hn_address),
+    .hn_sram_chipselect (fir_hn_chipselect),
+    .hn_sram_clken      (fir_hn_clken),
+    .hn_sram_write      (fir_hn_write),
+
+    // Interface SRAM de y[n] (escrita do resultado filtrado)
+    .yn_sram_address    (fir_yn_address),
+    .yn_sram_wdata      (fir_yn_writedata),
+    .yn_sram_chipselect (fir_yn_chipselect),
+    .yn_sram_clken      (fir_yn_clken),
+    .yn_sram_write      (fir_yn_write)
+);
+
+
 
 
 /* ===========================================================================================
@@ -737,6 +800,14 @@ soc_system u0 (
     .fir_xn_readdata        (fir_xn_readdata),
     .fir_xn_writedata       (fir_xn_writedata),
     .fir_xn_byteenable      (fir_xn_byteenable),
+
+    .fir_hn_address         (fir_hn_address),
+    .fir_hn_clken           (fir_hn_clken),
+    .fir_hn_chipselect      (fir_hn_chipselect),
+    .fir_hn_write           (fir_hn_write),
+    .fir_hn_readdata        (fir_hn_readdata),
+    .fir_hn_writedata       (fir_hn_writedata),
+    .fir_hn_byteenable      (fir_hn_byteenable),
 
     .fir_yn_address         (fir_yn_address),
     .fir_yn_clken           (fir_yn_clken),

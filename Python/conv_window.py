@@ -2,8 +2,8 @@
 conv_window.py — janela para gerar dois sinais, enviá-los à FPGA por TCP
 e exibir a convolução y[n] = x[n] * h[n] retornada.
 
-Hardware: conv1d aceita até 128 amostras por entrada. Sinais menores são
-zero-padded até 128. A configuração TCP é compartilhada com a janela
+Hardware: conv1d aceita até CONV_N_MAX amostras por entrada (ver morphe_config).
+Sinais menores são zero-padded. A configuração TCP é compartilhada com a janela
 principal (master.tcp_panel).
 """
 from __future__ import annotations
@@ -132,7 +132,7 @@ class ConvolutionWindow(tk.Toplevel):
             hw_section.body, kind="warn", text=hw_text, wraplength=320,
         ).pack(fill="x")
 
-        # ── Painéis dos dois sinais (max_N = 128) ──
+        # ── Painéis dos dois sinais (max_N vem de morphe_config) ──
         self.x_panel = SignalPanel(
             parent, title="Sinal x[n]",
             on_generate=self._on_gen_x,

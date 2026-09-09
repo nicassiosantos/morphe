@@ -45,7 +45,7 @@
    {
       datum baseAddress
       {
-         value = "84480";
+         value = "90112";
          type = "String";
       }
    }
@@ -77,7 +77,7 @@
    {
       datum baseAddress
       {
-         value = "84992";
+         value = "94208";
          type = "String";
       }
    }
@@ -93,7 +93,7 @@
    {
       datum baseAddress
       {
-         value = "81920";
+         value = "73728";
          type = "String";
       }
    }
@@ -173,7 +173,7 @@
    {
       datum baseAddress
       {
-         value = "77824";
+         value = "110592";
          type = "String";
       }
    }
@@ -189,7 +189,7 @@
    {
       datum baseAddress
       {
-         value = "73728";
+         value = "106496";
          type = "String";
       }
    }
@@ -205,7 +205,7 @@
    {
       datum baseAddress
       {
-         value = "69632";
+         value = "102400";
          type = "String";
       }
    }
@@ -221,7 +221,7 @@
    {
       datum baseAddress
       {
-         value = "65536";
+         value = "98304";
          type = "String";
       }
    }
@@ -269,7 +269,7 @@
    {
       datum baseAddress
       {
-         value = "82944";
+         value = "81920";
          type = "String";
       }
    }
@@ -301,7 +301,7 @@
    {
       datum baseAddress
       {
-         value = "83968";
+         value = "86016";
          type = "String";
       }
    }
@@ -317,7 +317,7 @@
    {
       datum baseAddress
       {
-         value = "83456";
+         value = "65536";
          type = "String";
       }
    }
@@ -587,7 +587,7 @@
   <parameter name="initMemContent" value="true" />
   <parameter name="initializationFileName" value="onchip_mem.hex" />
   <parameter name="instanceID" value="NONE" />
-  <parameter name="memorySize" value="512" />
+  <parameter name="memorySize" value="4096" />
   <parameter name="readDuringWriteMode" value="DONT_CARE" />
   <parameter name="resetrequest_enabled" value="true" />
   <parameter name="simAllowMRAMContentsFile" value="false" />
@@ -637,7 +637,7 @@
   <parameter name="initMemContent" value="true" />
   <parameter name="initializationFileName" value="onchip_mem.hex" />
   <parameter name="instanceID" value="NONE" />
-  <parameter name="memorySize" value="512" />
+  <parameter name="memorySize" value="4096" />
   <parameter name="readDuringWriteMode" value="DONT_CARE" />
   <parameter name="resetrequest_enabled" value="true" />
   <parameter name="simAllowMRAMContentsFile" value="false" />
@@ -669,7 +669,7 @@
   <parameter name="initMemContent" value="true" />
   <parameter name="initializationFileName" value="onchip_mem.hex" />
   <parameter name="instanceID" value="NONE" />
-  <parameter name="memorySize" value="1020" />
+  <parameter name="memorySize" value="8192" />
   <parameter name="readDuringWriteMode" value="DONT_CARE" />
   <parameter name="resetrequest_enabled" value="true" />
   <parameter name="simAllowMRAMContentsFile" value="false" />
@@ -929,7 +929,7 @@
   <parameter name="initMemContent" value="true" />
   <parameter name="initializationFileName" value="onchip_mem.hex" />
   <parameter name="instanceID" value="NONE" />
-  <parameter name="memorySize" value="512" />
+  <parameter name="memorySize" value="4096" />
   <parameter name="readDuringWriteMode" value="DONT_CARE" />
   <parameter name="resetrequest_enabled" value="true" />
   <parameter name="simAllowMRAMContentsFile" value="false" />
@@ -975,7 +975,7 @@
   <parameter name="initMemContent" value="true" />
   <parameter name="initializationFileName" value="onchip_mem.hex" />
   <parameter name="instanceID" value="NONE" />
-  <parameter name="memorySize" value="512" />
+  <parameter name="memorySize" value="4096" />
   <parameter name="readDuringWriteMode" value="DONT_CARE" />
   <parameter name="resetrequest_enabled" value="true" />
   <parameter name="simAllowMRAMContentsFile" value="false" />
@@ -1007,7 +1007,7 @@
   <parameter name="initMemContent" value="true" />
   <parameter name="initializationFileName" value="onchip_mem.hex" />
   <parameter name="instanceID" value="NONE" />
-  <parameter name="memorySize" value="512" />
+  <parameter name="memorySize" value="8192" />
   <parameter name="readDuringWriteMode" value="DONT_CARE" />
   <parameter name="resetrequest_enabled" value="true" />
   <parameter name="simAllowMRAMContentsFile" value="false" />
@@ -1658,7 +1658,7 @@
    start="hps_0.h2f_axi_master"
    end="fft_xn_imag.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00013000" />
+  <parameter name="baseAddress" value="0x0001b000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1667,7 +1667,7 @@
    start="hps_0.h2f_axi_master"
    end="fft_xn_re.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00012000" />
+  <parameter name="baseAddress" value="0x0001a000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1676,7 +1676,7 @@
    start="hps_0.h2f_axi_master"
    end="fft_yn_imag.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00011000" />
+  <parameter name="baseAddress" value="0x00019000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1685,7 +1685,7 @@
    start="hps_0.h2f_axi_master"
    end="fft_yn_re.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00010000" />
+  <parameter name="baseAddress" value="0x00018000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1694,7 +1694,7 @@
    start="hps_0.h2f_axi_master"
    end="conv1d_xn.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00014c00" />
+  <parameter name="baseAddress" value="0x00017000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1703,7 +1703,7 @@
    start="hps_0.h2f_axi_master"
    end="conv1d_hn.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00014a00" />
+  <parameter name="baseAddress" value="0x00016000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1712,7 +1712,7 @@
    start="hps_0.h2f_axi_master"
    end="conv1d_yn.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00014000" />
+  <parameter name="baseAddress" value="0x00012000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1721,7 +1721,7 @@
    start="hps_0.h2f_axi_master"
    end="fir_xn.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00014800" />
+  <parameter name="baseAddress" value="0x00015000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1730,7 +1730,7 @@
    start="hps_0.h2f_axi_master"
    end="fir_yn.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00014600" />
+  <parameter name="baseAddress" value="0x00010000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection
@@ -1739,7 +1739,7 @@
    start="hps_0.h2f_axi_master"
    end="fir_hn.s2">
   <parameter name="arbitrationPriority" value="1" />
-  <parameter name="baseAddress" value="0x00014400" />
+  <parameter name="baseAddress" value="0x00014000" />
   <parameter name="defaultConnection" value="false" />
  </connection>
  <connection

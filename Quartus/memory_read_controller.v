@@ -8,7 +8,7 @@ module memory_read_controller #(
     input wire[DATA_WIDTH-1:0]          sram_readdata,
     input wire[MEM_ADDRESS_N_BITS-1:0]  data_addr,
     
-	output reg                          mem_write,
+    output reg                          mem_write,
     output reg[DATA_WIDTH-1:0]          data_out,
     output reg[MEM_ADDRESS_N_BITS-1:0]  mem_address,
     output reg                          read_done,
@@ -16,14 +16,14 @@ module memory_read_controller #(
     output reg                          chipselect
 );
 
-    localparam IDLE = 3'b_000;
-    localparam PREPARE_READ = 3'b_001;
-    localparam SAMPLE_DATA = 3'b_011;
-    localparam DONE = 3'b_111;
-    
+    localparam IDLE         = 3'b000;
+    localparam PREPARE_READ = 3'b001;
+    localparam WAIT_DATA    = 3'b010; // NEW STATE
+    localparam SAMPLE_DATA  = 3'b011;
+    localparam DONE         = 3'b111;
+
     reg [2:0] sram_state = IDLE;
-	
-    // reset assincrono
+    
     always @ (posedge clk or negedge reset_n) begin
         if (!reset_n) begin
             sram_state <= IDLE;
@@ -46,9 +46,13 @@ module memory_read_controller #(
                 end
 
                 PREPARE_READ: begin
-                    //mem_rdata <= sram_readdata;
                     mem_address <= data_addr;
                     mem_write <= 1'b_0;
+                    sram_state <= WAIT_DATA; // Go to wait state
+                end
+                
+                WAIT_DATA: begin
+                    // Address is now locked into SRAM. Data will be valid next cycle.
                     sram_state <= SAMPLE_DATA;
                 end
 

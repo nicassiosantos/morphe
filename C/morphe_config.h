@@ -53,10 +53,10 @@
 /* ---- Convolucao 1D ----------------------------------------------------- */
 
 /* Numero maximo de amostras por entrada (x ou h) -- formato Q15.16. */
-#define MORPHE_CONV_N_MAX       128
+#define MORPHE_CONV_N_MAX       1024
 
 /* Tamanho maximo do vetor de saida y[n] = x[n] * h[n]. */
-#define MORPHE_CONV_Y_MAX       (2 * MORPHE_CONV_N_MAX - 1)  /* = 255 */
+#define MORPHE_CONV_Y_MAX       (2 * MORPHE_CONV_N_MAX - 1)  /* = 2047 */
 
 /* Numero de bits fracionarios do formato Q15.16 usado pela conv1d.
  * 16 bits frac = escala de 2^16 = 65536. */

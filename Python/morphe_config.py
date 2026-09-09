@@ -28,10 +28,10 @@ FFT_FRAC_BITS: int = 8
 # ---- Convolucao 1D --------------------------------------------------------
 
 #: Numero maximo de amostras por entrada (x ou h) -- formato Q15.16.
-CONV_N_MAX: int = 128
+CONV_N_MAX: int = 1024
 
 #: Tamanho maximo do vetor de saida y[n] = x[n] * h[n].
-CONV_Y_MAX: int = 2 * CONV_N_MAX - 1  # = 255
+CONV_Y_MAX: int = 2 * CONV_N_MAX - 1  # = 2047
 
 # ---- Rede ----------------------------------------------------------------
 

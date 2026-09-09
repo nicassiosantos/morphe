@@ -73,6 +73,9 @@
         _MORPHE_MAX3(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR), \
         _MORPHE_PAGE_SIZE)
 
+/* Saida maxima do FIR: derivada do span real de fir_yn no hps_0.h. */
+#define MORPHE_FIR_Y_MAX  ((int)(FIR_YN_SPAN / sizeof(int32_t)))
+
 _Static_assert(FFT_XN_RE_SPAN   >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
 _Static_assert(FFT_XN_IMAG_SPAN >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
 _Static_assert(FFT_YN_RE_SPAN   >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
@@ -85,9 +88,9 @@ _Static_assert(FIR_HN_SPAN      >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Er
 _Static_assert(FIR_YN_SPAN      >= MORPHE_CONV_Y_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 
-#define FPGA_DONE_TIMEOUT_MS 2000
-#define RX_BUF_MAX 8192
-#define TX_BUF_MAX 16384
+#define FPGA_DONE_TIMEOUT_MS 5000
+#define RX_BUF_MAX 16384
+#define TX_BUF_MAX 32768
 
 /* =======================================================================
  * Globais — ponteiros mapeados e fd de /dev/mem
@@ -460,12 +463,16 @@ static int handle_conv(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     LOG("CONV request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
 
     if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_N_MAX || n_h > MORPHE_CONV_N_MAX) {
-        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, "CONV: n_x e n_h devem estar em [1, 128]");
+        char msg[96];
+        snprintf(msg, sizeof msg, "CONV: n_x e n_h devem estar em [1, %d]", MORPHE_CONV_N_MAX);
+        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, msg);
     }
 
     uint32_t n_out = n_x + n_h - 1;
     if (n_out > MORPHE_CONV_Y_MAX) {
-        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, "CONV: saída excede 255 amostras");
+        char msg[96];
+        snprintf(msg, sizeof msg, "CONV: saída excede %d amostras", MORPHE_CONV_Y_MAX);
+        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, msg);
     }
 
     size_t payload_bytes = (size_t)(n_x + n_h) * 4;
@@ -518,11 +525,17 @@ static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     LOG("FIR request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
 
     if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_N_MAX || n_h > MORPHE_CONV_N_MAX) {
-        return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, "FIR: limites [1, 128]");
+        char msg[96];
+        snprintf(msg, sizeof msg, "FIR: limites [1, %d]", MORPHE_CONV_N_MAX);
+        return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, msg);
     }
 
     uint32_t n_out = n_x + n_h - 1;
-    if (n_out > MORPHE_CONV_Y_MAX) return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, "FIR: saída > 255");
+    if (n_out > (uint32_t) MORPHE_FIR_Y_MAX) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "FIR: saída acima da memória fir_yn (%d amostras)", MORPHE_FIR_Y_MAX);
+        return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, msg);
+    }
 
     size_t payload_bytes = (size_t)(n_x + n_h) * 4;
     static uint8_t rx_buf[RX_BUF_MAX];
@@ -676,14 +689,23 @@ static void serve_connection(int sock) {
     uint32_t n_h = u32_from_be(hdr + 16);
     (void) flags;
 
-    if (magic != MORPHE_MAGIC_REQ) return;
-    if (ver != MORPHE_VERSION) return;
+    if (magic != MORPHE_MAGIC_REQ) {
+        send_error(sock, opcode, MORPHE_STATUS_BAD_MAGIC, "magic invalido");
+        return;
+    }
+    if (ver != MORPHE_VERSION) {
+        send_error(sock, opcode, MORPHE_STATUS_BAD_VERSION, "versao de protocolo nao suportada");
+        return;
+    }
 
     switch (opcode) {
         case MORPHE_OP_CONV: handle_conv(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
         case MORPHE_OP_FIR:  handle_fir(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
+        default:
+            send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");
+            break;
     }
 }
 
