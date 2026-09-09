@@ -115,9 +115,29 @@ Este repositório corrige isso: `C/morphe_protocol.h` aqui define
 `MORPHE_OP_FIR 4U`. Reenvie os arquivos deste repositório para a placa antes de
 recompilar.
 
-## 11. `FPGA_ONCHIP_BASE` é `0xC8000000`
+## 11. `FPGA_ONCHIP_BASE` e `0xC0000000`, nao `0xC8000000`
 
-Uma alteração local para `0xC0000000` chegou a existir na estação de trabalho.
-O conjunto que funciona usa `0xC8000000`, e é esse o valor aqui. Como o símbolo
-é o offset do `mmap`, o valor errado mapeia outra região e o servidor lê lixo
-sem acusar erro.
+As memorias de `conv1d`, FIR e FFT sao slaves do `h2f_axi_master`, em offsets
+`0x10000`-`0x1BFFF` (ver `C/hps_0.h`). A janela desse bridge no espaco fisico do
+HPS comeca em **`0xC0000000`**, entao os enderecos reais sao
+`0xC0010000`-`0xC001BFFF`.
+
+O valor `0xC8000000` vem do mapa do **DE1-SoC Computer**, o sistema didatico da
+Intel, em que a memoria on-chip fica nesse endereco. Este projeto nao usa aquele
+sistema. Com `0xC8000000`, o `mmap` cai em espaco vazio do bridge: **nenhum erro
+e reportado** e todas as leituras devolvem zero.
+
+**Sintoma exato:** o `morphe_ping.py` passa nos testes 1 e 2, e o teste 3 devolve
+`y = [0. 0. 0. 0. 0.]`. Na interface, convolucao inteira zerada.
+
+O detalhe que engana: os PIOs de `start`, `done` e `error` ficam no
+`h2f_lw_axi_master`, cuja base (`LW_BRIDGE_BASE 0xFF200000`) esta correta. Entao
+o servidor sobe o `start`, ve o `done` subir e conclui que o hardware respondeu
+-- mas as memorias que ele leu e escreveu nao eram as da FPGA. Foi essa a causa
+do diagnostico de 02/09/2026 ("levantavam done sem gravar palavra alguma na
+memoria de saida"), que na epoca foi atribuido a defeito de RTL.
+
+**Cuidado com o `address_map_arm.h` que esta na placa:** ele tem `0xC8000000` e
+esta desatualizado em relacao ao binario que roda ali, exatamente como o
+`morphe_protocol.h` do item 10. Os cabecalhos que estao na placa nao sao a
+fonte da verdade -- este repositorio e.

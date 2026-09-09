@@ -5,8 +5,14 @@
 #define A9_ONCHIP_SPAN         0x0000FFFF
 #define SDRAM_BASE             0xC0000000
 #define SDRAM_SPAN             0x03FFFFFF
-//#define FPGA_ONCHIP_BASE       0xC8000000
-#define FPGA_ONCHIP_BASE       0xC8000000
+/* ATENCAO: este projeto NAO usa o mapa do "DE1-SoC Computer", em que a
+ * memoria on-chip da FPGA fica em 0xC8000000. Aqui as memorias de conv1d,
+ * FIR e FFT sao slaves do h2f_axi_master em offsets 0x10000-0x1BFFF (ver
+ * hps_0.h), e a janela desse bridge no espaco fisico do HPS comeca em
+ * 0xC0000000. Com 0xC8000000 o servidor le e escreve em espaco vazio: nao
+ * da erro nenhum, so devolve tudo zero. Ver RESSALVAS.md, item 11. */
+//#define FPGA_ONCHIP_BASE       0xC8000000   /* mapa do DE1-SoC Computer -- errado aqui */
+#define FPGA_ONCHIP_BASE       0xC0000000
 #define FPGA_ONCHIP_SPAN       0x0003FFFF
 #define FPGA_CHAR_BASE         0xC9000000
 #define FPGA_CHAR_SPAN         0x00001FFF
