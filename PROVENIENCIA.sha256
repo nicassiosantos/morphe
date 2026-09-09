@@ -1,20 +1,22 @@
-# PROVENIENCIA -- sha256 dos artefatos do conjunto validado em 2026-09-08.
+# PROVENIENCIA -- sha256 do conjunto validado em hardware.
 #
-# Hashes calculados na origem: as fontes e o bitstream na estacao
-# (LABPS-47723, Ubuntu 22.04.5, Quartus 20.1.0 Lite) e os arquivos do
-# servidor lidos por ssh diretamente da DE1-SoC.
+# Origem  : LABPS-47723:/home/coordenador/Documentos/morphe/tcc
+# Coleta  : 2026-09-09T13:20:46-03:00
+# Build   : Quartus Prime 20.1.0 Lite, Fitter+Assembler, 2026-09-08 16:53
+# Validado: conv1d 1024x1024 em 213,9 ms, erro 0,00 contra impulso
 #
-# Verificar a partir da raiz do repositorio:   sha256sum -c PROVENIENCIA.sha256
+# ATENCAO: registre sempre o caminho de origem. Existem sete copias de
+# soc_system_time_limited.sof nesta estacao e so uma funciona.
+#
+# Verificar:  sha256sum -c PROVENIENCIA.sha256
 #
 cc079300729271c4030828fa4c9479a1cd547bd285edeb0bf6da57a371c5327d  Quartus/conv1d.v
 be278a065320cdd7134c734c9afe7d9112e9a2be9c1df01a76fa6939d2bda813  Quartus/ghrd_top.v
+e706811bae12cb2e09039b0c5ba44a6d6beffb618cc4aac694795081c752278d  Quartus/fir_wrapper.v
 a50fd348c5750a4a70ff4d8aceff029962fde638d8dda4a5580cff503508517c  Quartus/soc_system.qsys
-515f54d1f9cf6a6c99e333ff504208e4ba116f0a0bb22ca8eb4d125f726a08ad  Quartus/soc_system.sopcinfo
-178ff65ee964bb7a2b06eaf976385ca4515d4441d4f2ebb70a5bec484dca3073  Quartus/output_files/soc_system_time_limited.sof
+262886e679eccb3f5ba1bbf3dc22dc0d862c3baea8cbec68f16f783dce4e459a  Quartus/soc_system.sopcinfo
+92a5dc35f16fd0b5b09c637423b09b5c9c197fdb48b90f88f84b0e125af0db30  Quartus/output_files/soc_system_time_limited.sof
 82eb44bb1eba4e860a0056529f004cee68cfe23fd2fd10ce2771a34c64af6e27  C/hps_0.h
 800224af1dfc78cbb369cfa58f2b2009cf4f18678c35a0727d618398d12adccb  C/morphe_config.h
 e86226f2d1f7c8926592dfe364c84767a972895274ebbe454dd5ee28a143af45  C/morphe_server.c
-#
-# O binario compilado nao entra na arvore; ele e anexo do GitHub Release
-# da tag correspondente. Hash lido da placa em 2026-09-09:
-# 87d35fa947f3012120de7dcc4316e161b3d93599c03af4ed709516ddfc770f1b  morphe_server
+2a887b03e166a65ae9c7083ec76a576667d99741e73e4d824c32698940fc9d0e  C/address_map_arm.h
