@@ -39,6 +39,7 @@
 #define MORPHE_OP_CONV     1U
 #define MORPHE_OP_FFT      2U
 #define MORPHE_OP_PING     3U   /* descoberta de servico */
+#define MORPHE_OP_FIR      4U   /* filtro FIR (igual ao OP_FIR=4 do cliente) */
 
 #define MORPHE_DTYPE_INT32    1U
 #define MORPHE_DTYPE_FLOAT32  2U
