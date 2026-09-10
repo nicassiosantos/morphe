@@ -195,32 +195,27 @@ def prototipo_cheby2(n: int, ds_db: float):
 
 def _frequencia_natural(aprox: str, wp, ws, dp_db: float, ds_db: float,
                         n: int, tipo: str):
-    """Frequencia de corte do prototipo depois de escolhida a ordem.
+    """Borda que desnormaliza o prototipo.
 
     Cada aproximacao normaliza o prototipo por uma borda diferente, e
     desnormalizar pela borda errada desloca o filtro inteiro:
 
-    - Butterworth: sem ripple, ha folga entre a ordem inteira e a
-      especificacao. Seguindo o buttord, gastamos a folga na borda da
-      banda PASSANTE, que fica atendida exatamente.
-    - Chebyshev I: o ripple ja ancora a borda de passagem -- e ela.
+    - Butterworth e Chebyshev I: a borda da banda PASSANTE.
     - Chebyshev II: o prototipo (cheb2ap) e normalizado pela borda da
       banda REJEITADA. Usar wp aqui poe a rejeicao em cima da passagem.
 
-    Esse ultimo caso e um erro do dsp_iir_filter.m original, que chama
-    lp2lp(nums,dens,wp1) para todas as aproximacoes: o Chebyshev II dele
-    entrega -40 dB na borda da banda passante quando 1 dB foi pedido.
-    Medido contra o scipy, que da -1,000 dB ali. A comparacao contra o
-    MATLAB nao denunciava porque o porte reproduzia o mesmo erro.
+    O caso do Chebyshev II e um erro do dsp_iir_filter.m original, que
+    chama lp2lp(nums,dens,wp1) para todas as aproximacoes: o Chebyshev II
+    dele entrega -40 dB na borda da banda passante quando 1 dB foi
+    pedido. Medido contra o scipy, que da -1,000 dB ali. A comparacao
+    contra o MATLAB nao denunciava porque o porte reproduzia o mesmo
+    erro.
+
+    A folga do Butterworth NAO entra aqui -- ela e aplicada ao prototipo,
+    em design_iir(), para valer tambem nos tipos de banda.
     """
     if aprox == "cheby2":
         return ws
-    if aprox != "butterworth":
-        return wp
-    gp = 10.0 ** (dp_db / 10.0) - 1.0
-    fator = gp ** (-1.0 / (2.0 * n))
-    if tipo in ("lowpass", "highpass"):
-        return wp * fator if tipo == "lowpass" else wp / fator
     return wp
 
 
@@ -509,6 +504,14 @@ def design_iir(aprox: str, fp, fs_borda, dp_db: float, ds_db: float,
     # Passo 3: prototipo normalizado
     if aprox == "butterworth":
         z, p, k = prototipo_butterworth(n)
+        # A ordem inteira quase sempre supera o pedido, e da para escolher
+        # onde gastar a sobra. Como o buttord, gastamos na borda da banda
+        # passante, que fica atendida exatamente. Alargar o PROTOTIPO, e
+        # nao a frequencia de desnormalizacao, faz isso valer tambem em
+        # passa-banda e rejeita-banda -- que antes ficavam sem ajuste e
+        # entregavam os 3,010 dB do ponto de meia potencia na borda.
+        gp = 10.0 ** (dp_db / 10.0) - 1.0
+        z, p, k = lp2lp_zpk(z, p, k, gp ** (-1.0 / (2.0 * n)))
     elif aprox == "cheby1":
         z, p, k = prototipo_cheby1(n, dp_db)
     else:
@@ -639,46 +642,72 @@ def analisa_quantizacao(sos: np.ndarray, frac_bits: int,
     }
 
 
+def coeficientes_inteiros(sos: np.ndarray, frac_bits: int,
+                          total_bits: int = 32) -> list:
+    """Coeficientes como os INTEIROS que vao para a SRAM da FPGA.
+
+    E esta lista que o testbench do iir_sos.v le. Ter uma funcao so
+    evitando que o modelo e o hardware quantizem por caminhos diferentes
+    e o que torna a comparacao bit a bit possivel.
+    """
+    escala = 1 << frac_bits
+    limite = 1 << (total_bits - 1)
+    saida = []
+    for sec in np.atleast_2d(sos):
+        linha = []
+        for v in (sec[0], sec[1], sec[2], sec[4], sec[5]):   # b0 b1 b2 a1 a2
+            q = int(np.floor(float(v) * escala + 0.5))
+            linha.append(max(min(q, limite - 1), -limite))
+        saida.append(linha)
+    return saida
+
+
 def filtra_sos_fixo(x: np.ndarray, sos: np.ndarray, frac_bits: int,
-                    total_bits: int = 32,
-                    acc_bits: int = 64) -> np.ndarray:
+                    total_bits: int = 32) -> np.ndarray:
     """Simula a cascata em ponto fixo, Forma Direta I, com saturacao.
 
-    Forma Direta I porque e a que sobrevive em ponto fixo: o acumulador
-    e unico e largo, e absorve o crescimento intermediario antes de
-    voltar ao formato da amostra. A DF-II transposta e melhor em ponto
-    flutuante e pior aqui, porque guarda estados ja truncados.
+    Este e o MODELO DE REFERENCIA do iir_sos.v: o RTL tem que bater com
+    ele bit a bit, e o tb_iir_sos.v compara inteiro por inteiro.
 
-    Nao e o Verilog -- e o que o Verilog vai ter que fazer. Serve para
-    medir ciclo limite antes de existir Verilog.
+    Tudo em inteiros do Python, de proposito. O acumulador de um biquad
+    Q15.16 chega a 2^65, alem dos 53 bits de mantissa do float64 -- fazer
+    a conta em float daria um modelo que erra justamente onde o hardware
+    acerta, e a comparacao nao provaria nada. Inteiro do Python nao tem
+    limite de largura.
+
+    Arredondamento: soma meio LSB e desloca. Em Python o >> de negativo ja
+    e piso, igual ao >>> aritmetico do Verilog -- os dois arredondam meio
+    para cima, inclusive nos negativos.
+
+    Forma Direta I porque e a que sobrevive em ponto fixo: acumulador
+    unico e largo, e um unico arredondamento por amostra, na saida. A
+    DF-II transposta guarda estados ja truncados, e com realimentacao o
+    erro truncado nao morre.
     """
-    escala = float(1 << frac_bits)
-    limite = float(1 << (total_bits - 1))
+    escala = 1 << frac_bits
+    limite = 1 << (total_bits - 1)
+    meio = 1 << (frac_bits - 1)
 
-    def sat(v):
-        return np.clip(v, -limite, limite - 1)
+    def sat(v: int) -> int:
+        return max(min(v, limite - 1), -limite)
 
-    sos_q, _ = quantiza(sos, frac_bits, total_bits)
-    coef = np.round(sos_q * escala)          # coeficientes inteiros
+    coefs = coeficientes_inteiros(sos, frac_bits, total_bits)
 
-    y = np.round(np.asarray(x, dtype=np.float64) * escala)
-    y = sat(y)
+    y = [sat(int(np.floor(float(v) * escala + 0.5)))
+         for v in np.asarray(x, dtype=np.float64)]
 
-    for b0, b1, b2, a0, a1, a2 in coef:
-        x1 = x2 = y1 = y2 = 0.0
-        saida = np.empty_like(y)
-        for i, xn in enumerate(y):
-            # acumulador largo, em unidades de 2^(2*frac)
-            acc = (b0 * xn + b1 * x1 + b2 * x2
-                   - a1 * y1 - a2 * y2)
-            # volta ao formato da amostra: arredonda e satura
-            yn = sat(np.round(acc / escala))
+    for b0, b1, b2, a1, a2 in coefs:
+        x1 = x2 = y1 = y2 = 0
+        saida = []
+        for xn in y:
+            acc = b0 * xn + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+            yn = sat((acc + meio) >> frac_bits)
             x2, x1 = x1, xn
             y2, y1 = y1, yn
-            saida[i] = yn
+            saida.append(yn)
         y = saida
 
-    return y / escala
+    return np.array(y, dtype=np.float64) / escala
 
 
 def teste_ciclo_limite(sos: np.ndarray, frac_bits: int,

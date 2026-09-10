@@ -22,3 +22,8 @@ __pycache__/
 
 # Backups locais da expansao 128 -> 1024
 *.bak128
+
+# Vetores de teste do biquad IIR: gerados pelo gera_vetores_iir.py
+# a cada execucao do roda_tb_iir.sh. Nao versionar -- vetor guardado
+# desatualiza em silencio e o teste passa a validar o passado.
+Quartus/vetores_*.hex
