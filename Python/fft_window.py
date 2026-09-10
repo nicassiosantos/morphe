@@ -85,19 +85,47 @@ def _stem_signal(ax, sig: Optional[dsp.Signal], title: str, color: str):
     _attach_stem_format_coord(ax, n_plot, sig.x, x_label="n", y_label="x")
 
 
-def _overlay_ifft(ax, x_ifft: Optional[np.ndarray], sig: Optional[dsp.Signal]):
-    """Desenha por cima do x[n] o que a IFFT da FPGA devolveu.
+def _plot_ifft(ax, x_ifft: Optional[np.ndarray], sig: Optional[dsp.Signal]):
+    """x[n] reconstruido pela IFFT da FPGA, no seu proprio eixo.
 
-    Fica como linha, e nao stem, para nao brigar com o stem do original:
-    quando o ida-e-volta fecha, a linha passa exatamente pelas bolinhas.
-    Onde nao passar, o erro esta visivel sem precisar de numero.
+    Sobrepor no x[n] original escondia justamente o que interessa: com o
+    ida-e-volta fechando, as duas curvas coincidem e nao da para ver nem
+    o padding nem onde o erro mora. Separado, o eixo mostra as 1024
+    amostras que voltaram -- o sinal e a cauda de zeros -- e o titulo
+    carrega o erro contra o original.
     """
-    if x_ifft is None or sig is None or sig.n.size == 0:
+    ax.clear()
+    if x_ifft is None:
+        theme.draw_empty_axes(
+            ax, "x[n] reconstruído\n(rode a IFFT na FPGA)")
         return
+
     n = np.arange(len(x_ifft), dtype=float)
-    ax.plot(n, np.real(x_ifft), color=dsp.COLOR_Y, linewidth=1.1,
-            alpha=0.9, zorder=3, label="IFFT da FPGA")
+    ax.plot(n, np.real(x_ifft), color=dsp.COLOR_Y, linewidth=1.0,
+            label="IFFT da FPGA")
+
+    titulo = "x[n] reconstruído  (N=%d)" % len(x_ifft)
+    if sig is not None and sig.x.size:
+        n_orig = int(sig.x.size)
+        pico = float(np.max(np.abs(sig.x)))
+        if n_orig <= len(x_ifft) and pico > 0.0:
+            erro = float(np.max(np.abs(
+                np.real(x_ifft[:n_orig]) - sig.x))) / pico
+            titulo += "   —   erro contra o x[n] original: %.2e" % erro
+        if n_orig < len(x_ifft):
+            # Onde o sinal acaba e comeca o zero-padding da FFT.
+            ax.axvline(n_orig - 0.5, color=theme.COLORS["axis"],
+                       linewidth=0.8, linestyle=":", alpha=0.7)
+            ax.plot(np.arange(n_orig), sig.x, color=dsp.COLOR_X,
+                    linewidth=0.8, linestyle="--", alpha=0.55,
+                    label="x[n] original")
+
+    ax.set_title(titulo, fontsize=9)
+    ax.set_xlabel("n")
+    ax.set_ylabel("x[n]")
+    ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
     ax.legend(fontsize=7, loc="upper right")
+    theme.style_plot_axes(ax)
 
 
 def _stem_complex_mag(ax, X: Optional[np.ndarray], db: bool, color: str,
@@ -167,7 +195,7 @@ class FFTWindow(tk.Toplevel):
         self.x_sig: Optional[dsp.Signal] = None
         self.X_complex: Optional[np.ndarray] = None
         #: x[n] reconstruido pela IFFT da FPGA, quando o usuario pede a
-        #: volta ao tempo. Fica sobreposto ao x[n] original.
+        #: volta ao tempo. Tem eixo proprio, o quarto da figura.
         self.x_ifft: Optional[np.ndarray] = None
 
         # Registry de pop-outs vivos: chave -> ReactivePopout.
@@ -300,16 +328,18 @@ class FFTWindow(tk.Toplevel):
                 ("x[n]",            lambda: self._popout_one("x")),
                 ("|X[k]|",          lambda: self._popout_one("mag")),
                 ("Fase de X[k]",    lambda: self._popout_one("phase")),
+                ("x[n] reconstruído", lambda: self._popout_one("ifft")),
             ],
         )
         header.pack(fill="x", pady=(0, 6))
 
         # Figura com 3 subplots verticais (igual ao antes).
-        self.fig = Figure(figsize=(7, 8), dpi=100)
+        self.fig = Figure(figsize=(7, 9.4), dpi=100)
         self.fig.patch.set_facecolor(theme.COLORS["bg"])
-        self.ax_x = self.fig.add_subplot(311)
-        self.ax_mag = self.fig.add_subplot(312)
-        self.ax_phase = self.fig.add_subplot(313)
+        self.ax_x = self.fig.add_subplot(411)
+        self.ax_mag = self.fig.add_subplot(412)
+        self.ax_phase = self.fig.add_subplot(413)
+        self.ax_ifft = self.fig.add_subplot(414)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -328,7 +358,7 @@ class FFTWindow(tk.Toplevel):
 
     def _redraw(self):
         _stem_signal(self.ax_x, self.x_sig, "x[n]", dsp.COLOR_X)
-        _overlay_ifft(self.ax_x, self.x_ifft, self.x_sig)
+        _plot_ifft(self.ax_ifft, self.x_ifft, self.x_sig)
         _stem_complex_mag(self.ax_mag, self.X_complex,
                           self.var_magdb.get(), dsp.COLOR_MAG,
                           fs=self._signal_fs)
@@ -338,6 +368,7 @@ class FFTWindow(tk.Toplevel):
         refresh_all(self._popouts)
 
     def _redraw_spectrum(self):
+        _plot_ifft(self.ax_ifft, self.x_ifft, self.x_sig)
         _stem_complex_mag(self.ax_mag, self.X_complex,
                           self.var_magdb.get(), dsp.COLOR_MAG,
                           fs=self._signal_fs)
@@ -356,9 +387,8 @@ class FFTWindow(tk.Toplevel):
                 messagebox.showwarning("Atenção", "x[n] ainda não foi gerado.")
                 return
             def draw(fig: Figure):
-                ax = fig.add_subplot(111)
-                _stem_signal(ax, self.x_sig, "x[n]", dsp.COLOR_X)
-                _overlay_ifft(ax, self.x_ifft, self.x_sig)
+                _stem_signal(fig.add_subplot(111), self.x_sig,
+                             "x[n]", dsp.COLOR_X)
             open_or_focus(self._popouts, key="one_x",
                           parent=self, title="Morphe — x[n]",
                           draw_fn=draw, size="1000x600")
@@ -373,6 +403,16 @@ class FFTWindow(tk.Toplevel):
                                   fs=self._signal_fs)
             open_or_focus(self._popouts, key="one_mag",
                           parent=self, title="Morphe — |X[k]|",
+                          draw_fn=draw, size="1000x600")
+        elif which == "ifft":
+            if self.x_ifft is None:
+                messagebox.showwarning("Atenção",
+                                       "IFFT ainda não foi calculada.")
+                return
+            def draw(fig: Figure):
+                _plot_ifft(fig.add_subplot(111), self.x_ifft, self.x_sig)
+            open_or_focus(self._popouts, key="one_ifft",
+                          parent=self, title="Morphe — x[n] reconstruído",
                           draw_fn=draw, size="1000x600")
         elif which == "phase":
             if self.X_complex is None:
