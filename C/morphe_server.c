@@ -606,6 +606,25 @@ static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     return 0;
 }
 
+/* Cronometra as tres fases de um request e imprime.
+ *
+ * O `fpga` e o numero que interessa: o item 13 do RESSALVAS usa o tempo de
+ * resposta como indicador de saude do core -- um IP amarrado no tether do
+ * OpenCore Plus, ou parado, aparece aqui antes de aparecer no resultado.
+ * O `saida` inclui a escrita do bundle .mrph quando ENABLE_DEBUG_FILES
+ * esta ligado, que domina o tempo e nao e culpa do hardware. */
+static void log_tempos(const char *op, const struct timespec *t0,
+                       const struct timespec *t_entrada,
+                       const struct timespec *t_fpga,
+                       const struct timespec *t_fim) {
+    LOG("  -> %s: entrada=%ldus fpga=%ldus saida=%ldus total=%ldus",
+        op,
+        ts_diff_us(t0, t_entrada),
+        ts_diff_us(t_entrada, t_fpga),
+        ts_diff_us(t_fpga, t_fim),
+        ts_diff_us(t0, t_fim));
+}
+
 /* Dispara o IP da FFT sobre o que ja esta nas SRAMs de entrada e recolhe
  * o resultado. Unico ponto do servidor que fala com o hardware da FFT --
  * a direta e a inversa diferem so pelo argumento `inverse`.
@@ -663,6 +682,9 @@ static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
     if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_DTYPE, "FFT: use int32 (Q15.8)");
     if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_SIZE, "FFT: N invalido");
 
+    struct timespec t0, t_entrada, t_fpga, t_fim;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
     size_t payload_bytes = (size_t) n_x * 4;
     static uint8_t rx_buf[RX_BUF_MAX];
     if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
@@ -674,6 +696,7 @@ static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
         g_fft_xn_re[i]   = xn_re_buf[i];
         g_fft_xn_imag[i] = 0;
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_entrada);
 
     static int32_t y_re_raw[MORPHE_FFT_N];
     static int32_t y_im_raw[MORPHE_FFT_N];
@@ -683,6 +706,7 @@ static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
                       &exp_raw, &bfp_exp, &total_scale) < 0) {
         return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_FPGA_TIMEOUT, "FFT: timeout");
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_fpga);
     if (g_fft_force_inverse) LOG("  (rodou com inverse=1 -- diagnostico)");
 
     static uint8_t tx_buf[TX_BUF_MAX];
@@ -696,7 +720,9 @@ static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
 
     if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
     if (send_all(sock, tx_buf, (size_t) n_x * 8) < 0) return -1;
+    clock_gettime(CLOCK_MONOTONIC, &t_fim);
 
+    log_tempos("FFT", &t0, &t_entrada, &t_fpga, &t_fim);
     return 0;
 }
 
@@ -713,6 +739,9 @@ static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
     if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_DTYPE, "IFFT: use int32 (Q15.8)");
     if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_SIZE, "IFFT: N invalido");
 
+    struct timespec t0, t_entrada, t_fpga, t_fim;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
     size_t payload_bytes = (size_t) n_x * 8;   /* complexo: 4 bytes re + 4 im */
     static uint8_t rx_buf[RX_BUF_MAX];
     if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
@@ -728,6 +757,7 @@ static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
         g_fft_xn_re[i]   = xn_re_buf[i];
         g_fft_xn_imag[i] = xn_im_buf[i];
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_entrada);
 
     static int32_t y_re_raw[MORPHE_FFT_N];
     static int32_t y_im_raw[MORPHE_FFT_N];
@@ -737,6 +767,7 @@ static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
                       &exp_raw, &bfp_exp, &total_scale) < 0) {
         return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_FPGA_TIMEOUT, "IFFT: timeout");
     }
+    clock_gettime(CLOCK_MONOTONIC, &t_fpga);
 
     static uint8_t tx_buf[TX_BUF_MAX];
     uint8_t hdr[MORPHE_HEADER_SIZE];
@@ -748,8 +779,10 @@ static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
 
     if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
     if (send_all(sock, tx_buf, (size_t) n_x * 8) < 0) return -1;
+    clock_gettime(CLOCK_MONOTONIC, &t_fim);
 
     LOG("  -> IFFT OK: exp=%d, total_scale=%.8e", bfp_exp, total_scale);
+    log_tempos("IFFT", &t0, &t_entrada, &t_fpga, &t_fim);
     return 0;
 }
 
@@ -824,6 +857,7 @@ int main(int argc, char **argv) {
 
 
     if (fpga_init() < 0) return 1;
+    atexit(fpga_shutdown);   /* existia desde sempre e nunca era chamada */
 
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     int one = 1;
