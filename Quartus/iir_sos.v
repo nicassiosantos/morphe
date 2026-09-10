@@ -18,13 +18,9 @@
 // Formato: amostras e coeficientes em Q15.16 (32 bits, 16 fracionarios).
 // a0 = 1 e implicito -- o projetista normaliza cada secao antes de mandar.
 //
-//   produto  = Q15.16 * Q15.16 = Q31.32, 64 bits
-//   soma de 5 produtos             -> +3 bits de guarda
-//   ACC_WIDTH = 72 cobre com folga
-//
-// Volta para Q15.16 com arredondamento (soma meio LSB e desloca) e SATURA
-// em vez de dar wrap. Wrap num laco realimentado vira oscilacao sustentada:
-// o valor pula de +max para -max e o filtro nunca mais se recupera.
+// A aritmetica em si -- os cinco produtos, o acumulador de 72 bits, o
+// arredondamento e a saturacao -- esta no iir_biquad_mac.v, que este modulo
+// instancia e o iir_cascade.v tambem.
 //
 // error_sat fica em 1 (sticky ate o proximo start) se qualquer amostra
 // saturou. E informacao que o aluno precisa: significa que o ganho do
@@ -114,34 +110,22 @@ module iir_sos #(
     wire                         wr_done;
 
     // --- Caminho de dados ---
-    // Os cinco produtos, cada um Q31.32 em ACC_WIDTH bits com extensao de
-    // sinal. O sintetizador mapeia cada um num bloco DSP do Cyclone V.
-    wire signed [ACC_WIDTH-1:0] p_b0 = $signed(b0) * $signed(xn);
-    wire signed [ACC_WIDTH-1:0] p_b1 = $signed(b1) * $signed(x1);
-    wire signed [ACC_WIDTH-1:0] p_b2 = $signed(b2) * $signed(x2);
-    wire signed [ACC_WIDTH-1:0] p_a1 = $signed(a1) * $signed(y1);
-    wire signed [ACC_WIDTH-1:0] p_a2 = $signed(a2) * $signed(y2);
+    // Multiplicacao, soma, arredondamento e saturacao vivem no
+    // iir_biquad_mac, compartilhado com o iir_cascade. Ter uma so copia
+    // dessa aritmetica e o que garante que uma secao isolada e a mesma
+    // secao dentro de uma cascata produzam o MESMO bit.
+    wire signed [DATA_WIDTH-1:0] yn;
+    wire                         estourou;
 
-    wire signed [ACC_WIDTH-1:0] acc = p_b0 + p_b1 + p_b2 - p_a1 - p_a2;
-
-    // Volta para Q15.16: soma meio LSB e desloca. Como e deslocamento
-    // ARITMETICO, floor((acc + 2^15) / 2^16) arredonda meio para cima
-    // tambem nos negativos -- o mesmo criterio do modelo em Python, o que
-    // deixa a comparacao bit a bit possivel.
-    wire signed [ACC_WIDTH-1:0] acc_rnd =
-        (acc + (1 <<< (FRAC_BITS - 1))) >>> FRAC_BITS;
-
-    // Saturacao. Nunca wrap: ver o cabecalho.
-    localparam signed [ACC_WIDTH-1:0] MAX_POS =
-        (1 <<< (DATA_WIDTH - 1)) - 1;
-    localparam signed [ACC_WIDTH-1:0] MIN_NEG =
-        -(1 <<< (DATA_WIDTH - 1));
-
-    wire estourou = (acc_rnd > MAX_POS) || (acc_rnd < MIN_NEG);
-    wire signed [DATA_WIDTH-1:0] yn =
-        (acc_rnd > MAX_POS) ? MAX_POS[DATA_WIDTH-1:0] :
-        (acc_rnd < MIN_NEG) ? MIN_NEG[DATA_WIDTH-1:0] :
-                              acc_rnd[DATA_WIDTH-1:0];
+    iir_biquad_mac #(
+        .DATA_WIDTH (DATA_WIDTH),
+        .FRAC_BITS  (FRAC_BITS),
+        .ACC_WIDTH  (ACC_WIDTH)
+    ) u_mac (
+        .xn (xn), .x1 (x1), .x2 (x2), .y1 (y1), .y2 (y2),
+        .b0 (b0), .b1 (b1), .b2 (b2), .a1 (a1), .a2 (a2),
+        .yn (yn), .saturou (estourou)
+    );
 
     // --- FSM ---
     always @(posedge clk or negedge reset_n) begin
