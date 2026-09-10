@@ -8,4 +8,9 @@ dependencies = [
     "matplotlib>=3.10.8",
     "numpy>=2.4.4",
     "pandas>=3.0.2",
+    # So a aproximacao eliptica do projetista IIR depende do scipy --
+    # ela precisa de integrais elipticas e funcoes de Jacobi, que nao
+    # tem forma fechada elementar. O iir_design.py detecta a ausencia e
+    # segue com as outras tres, entao um ambiente sem scipy nao quebra.
+    "scipy>=1.14",
 ]

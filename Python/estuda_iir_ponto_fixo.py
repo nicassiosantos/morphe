@@ -109,7 +109,30 @@ def main() -> int:
 
     print()
     linha("=")
-    print("5) VEREDITO por caso, em Q15.16")
+    print("5) AS QUATRO APROXIMACOES na mesma especificacao")
+    print("   (a eliptica so aparece com scipy instalado)")
+    linha("=")
+    print("%-9s %-12s %5s %4s %10s %10s %12s %8s"
+          % ("spec", "aprox", "ordem", "sec", "raio", "desloc",
+             "dead band", "em LSB"))
+    linha("-")
+    for nome, fp, fsb, dp, ds in [("largo", 1000., 1500., 1.0, 40.),
+                                  ("medio", 400., 550., 0.5, 50.),
+                                  ("estreito", 200., 300., 0.1, 60.)]:
+        for ap in iir.APROXIMACOES:
+            p_ = iir.design_iir(ap, fp, fsb, dp, ds, FS)
+            p_.sos = iir.distribui_ganho(p_.sos)
+            a = iir.analisa_quantizacao(p_.sos, 16)
+            r = iir.teste_ciclo_limite(p_.sos, 16, n_silencio=8000)
+            print("%-9s %-12s %5d %4d %10.6f %10.1e %12.3e %8.0f"
+                  % (nome, ap, p_.ordem, p_.n_secoes, a["raio_antes"],
+                     a["deslocamento_max"], r["residuo"],
+                     r["residuo_em_lsb"]))
+        print()
+
+    print()
+    linha("=")
+    print("6) VEREDITO por caso, em Q15.16")
     linha("=")
     for cid, p in projetos.items():
         v = iir.verifica_viabilidade(p.sos, 16)

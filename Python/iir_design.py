@@ -22,14 +22,11 @@ polos de um polinomio de ordem N e absurdamente sensivel aos seus
 coeficientes, e o erro cresce com a ordem. Em biquads cada secao carrega
 so 2 polos, e o deslocamento fica contido. Ver zpk_para_sos().
 
-100% NumPy, sem scipy -- pela mesma razao que o fir_design.py: o cliente
-Morphe roda na estacao do laboratorio com numpy, matplotlib e pandas, e
-nada mais.
-
-LIMITE CONHECIDO: a aproximacao **eliptica** do original nao esta aqui.
-Ela exige integrais elipticas completas e funcoes de Jacobi, que sao um
-projeto proprio. Butterworth, Chebyshev I e Chebyshev II tem os polos em
-forma fechada e estao implementadas.
+Butterworth, Chebyshev I e Chebyshev II tem os polos em forma fechada e
+sao implementadas aqui, so com NumPy. A **eliptica** exige integrais
+elipticas completas e funcoes de Jacobi, que nao tem forma fechada
+elementar: ela e delegada ao scipy, e so aparece se o scipy estiver
+instalado. O modulo funciona inteiro sem ele -- perde uma das quatro.
 """
 from __future__ import annotations
 
@@ -39,13 +36,26 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
-#: Aproximacoes implementadas. 'ellip' fica de fora -- ver o docstring.
-APROXIMACOES = ("butterworth", "cheby1", "cheby2")
+#: A eliptica exige integrais elipticas completas e funcoes de Jacobi,
+#: que nao tem forma fechada elementar. Em vez de reimplementa-las, a
+#: delegamos ao scipy QUANDO ele existir. As outras tres nao dependem
+#: dele: o modulo funciona inteiro so com NumPy, e ganha a quarta
+#: aproximacao se o scipy estiver instalado.
+try:
+    from scipy import signal as _sp_signal
+    TEM_SCIPY = True
+except ImportError:                                   # pragma: no cover
+    _sp_signal = None
+    TEM_SCIPY = False
+
+APROXIMACOES = (("butterworth", "cheby1", "cheby2")
+                + (("ellip",) if TEM_SCIPY else ()))
 
 APROX_LABEL_PT = {
     "butterworth": "Butterworth",
     "cheby1":      "Chebyshev I",
     "cheby2":      "Chebyshev II",
+    "ellip":       "Eliptica",
 }
 
 TIPOS = ("lowpass", "highpass", "bandpass", "bandstop")
@@ -187,12 +197,24 @@ def _frequencia_natural(aprox: str, wp, ws, dp_db: float, ds_db: float,
                         n: int, tipo: str):
     """Frequencia de corte do prototipo depois de escolhida a ordem.
 
-    Butterworth tem folga: a ordem inteira quase sempre supera a
-    especificacao, e da para escolher onde gastar a sobra. Seguindo o
-    buttord do MATLAB, gastamos na borda da banda PASSANTE, que fica
-    atendida exatamente. Chebyshev nao tem essa escolha -- o ripple ja
-    ancora a borda de passagem.
+    Cada aproximacao normaliza o prototipo por uma borda diferente, e
+    desnormalizar pela borda errada desloca o filtro inteiro:
+
+    - Butterworth: sem ripple, ha folga entre a ordem inteira e a
+      especificacao. Seguindo o buttord, gastamos a folga na borda da
+      banda PASSANTE, que fica atendida exatamente.
+    - Chebyshev I: o ripple ja ancora a borda de passagem -- e ela.
+    - Chebyshev II: o prototipo (cheb2ap) e normalizado pela borda da
+      banda REJEITADA. Usar wp aqui poe a rejeicao em cima da passagem.
+
+    Esse ultimo caso e um erro do dsp_iir_filter.m original, que chama
+    lp2lp(nums,dens,wp1) para todas as aproximacoes: o Chebyshev II dele
+    entrega -40 dB na borda da banda passante quando 1 dB foi pedido.
+    Medido contra o scipy, que da -1,000 dB ali. A comparacao contra o
+    MATLAB nao denunciava porque o porte reproduzia o mesmo erro.
     """
+    if aprox == "cheby2":
+        return ws
     if aprox != "butterworth":
         return wp
     gp = 10.0 ** (dp_db / 10.0) - 1.0
@@ -410,6 +432,37 @@ def _detecta_tipo(fp, fs_borda) -> str:
         "rejeita-banda quer fp1 < fs1 < fs2 < fp2.")
 
 
+def _design_eliptico(fp, fs_borda, dp_db: float, ds_db: float,
+                     fs: float) -> ProjetoIIR:
+    """Eliptica, delegada ao scipy.
+
+    E a unica das quatro que nao tem os polos em forma fechada: precisa
+    de integrais elipticas completas e funcoes de Jacobi. Reimplementar
+    isso seria um projeto proprio, e o resultado seria uma copia pior de
+    algo que ja existe testado.
+
+    O resto do caminho e identico ao das outras tres -- sai em SOS, passa
+    por distribui_ganho() e pela mesma analise de ponto fixo.
+    """
+    tipo = _detecta_tipo(fp, fs_borda)
+    nyq = fs / 2.0
+    wp = np.atleast_1d(fp).astype(float) / nyq
+    ws = np.atleast_1d(fs_borda).astype(float) / nyq
+    if tipo in ("lowpass", "highpass"):
+        wp, ws = float(wp[0]), float(ws[0])
+
+    n, wn = _sp_signal.ellipord(wp, ws, dp_db, ds_db)
+    btype = {"lowpass": "lowpass", "highpass": "highpass",
+             "bandpass": "bandpass", "bandstop": "bandstop"}[tipo]
+    sos = _sp_signal.ellip(n, dp_db, ds_db, wn, btype=btype, output="sos")
+    z, p, k = _sp_signal.ellip(n, dp_db, ds_db, wn, btype=btype,
+                               output="zpk")
+    return ProjetoIIR(sos=np.asarray(sos, dtype=np.float64),
+                      aprox="ellip", tipo=tipo, ordem=len(p),
+                      fp=fp, fs_borda=fs_borda, dp_db=dp_db,
+                      ds_db=ds_db, fs=fs, polos=p, zeros=z, ganho=k)
+
+
 def design_iir(aprox: str, fp, fs_borda, dp_db: float, ds_db: float,
                fs: float) -> ProjetoIIR:
     """Projeta o filtro e devolve a cascata de biquads.
@@ -418,11 +471,17 @@ def design_iir(aprox: str, fp, fs_borda, dp_db: float, ds_db: float,
     normalizado, transformacao de frequencia, bilinear. A diferenca e que
     tudo anda em zeros-polos-ganho e a saida sai fatorada em SOS.
     """
+    if aprox == "ellip" and not TEM_SCIPY:
+        raise IIRSpecError(
+            "A aproximacao eliptica precisa do scipy, que nao esta "
+            "instalado. As outras tres rodam so com NumPy.\n"
+            "Instale com: pip install scipy")
     if aprox not in APROXIMACOES:
         raise IIRSpecError(
-            "Aproximacao %r nao implementada. Disponiveis: %s. "
-            "A eliptica exige integrais elipticas e ficou de fora."
+            "Aproximacao %r nao implementada. Disponiveis: %s."
             % (aprox, ", ".join(APROXIMACOES)))
+    if aprox == "ellip":
+        return _design_eliptico(fp, fs_borda, dp_db, ds_db, fs)
     if not (fs > 0.0):
         raise IIRSpecError("fs deve ser maior que zero.")
     if not (dp_db > 0.0 and ds_db > 0.0):
