@@ -383,7 +383,7 @@ class FIRDesignerWindow(tk.Toplevel):
                   font=("TkFixedFont", 8)).pack(fill="x", anchor="w")
 
     def _build_plots(self, parent):
-        self.fig = Figure(figsize=(7.6, 6.4), dpi=100)
+        self.fig = Figure(figsize=(7.6, 7.8), dpi=100)
         self.fig.patch.set_facecolor(theme.COLORS["bg"])
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -397,27 +397,32 @@ class FIRDesignerWindow(tk.Toplevel):
         """(Re)cria os eixos conforme o modo.
 
         No modo por especificacao a figura espelha a do MATLAB original:
-        janela, filtro ideal e filtro real lado a lado, e a resposta em
-        frequencia ocupando a largura inteira embaixo.
+        janela, filtro ideal e filtro real lado a lado. Embaixo, ocupando
+        a largura inteira, vem a magnitude |H(f)| e, sob ela, o espectro
+        de fase. Os dois compartilham o eixo x: dar zoom num da zoom no
+        outro, que e como se ve o que a fase faz na banda de transicao.
         """
         self.fig.clear()
         if self.var_mode.get() == _MODE_SPEC:
-            self.ax_w  = self.fig.add_subplot(2, 3, 1)
-            self.ax_hd = self.fig.add_subplot(2, 3, 2)
-            self.ax_h  = self.fig.add_subplot(2, 3, 3)
-            self.ax_H  = self.fig.add_subplot(2, 1, 2)
+            self.ax_w  = self.fig.add_subplot(3, 3, 1)
+            self.ax_hd = self.fig.add_subplot(3, 3, 2)
+            self.ax_h  = self.fig.add_subplot(3, 3, 3)
+            self.ax_H  = self.fig.add_subplot(3, 1, 2)
+            self.ax_ph = self.fig.add_subplot(3, 1, 3, sharex=self.ax_H)
             theme.draw_empty_axes(self.ax_w,  "Janela w(n)")
             theme.draw_empty_axes(self.ax_hd, "Filtro ideal h_D(n)")
             theme.draw_empty_axes(self.ax_h,  "Filtro real h(n)")
         else:
             self.ax_w = None
             self.ax_hd = None
-            self.ax_h = self.fig.add_subplot(2, 1, 1)
-            self.ax_H = self.fig.add_subplot(2, 1, 2)
+            self.ax_h  = self.fig.add_subplot(3, 1, 1)
+            self.ax_H  = self.fig.add_subplot(3, 1, 2)
+            self.ax_ph = self.fig.add_subplot(3, 1, 3, sharex=self.ax_H)
             theme.draw_empty_axes(
                 self.ax_h,
                 "Resposta impulsiva h[n]\n(defina os parâmetros do filtro)")
         theme.draw_empty_axes(self.ax_H, "Resposta em frequência |H(f)|")
+        theme.draw_empty_axes(self.ax_ph, "Espectro de fase ∠H(f)")
         self.fig.tight_layout()
         self.canvas.draw_idle()
 
@@ -618,6 +623,50 @@ class FIRDesignerWindow(tk.Toplevel):
     # Desenho
     # ==================================================================
 
+    @staticmethod
+    def _phase_rad(H, f, fs: float, taps: int):
+        """Fase de H(f) em radianos, no ramo continuo, sem serragem.
+
+        angle() sozinho devolve a fase dobrada em [-pi, pi] e o grafico
+        vira uma serragem em que a linearidade -- a propriedade que
+        justifica exigir N impar e janela simetrica -- desaparece.
+
+        unwrap() tira a serragem mas escolhe um ramo ruim: como a fase
+        salta pi a cada zero de H(f), o desdobramento vai acumulando
+        esses saltos e afasta a curva da reta da fase linear, o que num
+        passa-banda de centenas de taps chega a centenas de radianos de
+        desvio -- um artefato do desenho, nao do filtro.
+
+        Aqui usamos a forma fechada do filtro de fase linear:
+
+            H(w) = A(w) * exp(-j*w*(N-1)/2),   A(w) real
+
+        de onde a fase e exatamente -w*(N-1)/2 quando A > 0 e essa mesma
+        reta mais pi quando A < 0. E o mesmo angulo de H (a menos de
+        2pi), so que num ramo que gruda na reta ideal e mostra os saltos
+        de pi onde eles de fato acontecem: nos zeros entre os lobulos.
+
+        Se h nao for simetrico -- A(w) sai complexo -- nao ha reta a que
+        grudar e caimos no unwrap comum.
+        """
+        w = 2.0 * np.pi * np.asarray(f) / fs
+        A = H * np.exp(1j * w * (taps - 1) / 2.0)
+        escala = float(np.max(np.abs(H))) or 1.0
+        if float(np.max(np.abs(A.imag))) > 1e-9 * escala:
+            return np.unwrap(np.angle(H))
+        return -w * (taps - 1) / 2.0 + np.pi * (A.real < 0)
+
+    def _style_phase_axes(self, ax, fs: float, taps: int):
+        """Rotulos e grade do eixo de fase, comuns aos dois modos."""
+        atraso = (taps - 1) / 2.0
+        ax.set_title(
+            "Espectro de fase ∠H(f) — atraso de grupo "
+            "constante = (N-1)/2 = %g amostras" % atraso, fontsize=10)
+        ax.set_xlabel("f (Hz)")
+        ax.set_ylabel("∠H(f) (rad)")
+        ax.set_xlim(0, fs / 2.0)
+        theme.style_plot_axes(ax)
+
     def _plot_taps(self, ax, y, color, title, ylabel):
         """Desenha coeficientes: stem para N pequeno, linha para N grande."""
         ax.clear()
@@ -677,6 +726,28 @@ class FIRDesignerWindow(tk.Toplevel):
         ax.legend(fontsize=7, loc="upper right")
         theme.style_plot_axes(ax)
 
+        # ---- fase: float x quantizado, contra a reta da fase linear ideal
+        ax = self.ax_ph
+        ax.clear()
+        _, H_quant = fd.frequency_response(m["h_quant"], fs=r["fs"],
+                                           n_freq=4096)
+        atraso = (r["taps"] - 1) / 2.0
+        ax.plot(f_lin, -2.0 * np.pi * f_lin / r["fs"] * atraso,
+                color="grey", linewidth=0.8, linestyle=":",
+                label="fase linear ideal")
+        ax.plot(f_lin, self._phase_rad(H_lin, f_lin, r["fs"], r["taps"]),
+                color=dsp.COLOR_PHASE, linewidth=1.0,
+                label="coeficientes float")
+        ax.plot(f_lin, self._phase_rad(H_quant, f_lin, r["fs"], r["taps"]),
+                color=_COLOR_QUANT, linewidth=0.9, alpha=0.85,
+                linestyle="--", label="após Q15.16 (FPGA)")
+
+        for lo, hi in self._transition_bands(r):
+            ax.axvspan(lo, hi, color="grey", alpha=0.12)
+
+        self._style_phase_axes(ax, r["fs"], r["taps"])
+        ax.legend(fontsize=7, loc="lower left")
+
         self.fig.tight_layout()
         self.canvas.draw_idle()
 
@@ -733,6 +804,28 @@ class FIRDesignerWindow(tk.Toplevel):
         ax.set_ylabel("|H(f)| (dB)")
         ax.set_ylim(-100, 5)
         theme.style_plot_axes(ax)
+
+        ax = self.ax_ph
+        ax.clear()
+        atraso = (len(self.h) - 1) / 2.0
+        ax.plot(f, -2.0 * np.pi * f / fs * atraso, color="grey",
+                linewidth=0.8, linestyle=":", label="fase linear ideal")
+        ax.plot(f, self._phase_rad(H, f, fs, len(self.h)),
+                color=dsp.COLOR_PHASE, linewidth=1.0, label="∠H(f)")
+
+        # Mesmos cutoffs marcados no grafico de magnitude
+        try:
+            ax.axvline(float(self.var_fc1.get()), color="#dc3545",
+                       linewidth=0.6, linestyle="--", alpha=0.7)
+            if _TYPE_UI_TO_INT.get(self.var_type.get()) in ("bandpass",
+                                                            "bandstop"):
+                ax.axvline(float(self.var_fc2.get()), color="#dc3545",
+                           linewidth=0.6, linestyle="--", alpha=0.7)
+        except (ValueError, KeyError):
+            pass
+
+        self._style_phase_axes(ax, fs, len(self.h))
+        ax.legend(fontsize=8, loc="lower left")
 
         self.fig.tight_layout()
         self.canvas.draw_idle()
