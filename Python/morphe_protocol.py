@@ -59,6 +59,7 @@ OP_CONV = 1
 OP_FFT  = 2
 OP_PING = 3   # descoberta de servico
 OP_FIR  = 4   # filtro FIR (instancia separada do conv1d, mesmo Verilog)
+OP_IFFT = 5   # transformada inversa: mesmo IP da FFT, bit inverse=1
 
 DTYPE_INT32   = 1
 DTYPE_FLOAT32 = 2
@@ -157,6 +158,46 @@ def build_fft_request(x_float: np.ndarray) -> bytes:
     return hdr + encoded.astype(">i4").tobytes()
 
 
+def build_ifft_request(X: np.ndarray,
+                       scale: "float | None" = None) -> "tuple[bytes, float]":
+    """Constroi request IFFT a partir de um espectro complexo.
+
+    Devolve (payload, escala_usada). O chamador PRECISA dividir a resposta
+    pela escala devolvida -- veja decode_ifft_response.
+
+    Por que a escala existe: o fio da FFT e Q15.8, que satura em +-32768 e
+    tem so 8 bits fracionarios. Um X[k] pode ser ate N vezes maior que o
+    x[n] que o gerou, e ao mesmo tempo os bins pequenos precisam dos bits
+    de baixo. Mandar o espectro cru perde os dois lados. Entao o cliente
+    faz o proprio ponto flutuante de bloco: normaliza X para ocupar a
+    faixa inteira do Q15.8, manda, e desfaz a escala na volta. Como a
+    transformada e linear, isso e exato -- nao e aproximacao.
+
+    Com scale=None a escala e calculada para encostar em FFT_Q_MAX_FLOAT
+    com uma folga de 2%. Passe um valor para fixar a escala na mao.
+    """
+    import dsp_core as dsp
+
+    X = np.asarray(X, dtype=np.complex128)
+    if scale is None:
+        pico = float(np.max(np.abs(np.concatenate([X.real, X.imag]))))
+        scale = 1.0 if pico <= 0.0 else (0.98 * dsp.FFT_Q_MAX_FLOAT / pico)
+
+    re = dsp.fft_q1508_encode(X.real * scale)
+    im = dsp.fft_q1508_encode(X.imag * scale)
+
+    inter = np.empty(2 * len(X), dtype=np.int32)
+    inter[0::2] = re
+    inter[1::2] = im
+
+    hdr = struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_IFFT, DTYPE_INT32, 0,
+        len(X), 0,
+    )
+    return hdr + inter.astype(">i4").tobytes(), float(scale)
+
+
 def build_ping_request() -> bytes:
     """Request de descoberta -- so cabecalho, sem payload.
     dtype=0 (ignorado para PING), n_x=n_h=0."""
@@ -239,7 +280,7 @@ class TcpClient:
             # tamanho do payload depende da operação
             if status != STATUS_OK:
                 body_size = n_out  # mensagem de erro em bytes
-            elif opcode == OP_FFT:
+            elif opcode in (OP_FFT, OP_IFFT):
                 body_size = n_out * 8  # float32 complex = 8 bytes por amostra
             elif opcode == OP_PING:
                 body_size = n_out  # PING: n_out e o tamanho em bytes do texto
@@ -287,6 +328,31 @@ def decode_fft_response(resp: Response) -> np.ndarray:
     re = interleaved[0::2].astype(np.float64)
     im = interleaved[1::2].astype(np.float64)
     return re + 1j * im
+
+
+def decode_ifft_response(resp: Response, scale: float) -> np.ndarray:
+    """Decodifica a resposta da IFFT e desfaz a escala do request.
+
+    `scale` e o segundo valor devolvido por build_ifft_request. O fator
+    IFFT_HW_GAIN vem do morphe_config e cobre a convencao do IP quanto ao
+    1/N -- ver a nota la. O resultado e complexo: para uma entrada
+    hermitiana a parte imaginaria e residuo de quantizacao, e serve como
+    medida de erro.
+    """
+    from morphe_config import IFFT_HW_GAIN
+
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_IFFT:
+        raise ValueError(f"esperado opcode IFFT, veio {resp.opcode}")
+    if scale == 0.0:
+        raise ValueError("escala zero: o request nao pode ser desfeito")
+
+    interleaved = np.frombuffer(resp.payload, dtype=">f4", count=2 * resp.n_out)
+    interleaved = interleaved.astype(np.float32)
+    re = interleaved[0::2].astype(np.float64)
+    im = interleaved[1::2].astype(np.float64)
+    return (re + 1j * im) * (IFFT_HW_GAIN / scale)
 
 
 # ---- descoberta de servidores na rede local -------------------------------

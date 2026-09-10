@@ -37,6 +37,7 @@ _COLOR_ERROR  = "#ea580c"       # laranja — erro pontual
 _BUNDLE_CONV = "conv"
 _BUNDLE_FFT  = "fft"
 _BUNDLE_FIR  = "fir"
+_BUNDLE_IFFT = "ifft"
 
 
 def _attach_stem_format_coord(ax, n_arr: np.ndarray, x_arr: np.ndarray,
@@ -80,6 +81,20 @@ def _detect_bundle_type(bundle: dict) -> str:
         return _BUNDLE_FIR
     if "conv" in title or names == {"x", "h", "y"}:
         return _BUNDLE_CONV
+    # ATENÇÃO à ordem: "ifft" contém "fft". Sem este teste antes, um bundle
+    # de IFFT entraria como FFT direta e seria comparado contra np.fft.fft
+    # — calado e errado.
+    if "ifft" in title:
+        if names >= {"X", "x_ifft"}:
+            return _BUNDLE_IFFT
+        raise ValueError(
+            "Este parece um dump de debug da IFFT do servidor (sections "
+            "x, y_raw, y). O comparador não sabe recomputá-lo: o espectro "
+            "do dump já passou pela escala do cliente.\n\n"
+            "Para comparar a IFFT, salve o bundle pela tela da IFFT ou "
+            "pela tela da FFT depois de rodar a volta ao tempo — os dois "
+            "trazem as seções X e x_ifft."
+        )
     if "fft" in title or names == {"x", "X"}:
         return _BUNDLE_FFT
     raise ValueError(
@@ -216,6 +231,16 @@ class ComparatorWindow(tk.Toplevel):
                 command=self._on_fft_mode_change,
                 style="Card.TCheckbutton",
             ).pack(anchor="w")
+
+        # A volta ao tempo só existe se o bundle tiver a seção x_ifft, isto
+        # é, se a IFFT foi rodada na FPGA antes de salvar. O botão aparece
+        # em _load_bundle e some quando o bundle não tem.
+        self.rb_ifft = ttk.Radiobutton(
+            self.fft_mode_box, text="x[n] reconstruído (IFFT)",
+            variable=self.var_fft_mode, value="ifft",
+            command=self._on_fft_mode_change,
+            style="Card.TCheckbutton",
+        )
 
         # ── Card: Ações ──
         abox = ttk.LabelFrame(
@@ -385,12 +410,17 @@ class ComparatorWindow(tk.Toplevel):
         type_label = {
             _BUNDLE_CONV: "Convolução 1D",
             _BUNDLE_FFT:  "FFT 1024 pontos",
+            _BUNDLE_IFFT: "IFFT 1024 pontos",
             _BUNDLE_FIR:  "Filtro FIR",
         }.get(btype, btype)
         self.var_type.set(type_label)
         self.var_saved.set(bundle.get("saved", "—"))
-        x_sec = dsp.section_by_name(bundle, "x")
-        self.var_descr.set(x_sec.get("description", "—"))
+        # A entrada de um bundle de IFFT pura e o espectro, nao um x[n]:
+        # ela vem da tela da IFFT, que carrega X[k] de arquivo e nunca viu
+        # o sinal original.
+        entrada = "X" if btype == _BUNDLE_IFFT else "x"
+        self.var_descr.set(
+            dsp.section_by_name(bundle, entrada).get("description", "—"))
 
         # h[n] só existe em conv/FIR — mostra a linha e sua descrição;
         # em FFT a linha fica oculta.
@@ -405,6 +435,14 @@ class ComparatorWindow(tk.Toplevel):
 
         if btype == _BUNDLE_FFT:
             self.fft_mode_box.pack(fill="x", pady=(0, 10))
+            tem_ifft = any(sec["name"] == "x_ifft"
+                           for sec in bundle["sections"])
+            if tem_ifft:
+                self.rb_ifft.pack(anchor="w")
+            else:
+                self.rb_ifft.pack_forget()
+                if self.var_fft_mode.get() == "ifft":
+                    self.var_fft_mode.set("magnitude")
         else:
             self.fft_mode_box.pack_forget()
 
@@ -429,6 +467,8 @@ class ComparatorWindow(tk.Toplevel):
                 self._compute_conv()
             elif self.bundle_type == _BUNDLE_FIR:
                 self._compute_fir()
+            elif self.bundle_type == _BUNDLE_IFFT:
+                self._compute_ifft()
             else:
                 self._compute_fft()
         except Exception as e:
@@ -500,6 +540,13 @@ class ComparatorWindow(tk.Toplevel):
             a = X_fpga.imag
             b_ref = X_python.imag
             self._cmp_label = "Im{X[k]}"
+        elif mode == "ifft":
+            # Volta ao tempo: compara o x[n] que a FPGA reconstruiu com o
+            # que o NumPy tira do MESMO X[k] lido do bundle. Assim o que
+            # se mede e so a IFFT -- o erro da ida ja esta nos dois lados.
+            a = np.real(dsp.section_by_name(b, "x_ifft")["data"])
+            b_ref = np.real(np.fft.ifft(X_fpga))
+            self._cmp_label = "x[n] reconstruído (IFFT)"
         else:
             raise ValueError(f"modo FFT inválido: {mode!r}")
 
@@ -509,10 +556,59 @@ class ComparatorWindow(tk.Toplevel):
         self._n_input  = dsp.section_by_name(b, "x")["n"]
         self._h_input  = None          # FFT não tem 2º operando h[n]
         self._n_h_input = None
-        self._n_output = np.arange(len(X_fpga), dtype=np.int64)
+        self._n_output = np.arange(len(a), dtype=np.int64)
         self._y_fpga   = a
         self._y_python = b_ref
         self._error    = a - b_ref
+        self._is_complex_compare = False
+
+    def _rotulos_entrada(self):
+        """(titulo, rotulo x, rotulo y) do subplot de entrada.
+
+        Numa IFFT a entrada e o espectro, nao um sinal no tempo.
+        """
+        if self.bundle_type == _BUNDLE_IFFT:
+            return "Espectro de entrada |X[k]|", "k", "|X[k]|"
+        return "Sinal de entrada x[n]", "n", "x[n]"
+
+    def _eixo_x_label(self) -> str:
+        """Rotulo do eixo horizontal da comparacao.
+
+        Bundle de FFT indexa em k -- menos no modo IFFT, em que o que
+        esta na tela ja voltou para o dominio do tempo.
+        """
+        if self.bundle_type == _BUNDLE_IFFT:
+            return "n"
+        if self.bundle_type != _BUNDLE_FFT:
+            return "n"
+        return "n" if self.var_fft_mode.get() == "ifft" else "k"
+
+    def _compute_ifft(self):
+        """Bundle de IFFT pura: so o espectro e o que a FPGA devolveu.
+
+        Aqui a comparacao mede a inversa ISOLADA -- diferente do modo
+        'ifft' de um bundle de FFT, onde o X[k] ja carrega o erro da ida.
+        """
+        b = self.bundle
+        X = np.asarray(dsp.section_by_name(b, "X")["data"],
+                       dtype=np.complex128)
+        x_fpga = np.real(np.asarray(
+            dsp.section_by_name(b, "x_ifft")["data"]))
+        x_python = np.real(np.fft.ifft(X))
+
+        self.metrics = dsp.compute_error_metrics(x_fpga, x_python)
+        self._cmp_label = "x[n] = IFFT(X)"
+
+        # O "sinal de entrada" desta comparacao e o espectro: mostramos a
+        # magnitude dele no primeiro subplot.
+        self._x_input  = np.abs(X)
+        self._n_input  = np.arange(len(X), dtype=np.int64)
+        self._h_input  = None
+        self._n_h_input = None
+        self._n_output = np.arange(len(x_fpga), dtype=np.int64)
+        self._y_fpga   = x_fpga
+        self._y_python = x_python
+        self._error    = x_fpga - x_python
         self._is_complex_compare = False
 
     def _update_metrics_ui(self):
@@ -552,10 +648,10 @@ class ComparatorWindow(tk.Toplevel):
         # x[n] é um sinal de tempo DISCRETO — nunca desenhar como linha
         # contínua, mesmo com N grande (ver _draw_discrete).
         _draw_discrete(self.ax_input, n, x, _COLOR_INPUT)
-        self.ax_input.set_title(
-            f"Sinal de entrada x[n]  (N={len(x)})", fontsize=9)
-        self.ax_input.set_xlabel("n")
-        self.ax_input.set_ylabel("x[n]")
+        ent_titulo, ent_x, ent_y = self._rotulos_entrada()
+        self.ax_input.set_title(f"{ent_titulo}  (N={len(x)})", fontsize=9)
+        self.ax_input.set_xlabel(ent_x)
+        self.ax_input.set_ylabel(ent_y)
         self.ax_input.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
         theme.style_plot_axes(self.ax_input)
         _attach_stem_format_coord(self.ax_input,
@@ -601,14 +697,14 @@ class ComparatorWindow(tk.Toplevel):
                                  label="NumPy (ref)")
         self.ax_compare.set_title(
             f"Comparação: {self._cmp_label}", fontsize=9)
-        self.ax_compare.set_xlabel("k" if self.bundle_type == _BUNDLE_FFT else "n")
+        self.ax_compare.set_xlabel(self._eixo_x_label())
         self.ax_compare.set_ylabel(self._cmp_label)
         self.ax_compare.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
         self.ax_compare.legend(fontsize=8, loc="best")
         theme.style_plot_axes(self.ax_compare)
         _attach_stem_format_coord(
             self.ax_compare, n_out_f, self._y_fpga,
-            x_label="k" if self.bundle_type == _BUNDLE_FFT else "n",
+            x_label=self._eixo_x_label(),
             y_label="FPGA")
 
         # Subplot 3: erro
@@ -627,13 +723,13 @@ class ComparatorWindow(tk.Toplevel):
             f"Erro (FPGA − NumPy), max abs = "
             f"{self.metrics['max_abs_error']:.4g}",
             fontsize=9)
-        self.ax_error.set_xlabel("k" if self.bundle_type == _BUNDLE_FFT else "n")
+        self.ax_error.set_xlabel(self._eixo_x_label())
         self.ax_error.set_ylabel("erro")
         self.ax_error.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
         theme.style_plot_axes(self.ax_error)
         _attach_stem_format_coord(
             self.ax_error, n_out_f, self._error,
-            x_label="k" if self.bundle_type == _BUNDLE_FFT else "n",
+            x_label=self._eixo_x_label(),
             y_label="erro")
 
         self.fig.tight_layout()
@@ -657,7 +753,8 @@ class ComparatorWindow(tk.Toplevel):
             def draw(fig: Figure):
                 ax = fig.add_subplot(111)
                 _draw_discrete(ax, n, self._x_input, _COLOR_INPUT)
-                ax.set_title(f"Sinal de entrada x[n]  (N={len(self._x_input)})")
+                ent_titulo, _, _ = self._rotulos_entrada()
+                ax.set_title(f"{ent_titulo}  (N={len(self._x_input)})")
                 ax.set_xlabel("n")
                 ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
                 theme.style_plot_axes(ax)
@@ -697,7 +794,7 @@ class ComparatorWindow(tk.Toplevel):
                             linewidth=1.2, linestyle="--", marker="o",
                             markersize=3, label="NumPy")
                 ax.set_title(f"Comparação: {self._cmp_label}")
-                ax.set_xlabel("k" if self.bundle_type == _BUNDLE_FFT else "n")
+                ax.set_xlabel(self._eixo_x_label())
                 ax.set_ylabel(self._cmp_label); ax.legend(fontsize=8)
                 ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
                 theme.style_plot_axes(ax)
@@ -715,7 +812,7 @@ class ComparatorWindow(tk.Toplevel):
                     ml.set_markersize(3); sl.set_color(_COLOR_ERROR)
                 ax.set_title(f"Erro (FPGA − NumPy), max abs = "
                              f"{self.metrics['max_abs_error']:.4g}")
-                ax.set_xlabel("k" if self.bundle_type == _BUNDLE_FFT else "n")
+                ax.set_xlabel(self._eixo_x_label())
                 ax.set_ylabel("erro")
                 ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
                 theme.style_plot_axes(ax)

@@ -16,6 +16,7 @@ import morphe_theme as theme
 from signal_generator_window import SignalGeneratorWindow
 from conv_window import ConvolutionWindow
 from fft_window import FFTWindow
+from ifft_window import IFFTWindow
 from fir_window import FIRWindow
 from comparator_window import ComparatorWindow
 from tcp_panel import TcpConfigPanel
@@ -83,6 +84,7 @@ class MorpheMainWindow(tk.Tk):
             ("Gerador de Sinais",              self._open_generator),
             ("Convolução  (2 sinais → FPGA)",  self._open_conv),
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
+            ("IFFT  (espectro de arquivo → FPGA)", self._open_ifft),
             ("Filtro FIR  (FPGA)",             self._open_fir),
         ]
         for label, cmd in primary_actions:
@@ -120,6 +122,9 @@ class MorpheMainWindow(tk.Tk):
 
     def _open_fft(self):
         FFTWindow(self)
+
+    def _open_ifft(self):
+        IFFTWindow(self)
 
     def _open_fir(self):
         FIRWindow(self)

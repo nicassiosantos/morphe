@@ -10,11 +10,19 @@
  * Request header (20 bytes):
  *   uint32 magic    = 0x4D52504D ('MRPM')
  *   uint16 version  = 1
- *   uint16 opcode   (1=CONV, 2=FFT)
+ *   uint16 opcode   (1=CONV, 2=FFT, 3=PING, 4=FIR, 5=IFFT)
  *   uint16 dtype    (1=int32, 2=float32)
  *   uint16 flags    (0)
  *   uint32 n_x      (comprimento de x)
- *   uint32 n_h      (comprimento de h; 0 para FFT)
+ *   uint32 n_h      (comprimento de h; 0 para FFT/IFFT)
+ *
+ * Payload do request, por opcode:
+ *   CONV/FIR -> n_x amostras de x, seguidas de n_h amostras de h
+ *   FFT      -> n_x amostras REAIS   (int32 Q15.8), 4 bytes cada
+ *   IFFT     -> n_x amostras COMPLEXAS (int32 Q15.8), 8 bytes cada,
+ *               re e im intercalados: re[0] im[0] re[1] im[1] ...
+ *               A IFFT recebe um espectro, que e complexo por natureza;
+ *               dai o payload dobrar em relacao a FFT.
  *
  * Response header (20 bytes):
  *   uint32 magic    = 0x4D52504E ('MRPN')
@@ -40,6 +48,7 @@
 #define MORPHE_OP_FFT      2U
 #define MORPHE_OP_PING     3U   /* descoberta de servico */
 #define MORPHE_OP_FIR      4U   /* filtro FIR (igual ao OP_FIR=4 do cliente) */
+#define MORPHE_OP_IFFT     5U   /* transformada inversa: mesmo IP, bit inverse=1 */
 
 #define MORPHE_DTYPE_INT32    1U
 #define MORPHE_DTYPE_FLOAT32  2U
