@@ -38,8 +38,8 @@ from morphe_protocol import (
 
 
 def roda(client: TcpClient, x: np.ndarray) -> np.ndarray:
-    resp = client.request(build_fft_request(x))
-    return decode_fft_response(resp)
+    req, escala = build_fft_request(x)      # normaliza: mede mais limpo
+    return decode_fft_response(client.request(req), escala)
 
 
 def main() -> int:

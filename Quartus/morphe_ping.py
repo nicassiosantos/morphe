@@ -182,14 +182,14 @@ def test_4_fft_impulse(host: str, port: int) -> bool:
         client = TcpClient(host, port, timeout=5)
         x = np.zeros(64, dtype=np.float64)
         x[0] = 0.5  # impulso (amplitude 0.5 para caber confortavelmente em Q1.7)
-        req = build_fft_request(x, DTYPE_FLOAT32)
+        req, escala_fft = build_fft_request(x)
         t0 = time.monotonic()
         resp = client.request(req)
         dt_ms = (time.monotonic() - t0) * 1000
         if not resp.ok:
             fail(f"servidor retornou erro: {resp.payload.decode('utf-8', 'replace')}")
             return False
-        X = decode_fft_response(resp)
+        X = decode_fft_response(resp, escala_fft)
         mag = np.abs(X)
         # espectro do impulso deve ser plano (magnitude constante = amplitude)
         spread = (np.max(mag) - np.min(mag)) / max(np.mean(mag), 1e-9)

@@ -133,8 +133,28 @@ def build_fir_request(x: np.ndarray, h: np.ndarray, dtype_code: int) -> bytes:
     return hdr + pack_samples(x, dtype_code) + pack_samples(h, dtype_code)
 
 
-def build_fft_request(x_float: np.ndarray) -> bytes:
+def escala_para_q1508(v: np.ndarray, folga: float = 0.98) -> float:
+    """Fator que encosta o pico de `v` no teto do Q15.8, com folga.
+
+    Base da normalizacao dos dois caminhos. Devolve 1.0 para entrada
+    identicamente nula, que nao tem pico para encostar em nada.
+    """
+    import dsp_core as dsp
+    v = np.asarray(v)
+    pico = float(np.max(np.abs(np.concatenate([np.real(v).ravel(),
+                                               np.imag(v).ravel()]))))
+    if pico <= 0.0:
+        return 1.0
+    return folga * dsp.FFT_Q_MAX_FLOAT / pico
+
+
+def build_fft_request(x_float: np.ndarray, *,
+                      normalizar: bool = True,
+                      scale: "float | None" = None) -> "tuple[bytes, float]":
     """Constroi request FFT. SEMPRE codifica em Q15.8.
+
+    Devolve (payload, escala_usada). O chamador PRECISA passar a escala
+    para decode_fft_response, que a desfaz.
 
     O formato Q15.8 e uma caracteristica do hardware FFT da Morphe, nao
     uma escolha do usuario. A codificacao ocorre no cliente, gerando um
@@ -142,12 +162,27 @@ def build_fft_request(x_float: np.ndarray) -> bytes:
     (formato esperado pela SRAM da FPGA, que usa num[23:0] e ignora os
     bits altos).
 
-    Saturacao em [-32768.0, +32767.99609375] e aplicada silenciosamente.
-    Para verificar overflow antes, use `dsp_core.fft_q1508_range_warning`.
+    `normalizar` (padrao True) multiplica x[n] para encostar no teto da
+    faixa antes de quantizar, e a escala e desfeita na volta. A conta e
+    exata -- a DFT e linear, entao DFT(s*x)/s = DFT(x) -- e o que muda e
+    so o erro de quantizacao, que cai por s. Medido na placa: 6,02 dB por
+    bit de faixa recuperado, ate o teto de ~92 dB do IP. Um sinal de
+    amplitude 3 numa faixa que vai a 32768 desperdica ~13 bits.
+
+    Com normalizar=False vale o comportamento antigo: x[n] vai como esta
+    e valores fora de [-32768, +32767.996] SATURAM silenciosamente. Serve
+    para reproduzir medidas antigas e para ver a diferenca na tela.
+
+    `scale` fixa a escala na mao e ignora `normalizar`.
+
+    Ver PRECISAO-NUMERICA.md para os numeros medidos.
     """
     # Importacao tardia para evitar ciclo entre dsp_core e morphe_protocol
     import dsp_core as dsp
-    encoded = dsp.fft_q1508_encode(x_float)
+
+    if scale is None:
+        scale = escala_para_q1508(x_float) if normalizar else 1.0
+    encoded = dsp.fft_q1508_encode(np.asarray(x_float) * scale)
 
     hdr = struct.pack(
         ">IHHHHII",
@@ -155,11 +190,12 @@ def build_fft_request(x_float: np.ndarray) -> bytes:
         len(encoded), 0,
     )
     # encoded ja e int32; serializa em big-endian
-    return hdr + encoded.astype(">i4").tobytes()
+    return hdr + encoded.astype(">i4").tobytes(), float(scale)
 
 
 def build_ifft_request(X: np.ndarray,
-                       scale: "float | None" = None) -> "tuple[bytes, float]":
+                       scale: "float | None" = None, *,
+                       normalizar: bool = True) -> "tuple[bytes, float]":
     """Constroi request IFFT a partir de um espectro complexo.
 
     Devolve (payload, escala_usada). O chamador PRECISA dividir a resposta
@@ -173,15 +209,16 @@ def build_ifft_request(X: np.ndarray,
     faixa inteira do Q15.8, manda, e desfaz a escala na volta. Como a
     transformada e linear, isso e exato -- nao e aproximacao.
 
-    Com scale=None a escala e calculada para encostar em FFT_Q_MAX_FLOAT
-    com uma folga de 2%. Passe um valor para fixar a escala na mao.
+    Com scale=None e normalizar=True (o padrao) a escala e calculada para
+    encostar em FFT_Q_MAX_FLOAT com folga de 2%. Com normalizar=False a
+    escala e 1.0 e o espectro vai como esta -- util para ver o efeito na
+    tela, e nada mais. Passe `scale` para fixar o valor na mao.
     """
     import dsp_core as dsp
 
     X = np.asarray(X, dtype=np.complex128)
     if scale is None:
-        pico = float(np.max(np.abs(np.concatenate([X.real, X.imag]))))
-        scale = 1.0 if pico <= 0.0 else (0.98 * dsp.FFT_Q_MAX_FLOAT / pico)
+        scale = escala_para_q1508(X) if normalizar else 1.0
 
     re = dsp.fft_q1508_encode(X.real * scale)
     im = dsp.fft_q1508_encode(X.imag * scale)
@@ -318,16 +355,23 @@ def decode_fir_response(resp: Response) -> np.ndarray:
     return arr.astype(np.float64)
 
 
-def decode_fft_response(resp: Response) -> np.ndarray:
+def decode_fft_response(resp: Response, scale: float = 1.0) -> np.ndarray:
+    """Decodifica X[k] e desfaz a escala usada no request.
+
+    `scale` e o segundo valor devolvido por build_fft_request. O padrao
+    1.0 cobre quem nao normalizou.
+    """
     if not resp.ok:
         raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
     if resp.opcode != OP_FFT:
         raise ValueError(f"esperado opcode FFT, veio {resp.opcode}")
+    if scale == 0.0:
+        raise ValueError("escala zero: o request nao pode ser desfeito")
     interleaved = np.frombuffer(resp.payload, dtype=">f4", count=2 * resp.n_out)
     interleaved = interleaved.astype(np.float32)
     re = interleaved[0::2].astype(np.float64)
     im = interleaved[1::2].astype(np.float64)
-    return re + 1j * im
+    return (re + 1j * im) / scale
 
 
 def decode_ifft_response(resp: Response, scale: float) -> np.ndarray:

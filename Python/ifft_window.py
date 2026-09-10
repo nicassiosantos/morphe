@@ -168,6 +168,16 @@ class IFFTWindow(tk.Toplevel):
                             style="Card.TLabelframe",
                             padding=(14, 12, 14, 14))
         op.pack(fill="x", pady=(12, 0))
+        # Ver PRECISAO-NUMERICA.md: normalizar encosta o pico do espectro
+        # no teto do Q15.8 antes de quantizar e desfaz a escala na volta.
+        # Exato, porque a IDFT e linear. Desligavel para dar de comparar.
+        self.var_norm = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            op, text="Normalizar o espectro (faixa cheia do Q15.8)",
+            variable=self.var_norm,
+            style="Card.TCheckbutton",
+        ).pack(anchor="w", pady=(0, 6))
+
         self.btn_ifft = ttk.Button(op, text="Calcular IFFT na FPGA",
                                    style="Primary.TButton",
                                    command=self._on_ifft, state="disabled")
@@ -318,12 +328,13 @@ class IFFTWindow(tk.Toplevel):
             return
 
         X = self.X
+        normalizar = bool(self.var_norm.get())
         self.btn_ifft.configure(state="disabled")
         self.status.set("Mandando o espectro à FPGA (inverse=1)...")
 
         def worker():
             try:
-                req, escala = build_ifft_request(X)
+                req, escala = build_ifft_request(X, normalizar=normalizar)
                 resp = client.request(req)
                 x_hw = decode_ifft_response(resp, escala)
                 self.after(0, lambda: self._on_ifft_done(x_hw, escala))

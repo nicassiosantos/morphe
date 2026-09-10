@@ -84,7 +84,8 @@ def main() -> int:
     x = (10.0 * np.sin(2 * np.pi * 7 * n / N)
          + 4.0 * np.cos(2 * np.pi * 23 * n / N))
 
-    X_hw = decode_fft_response(client.request(build_fft_request(x)))
+    req_fft, esc_fft = build_fft_request(x)
+    X_hw = decode_fft_response(client.request(req_fft), esc_fft)
     x_volta = ifft_fpga(client, X_hw)
 
     e_re = erro_rel(x_volta.real, x)

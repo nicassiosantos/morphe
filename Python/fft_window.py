@@ -278,6 +278,27 @@ class FFTWindow(tk.Toplevel):
             style="SectionHint.TLabel",
         ).pack(anchor="w", pady=(0, 8))
 
+        # Normalizacao: multiplica a entrada para encostar no teto do
+        # Q15.8 e desfaz a escala na volta. Exato, porque a transformada e
+        # linear -- o que muda e so o erro de quantizacao. Fica visivel e
+        # desligavel porque a diferenca entre ligado e desligado e a coisa
+        # mais didatica desta tela: ~40 dB de SNR num sinal de amplitude
+        # pequena. Ver PRECISAO-NUMERICA.md.
+        self.var_norm = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            op, text="Normalizar entrada (usa a faixa cheia do Q15.8)",
+            variable=self.var_norm,
+            style="Card.TCheckbutton",
+        ).pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            op,
+            text="Vale para a FFT e para a IFFT desta tela. Desligado, o "
+                 "sinal vai como está — é o comportamento antigo, e satura "
+                 "acima de 32768.",
+            style="SectionHint.TLabel",
+            wraplength=300, justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
         self.var_magdb = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             op, text="Magnitude em dB",
@@ -459,7 +480,10 @@ class FFTWindow(tk.Toplevel):
             messagebox.showerror("Tamanho excedido", str(e))
             return
 
-        warn = dsp.fft_q1508_range_warning(x_padded)
+        # Com normalizacao nao ha saturacao: a escala encosta o pico no
+        # teto em vez de cortar nele. O aviso so faz sentido sem ela.
+        warn = (None if self.var_norm.get()
+                else dsp.fft_q1508_range_warning(x_padded))
         if warn:
             ok = messagebox.askokcancel(
                 "Atenção — faixa Q15.8",
@@ -474,25 +498,35 @@ class FFTWindow(tk.Toplevel):
             "enviando à FPGA..."
         )
 
+        normalizar = bool(self.var_norm.get())
+
         def worker():
             try:
-                req = build_fft_request(x_padded)
+                req, escala = build_fft_request(x_padded,
+                                                normalizar=normalizar)
                 resp = client.request(req)
-                X = decode_fft_response(resp)
-                self.after(0, lambda: self._on_fft_done(X))
+                X = decode_fft_response(resp, escala)
+                self.after(0, lambda: self._on_fft_done(X, escala))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_fft_error(err))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_fft_done(self, X: np.ndarray):
+    def _on_fft_done(self, X: np.ndarray, escala: float = 1.0):
         self.X_complex = X
         # Um X[k] novo invalida a reconstrucao anterior.
         self.x_ifft = None
         self._redraw()
         self.btn_fft.config(state="normal")
         self.btn_ifft.config(state="normal")
-        self.status.set(f"OK. FFT com {len(X)} pontos.")
+        if abs(escala - 1.0) > 1e-12:
+            self.status.set(
+                "OK. FFT com %d pontos.  Entrada normalizada por %.4g "
+                "(%.1f bits de faixa recuperados)."
+                % (len(X), escala, np.log2(escala)))
+        else:
+            self.status.set("OK. FFT com %d pontos.  Sem normalização."
+                            % len(X))
 
     def _on_fft_error(self, err: Exception):
         self.btn_fft.config(state="normal")
@@ -515,12 +549,13 @@ class FFTWindow(tk.Toplevel):
             return
 
         X = self.X_complex
+        normalizar = bool(self.var_norm.get())
         self.btn_ifft.config(state="disabled")
         self.status.set("Mandando X[k] de volta à FPGA (inverse=1)...")
 
         def worker():
             try:
-                req, escala = build_ifft_request(X)
+                req, escala = build_ifft_request(X, normalizar=normalizar)
                 resp = client.request(req)
                 x_rec = decode_ifft_response(resp, escala)
                 self.after(0, lambda: self._on_ifft_done(x_rec))

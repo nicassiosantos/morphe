@@ -72,12 +72,26 @@ não os 80 dB que a conta dos 13 bits sugeriria. O teto do IP corta antes.
 
 ---
 
-## 4. O que hoje normaliza e o que não normaliza
+## 4. A normalização é opcional, e o padrão é ligada
 
-| operação | normaliza a entrada? | SNR medido |
-|---|---|---|
-| FFT direta | **não** — manda x[n] como está | 43,9 a 50,4 dB |
-| IFFT | sim, em `build_ifft_request` | 92 a 94,4 dB |
+Desde 10/09/2026 as duas operações normalizam por padrão, e a caixa
+"Normalizar entrada" nas telas da FFT e da IFFT desliga. Medido na placa,
+mesmo sinal (pico 3,3) e mesmo espectro:
+
+| operação | sem normalizar | normalizada | escala usada |
+|---|---:|---:|---:|
+| FFT direta | 50,42 dB | **91,53 dB** | 9737 |
+| IFFT | 91,17 dB | **92,69 dB** | 25,09 |
+
+A FFT ganha 41,1 dB porque mandava `x[n]` de amplitude 3 numa faixa que
+vai a 32768. A IFFT ganha pouco **neste** espectro porque o pico dele já
+era 1280; com espectro pequeno a diferença é de ordens de grandeza (erro
+2,7e-03 sem, 5,9e-08 com).
+
+API: `build_fft_request(x, normalizar=True)` e
+`build_ifft_request(X, normalizar=True)` devolvem `(payload, escala)`; o
+`decode_*_response(resp, escala)` desfaz. Desligar reproduz exatamente o
+comportamento anterior, **inclusive a saturação** acima de 32768.
 
 A IFFT normaliza porque o espectro é o caso pior:
 
@@ -92,9 +106,6 @@ ela, 5,9e-08.
 
 Quando o espectro já é grande a normalização rende pouco: com pico 1280,
 só +1,5 dB. Ela é decisiva para espectros pequenos.
-
-**Pendência conhecida:** aplicar o mesmo padrão à FFT direta. É o que
-explica a diferença de ~50 dB entre as duas travessias.
 
 ---
 
@@ -150,15 +161,17 @@ usa a convenção com 1/N, igual ao NumPy, e bate com a FPGA a 2,5e-05.
 
 | medida | valor | condição |
 |---|---|---|
-| ida e volta FFT→IFFT | 9,5e-04 relativo | piso do Q15.8 do espectro |
-| IFFT isolada x NumPy | 2,5e-05 (94,4 dB) | espectro de arquivo |
-| FFT isolada x NumPy | 5,0e-03 (43,9 dB) | sem normalizar a entrada |
+| ida e volta FFT→IFFT | **6,1e-05** | as duas normalizadas |
+| ida e volta FFT→IFFT | 9,5e-04 | nenhuma normalizada (antes de 10/09) |
+| FFT isolada x NumPy | 91,5 dB / 50,4 dB | com / sem normalizar |
+| IFFT isolada x NumPy | 92,7 dB / 91,2 dB | com / sem, espectro de pico 1280 |
 | `idft.m` x `np.fft.ifft` | 7,9e-14 | ambos em double |
 | vazamento imaginário, IFFT de espectro hermitiano | 0 exato | vs 2,5e-13 do idft.m |
 | coeficientes FIR, float x Q15.16 | ≤ 7,6e-06 | metade do passo 1,5e-5 |
 
-**Consequência:** o erro do ida e volta nunca vai a zero. O piso é o
-Q15.8 do espectro, ordem de 1e-3 relativo. Não adianta procurar bug ali.
+**Consequência:** o erro do ida e volta nunca vai a zero, mesmo com tudo
+normalizado — o piso passa a ser o teto de ~92 dB do IP, e não mais o
+Q15.8 da entrada. Não adianta procurar bug ali.
 
 ---
 
