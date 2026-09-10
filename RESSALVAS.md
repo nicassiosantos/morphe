@@ -241,11 +241,18 @@ parâmetro de dtype saiu da API sem que a ferramenta de teste acompanhasse.
 A falha é da ferramenta, não do sistema: com o bitstream correto, a FFT
 funciona normalmente pela interface gráfica.
 
-## 17. A IFFT existe no codigo, mas NAO foi validada em hardware
+## 17. A IFFT: o bit esta vivo; o ida-e-volta ainda nao foi medido
 
-Escrita em 10/09/2026, na branch `estagio/v1.2-ifft`. Compila? Nao sei: nao
-havia compilador C na estacao onde foi escrita. Roda na placa? Nao foi
-tentado. Trate como rascunho ate os dois testes abaixo passarem.
+Escrita em 10/09/2026, na branch `estagio/v1.2-ifft`.
+
+**Ja verificado na DE1-SoC (10/09/2026):** o servidor compila na placa, e o
+`testa_bit_inverse.py` elegeu a hipotese "IDFT sem normalizar" com erro
+3,1e-04 contra `conj(DFT(x))`, contra 2,0 na hipotese de FFT direta. O bit
+`inverse` chega ao IP neste bitstream. O `fpga=799us` no log confirma o core
+rodando.
+
+**Ainda nao verificado:** o caminho `OP_IFFT` inteiro -- payload complexo,
+escala do espectro, ida e volta. Falta rodar o `testa_ifft_roundtrip.py`.
 
 O que ja era verdade antes dela, e nao depende de teste nenhum:
 
@@ -270,10 +277,17 @@ passar:
    uma vez -- se o bit esta vivo no bitstream, e qual o fator de escala.
 2. `Python/testa_ifft_roundtrip.py` -- ida e volta pelo OP_IFFT novo.
 
-**`IFFT_HW_GAIN` no `Python/morphe_config.py` esta chutado em 1.0.** Se o IP
-nao aplicar o fator 1/N da IDFT, o resultado volta 1024 vezes maior e o valor
-correto e `1.0 / FFT_N`. Os dois scripts imprimem o numero medido. Isso nao
-esta documentado no projeto e nao se descobre lendo codigo.
+**`IFFT_HW_GAIN` = `1.0 / FFT_N`, medido, nao chutado.** O IP NAO aplica o
+fator 1/N da IDFT: a saida dele e N vezes a transformada inversa matematica.
+Para `x` real a IDFT vale `conj(DFT(x))/N`, ou seja, magnitude N vezes menor
+que a DFT -- e o que voltou da placa tem a MESMA magnitude (`|Y|/|DFT(x)| =
+1,00031`). O cliente aplica o fator no `decode_ifft_response`.
+
+Cuidado ao reler esse numero: a primeira versao do `testa_bit_inverse.py`
+comparava contra `np.fft.fft` e imprimia a conclusao invertida, dizendo que o
+IP ja aplicava o 1/N. A logica agora testa as tres hipoteses -- direta,
+inversa normalizada, inversa sem normalizar -- e elege a de menor erro
+relativo ao pico de cada uma.
 
 Uma limitacao que nao e bug e nao vai sumir: o espectro trafega em **Q15.8**,
 com 8 bits fracionarios (o caminho da FFT usa Q15.8; quem usa Q15.16 e o

@@ -63,37 +63,49 @@ def main() -> int:
 
     Y = roda(client, x)
 
-    X_ref = np.fft.fft(x)                    # DFT de referencia, no PC
-    dif_direta  = np.max(np.abs(Y - X_ref)) / np.max(np.abs(X_ref))
-    dif_conj    = np.max(np.abs(Y - np.conj(X_ref))) / np.max(np.abs(X_ref))
+    # Tres hipoteses, todas escritas em termos da mesma referencia. Para
+    # x REAL vale IDFT(x) = conj(DFT(x))/N, entao a inversa normalizada e
+    # a nao normalizada diferem por um fator N -- e e exatamente esse
+    # fator que precisamos descobrir.
+    N = len(x)
+    X_ref = np.fft.fft(x)
+    hipoteses = {
+        "DFT direta (bit morto)":            X_ref,
+        "IDFT normalizada (IP aplica 1/N)":  np.conj(X_ref) / N,
+        "IDFT sem normalizar (IP nao aplica 1/N)": np.conj(X_ref),
+    }
 
-    # Escala: quanto a magnitude que voltou difere da DFT do NumPy.
-    razao = float(np.max(np.abs(Y)) / np.max(np.abs(X_ref)))
-
-    print("erro relativo contra DFT(x):        %.4e" % dif_direta)
-    print("erro relativo contra conj(DFT(x)):  %.4e" % dif_conj)
-    print("razao de magnitude |Y| / |DFT(x)|:  %.6g" % razao)
+    # Erro relativo ao pico de CADA hipotese: sem isso a hipotese de
+    # menor amplitude ganharia sozinha, so por ser pequena.
+    erros = {nome: float(np.max(np.abs(Y - ref)) / np.max(np.abs(ref)))
+             for nome, ref in hipoteses.items()}
+    for nome, e in erros.items():
+        print("erro relativo contra %-42s %.4e" % (nome, e))
+    print("razao de magnitude |Y| / |DFT(x)|:  %.6g"
+          % float(np.max(np.abs(Y)) / np.max(np.abs(X_ref))))
     print()
 
-    if dif_conj < dif_direta / 10.0:
-        print("=> INVERSA. O bit `inverse` esta vivo neste bitstream.")
-        print("   A parte imaginaria voltou conjugada, que e a IDFT de um")
-        print("   sinal real.")
-        if abs(razao - 1.0) < 0.05:
-            print("   O IP JA aplica o 1/N: deixe IFFT_HW_GAIN = 1.0")
-        else:
-            print("   Fator residual medido: %.6g" % razao)
-            print("   Ponha IFFT_HW_GAIN = %.10g no morphe_config.py"
-                  % (1.0 / razao))
-    elif dif_direta < dif_conj / 10.0:
+    vencedora = min(erros, key=erros.get)
+    segunda = sorted(erros.values())[1]
+    if erros[vencedora] > 0.01 or erros[vencedora] > segunda / 10.0:
+        print("=> INDEFINIDO. Nenhuma hipotese se destacou.")
+        print("   Provavel problema de escala ou de Q15.8 -- confira antes")
+        print("   se a FFT normal fecha com o NumPy.")
+    elif vencedora.startswith("DFT direta"):
         print("=> DIRETA. O que voltou e a FFT comum.")
         print("   Ou o servidor nao esta com MORPHE_FFT_INVERSE=1, ou o bit")
         print("   nao chega ao IP neste bitstream. Confira o log do servidor:")
         print("   ele avisa na subida quando o diagnostico esta ligado.")
     else:
-        print("=> INDEFINIDO. Nenhuma das duas hipoteses ficou clara.")
-        print("   Provavel problema de escala ou de Q15.8 -- confira antes")
-        print("   se a FFT normal fecha com o NumPy.")
+        print("=> INVERSA. O bit `inverse` esta vivo neste bitstream.")
+        print("   A parte imaginaria voltou conjugada, que e a IDFT de um")
+        print("   sinal real.")
+        if "sem normalizar" in vencedora:
+            print("   O IP NAO aplica o 1/N -- a saida e N vezes a IDFT.")
+            print("   IFFT_HW_GAIN = 1.0 / FFT_N  (= %.10g)" % (1.0 / N))
+        else:
+            print("   O IP JA aplica o 1/N.")
+            print("   IFFT_HW_GAIN = 1.0")
 
     aviso = dsp.fft_q1508_range_warning(x)
     if aviso:
