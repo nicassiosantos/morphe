@@ -255,6 +255,13 @@ localparam FIR_SAMPLE_PERIOD = 96;   // 50 MHz / 0.52 MSPS
 
 // --- CONV1D Parameters (Fixed point Q16.16 signed) ---
 // Integer: +-32767 | Float: ~0.000015
+// --- IIR (cascata de secoes de 2a ordem) ---
+localparam IIR_DATA_WIDTH      = 32;
+localparam IIR_ADDR_WIDTH      = 10;    // 1024 amostras
+localparam IIR_COEF_ADDR_WIDTH = 8;     // 256 palavras = ate 51 secoes
+localparam IIR_N_SAMPLES       = 1024;
+localparam IIR_MAX_SECOES      = 16;    // ordem 32; o estudo nunca passou de 11
+
 localparam CONV1d_DATA_WIDTH    = 32;
 localparam CONV1d_XN_ADDR_WIDTH = 10;
 localparam CONV1d_HN_ADDR_WIDTH = 10;
@@ -349,6 +356,43 @@ wire                            conv1d_yn_write;
 wire [CONV1d_DATA_WIDTH-1:0]    conv1d_yn_readdata;
 wire [CONV1d_DATA_WIDTH-1:0]    conv1d_yn_writedata;
 wire [3:0]                      conv1d_yn_byteenable = 4'b1111;
+
+
+/* -------------------------------------------------------------------------------------------
+ * 3-bis. IIR CASCADE PERIPHERAL SIGNALS
+ * ------------------------------------------------------------------------------------------- */
+// --- Controle e status ---
+wire                              iir_start;
+wire                              iir_done;
+wire                              iir_error;
+wire [4:0]                        iir_nsecoes;
+
+// --- SRAM de entrada x[n] ---
+wire [IIR_ADDR_WIDTH-1:0]         iir_xn_address;
+wire                              iir_xn_clken;
+wire                              iir_xn_chipselect;
+wire                              iir_xn_write;
+wire [IIR_DATA_WIDTH-1:0]         iir_xn_readdata;
+wire [IIR_DATA_WIDTH-1:0]         iir_xn_writedata;
+wire [3:0]                        iir_xn_byteenable = 4'b1111;
+
+// --- SRAM dos coeficientes: 5 palavras por secao ---
+wire [IIR_COEF_ADDR_WIDTH-1:0]    iir_coef_address;
+wire                              iir_coef_clken;
+wire                              iir_coef_chipselect;
+wire                              iir_coef_write;
+wire [IIR_DATA_WIDTH-1:0]         iir_coef_readdata;
+wire [IIR_DATA_WIDTH-1:0]         iir_coef_writedata;
+wire [3:0]                        iir_coef_byteenable = 4'b1111;
+
+// --- SRAM de saida y[n] ---
+wire [IIR_ADDR_WIDTH-1:0]         iir_yn_address;
+wire                              iir_yn_clken;
+wire                              iir_yn_chipselect;
+wire                              iir_yn_write;
+wire [IIR_DATA_WIDTH-1:0]         iir_yn_readdata;
+wire [IIR_DATA_WIDTH-1:0]         iir_yn_writedata;
+wire [3:0]                        iir_yn_byteenable = 4'b1111;
 
 
 /* -------------------------------------------------------------------------------------------
@@ -649,6 +693,53 @@ fft_wrapper #(
 
 
 // ===========================================================================================
+// INSTANTIATION: IIR Cascade
+// ===========================================================================================
+// A saida y[n] tem o mesmo comprimento da entrada -- diferente do conv1d, em
+// que y cresce para N+M-1. Filtro recursivo nao alonga o sinal.
+iir_cascade #(
+    .DATA_WIDTH       (IIR_DATA_WIDTH),
+    .FRAC_BITS        (16),                    // Q15.16, o mesmo do conv1d
+    .ACC_WIDTH        (72),
+    .N_SAMPLES        (IIR_N_SAMPLES),
+    .ADDR_N_BITS      (IIR_ADDR_WIDTH),
+    .MAX_SECOES       (IIR_MAX_SECOES),
+    .COEF_ADDR_N_BITS (IIR_COEF_ADDR_WIDTH)
+) iir_inst (
+    .clk       (CLOCK_50),
+    .reset_n   (hps_fpga_reset_n),
+
+    // PIOs de controle
+    .start     (iir_start),          // HPS -> FPGA
+    .done      (iir_done),           // FPGA -> HPS
+    .error_sat (iir_error),          // FPGA -> HPS, saturou em alguma amostra
+    .n_secoes  (iir_nsecoes[$clog2(IIR_MAX_SECOES+1)-1:0]),
+
+    // SRAM dos coeficientes
+    .coef_sram_readdata   (iir_coef_readdata),
+    .coef_sram_address    (iir_coef_address),
+    .coef_sram_chipselect (iir_coef_chipselect),
+    .coef_sram_clken      (iir_coef_clken),
+    .coef_sram_write      (iir_coef_write),
+
+    // SRAM de x[n]
+    .xn_sram_readdata     (iir_xn_readdata),
+    .xn_sram_address      (iir_xn_address),
+    .xn_sram_chipselect   (iir_xn_chipselect),
+    .xn_sram_clken        (iir_xn_clken),
+    .xn_sram_write        (iir_xn_write),
+
+    // SRAM de y[n]
+    .yn_sram_address      (iir_yn_address),
+    .yn_sram_wdata        (iir_yn_writedata),
+    .yn_sram_chipselect   (iir_yn_chipselect),
+    .yn_sram_clken        (iir_yn_clken),
+    .yn_sram_write        (iir_yn_write),
+
+    .debug_state          ()
+);
+
+// ===========================================================================================
 // INSTANTIATION: FIR Filter (using conv1d hardware accelerator)
 // ===========================================================================================
 conv1d #(
@@ -816,6 +907,39 @@ soc_system u0 (
     .fir_yn_readdata        (fir_yn_readdata),
     .fir_yn_writedata       (fir_yn_writedata),
     .fir_yn_byteenable      (fir_yn_byteenable),
+
+    // ======================================================
+    //  CUSTOM DSP EXPORTS: IIR
+    // ======================================================
+    .iir_start_export       (iir_start),
+    .iir_done_export        (iir_done),
+    .iir_error_export       (iir_error),
+    .iir_nsecoes_export     (iir_nsecoes),
+
+    .iir_xn_address          (iir_xn_address),
+    .iir_xn_clken            (iir_xn_clken),
+    .iir_xn_chipselect       (iir_xn_chipselect),
+    .iir_xn_write            (iir_xn_write),
+    .iir_xn_readdata         (iir_xn_readdata),
+    .iir_xn_writedata        (iir_xn_writedata),
+    .iir_xn_byteenable       (iir_xn_byteenable),
+
+    .iir_coef_address        (iir_coef_address),
+    .iir_coef_clken          (iir_coef_clken),
+    .iir_coef_chipselect     (iir_coef_chipselect),
+    .iir_coef_write          (iir_coef_write),
+    .iir_coef_readdata       (iir_coef_readdata),
+    .iir_coef_writedata      (iir_coef_writedata),
+    .iir_coef_byteenable     (iir_coef_byteenable),
+
+    .iir_yn_address          (iir_yn_address),
+    .iir_yn_clken            (iir_yn_clken),
+    .iir_yn_chipselect       (iir_yn_chipselect),
+    .iir_yn_write            (iir_yn_write),
+    .iir_yn_readdata         (iir_yn_readdata),
+    .iir_yn_writedata        (iir_yn_writedata),
+    .iir_yn_byteenable       (iir_yn_byteenable),
+
 
     
     // =======================================================================================
