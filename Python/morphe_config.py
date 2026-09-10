@@ -25,6 +25,19 @@ FFT_DATA_BITS: int = 24
 #: Faixa: [-32768.0, +32767.99609375]; resolucao: 2^-8 = 0.00390625.
 FFT_FRAC_BITS: int = 8
 
+#: Ganho residual da transformada INVERSA no hardware -- CALIBRAR NA PLACA.
+#:
+#: O IP da FFT (Buffered Burst, ponto flutuante de bloco) devolve o
+#: expoente BFP, que o servidor ja aplica. O que sobra e a convencao do
+#: proprio IP quanto ao fator 1/N da IDFT: se ele nao aplica, o resultado
+#: volta N vezes maior. Isso nao esta escrito em lugar nenhum do projeto e
+#: nao se descobre lendo codigo -- mede-se.
+#:
+#: Rode `testa_ifft_roundtrip.py` com a placa ligada: ele imprime a razao
+#: medida entre o x[n] original e o que voltou. Se der 1, deixe 1.0 aqui.
+#: Se der 1024 (= FFT_N), ponha 1.0 / FFT_N.
+IFFT_HW_GAIN: float = 1.0
+
 # ---- Convolucao 1D --------------------------------------------------------
 
 #: Numero maximo de amostras por entrada (x ou h) -- formato Q15.16.

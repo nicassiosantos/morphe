@@ -240,3 +240,44 @@ parâmetro de dtype saiu da API sem que a ferramenta de teste acompanhasse.
 
 A falha é da ferramenta, não do sistema: com o bitstream correto, a FFT
 funciona normalmente pela interface gráfica.
+
+## 17. A IFFT existe no codigo, mas NAO foi validada em hardware
+
+Escrita em 10/09/2026, na branch `estagio/v1.2-ifft`. Compila? Nao sei: nao
+havia compilador C na estacao onde foi escrita. Roda na placa? Nao foi
+tentado. Trate como rascunho ate os dois testes abaixo passarem.
+
+O que ja era verdade antes dela, e nao depende de teste nenhum:
+
+- O IP da FFT foi gerado **bidirecional** (`Quartus/fft_core/fft_core.xml:602`,
+  `direction = "Bi-directional"`), entao o nucleo aceita a inversa.
+- O `fft_wrapper.v` recebe o bit `inverse` (:21), trava ele na borda de subida
+  do `start` (:133) e entrega ao IP (:298). A FSM nao pressupoe direcao.
+- Existe um PIO de 1 bit `fft_inverse` (`soc_system.qsys:703`), exportado em
+  `ghrd_top.v:706` e ligado em `:574`. Endereco: `FFT_INVERSE_BASE 0x70`.
+- O servidor sempre escreveu `0` nesse PIO. Era uma constante esperando virar
+  parametro.
+
+Ou seja: **nao ha nada a resintetizar**. O `.sof` versionado ja tem o caminho.
+
+Ordem obrigatoria dos testes, porque o segundo so faz sentido se o primeiro
+passar:
+
+1. `Python/testa_bit_inverse.py` -- com o servidor iniciado com
+   `MORPHE_FFT_INVERSE=1 sudo -E ./morphe_server`. Nao usa o OP_IFFT nem
+   payload complexo: manda um sinal real pelo caminho da FFT que ja funciona
+   e verifica se a parte imaginaria voltou conjugada. Responde duas coisas de
+   uma vez -- se o bit esta vivo no bitstream, e qual o fator de escala.
+2. `Python/testa_ifft_roundtrip.py` -- ida e volta pelo OP_IFFT novo.
+
+**`IFFT_HW_GAIN` no `Python/morphe_config.py` esta chutado em 1.0.** Se o IP
+nao aplicar o fator 1/N da IDFT, o resultado volta 1024 vezes maior e o valor
+correto e `1.0 / FFT_N`. Os dois scripts imprimem o numero medido. Isso nao
+esta documentado no projeto e nao se descobre lendo codigo.
+
+Uma limitacao que nao e bug e nao vai sumir: o espectro trafega em **Q15.8**,
+com 8 bits fracionarios (o caminho da FFT usa Q15.8; quem usa Q15.16 e o
+conv1d/FIR -- sao formatos diferentes em blocos diferentes). Por isso o
+`build_ifft_request` normaliza o espectro para a faixa cheia antes de
+codificar e desfaz a escala na volta. Mesmo assim o erro do ida-e-volta tem
+piso na ordem de 1e-3 relativo, nao 1e-7.

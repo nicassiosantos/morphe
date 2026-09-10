@@ -92,6 +92,13 @@ _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 #define RX_BUF_MAX 16384
 #define TX_BUF_MAX 32768
 
+/* O espectro complexo da IFFT (2 int32 por bin) e o maior payload de
+ * entrada do servidor: 8 KiB para N=1024. */
+_Static_assert(MORPHE_FFT_N * 8 <= RX_BUF_MAX,
+               "RX_BUF_MAX nao comporta o espectro complexo da IFFT");
+_Static_assert(MORPHE_FFT_N * 8 <= TX_BUF_MAX,
+               "TX_BUF_MAX nao comporta a saida complexa da FFT/IFFT");
+
 /* =======================================================================
  * Globais — ponteiros mapeados e fd de /dev/mem
  * ======================================================================= */
@@ -126,6 +133,17 @@ static volatile uint32_t *g_pio_fir_error    = NULL;
 
 static struct timespec  g_start_time;
 static char             g_hostname[128] = "morphe-server";
+
+/* Diagnostico: forca o bit `inverse` do IP da FFT no caminho do OP_FFT.
+ *
+ * Serve para responder, sem tocar no protocolo, se o bit esta vivo no
+ * bitstream que esta na placa. Com MORPHE_FFT_INVERSE=1 no ambiente, uma
+ * FFT comum de um sinal REAL passa a calcular a IDFT desse sinal, que
+ * para entrada real e o conjugado da DFT (a menos da escala). Se a parte
+ * imaginaria trocar de sinal em bloco, o bit funciona.
+ *
+ * Vale 0 na operacao normal. Nao afeta o OP_IFFT, que sempre usa 1. */
+static int g_fft_force_inverse = 0;
 
 #define LOG(fmt, ...) do { \
     fprintf(stderr, "[morphe] " fmt "\n", ##__VA_ARGS__); \
@@ -383,7 +401,7 @@ static void save_debug_bundle_conv(const char *prefix, uint16_t dtype,
 #endif
 }
 
-static void save_debug_bundle_fft(uint32_t n_x,
+static void save_debug_bundle_fft(const char *prefix, uint32_t n_x,
                                   const int32_t *x_re_raw, const int32_t *x_im_raw,
                                   const int32_t *y_re_raw, const int32_t *y_im_raw,
                                   uint32_t exp_raw, int32_t bfp_exp,
@@ -392,7 +410,9 @@ static void save_debug_bundle_fft(uint32_t n_x,
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     char filename[128];
-    strftime(filename, sizeof(filename), "fft_%Y%m%d_%H%M%S.mrph", t);
+    char pat[64];
+    snprintf(pat, sizeof pat, "%s_%%Y%%m%%d_%%H%%M%%S.mrph", prefix);
+    strftime(filename, sizeof(filename), pat, t);
     
     FILE *f = fopen(filename, "w");
     if (!f) {
@@ -405,7 +425,7 @@ static void save_debug_bundle_fft(uint32_t n_x,
     
     fprintf(f, "# MORPHE BUNDLE FILE\n");
     fprintf(f, "# saved: %s\n", timestamp);
-    fprintf(f, "# title: fft server debug dump\n");
+    fprintf(f, "# title: %s server debug dump\n", prefix);
     fprintf(f, "# sections: 3\n");
     fprintf(f, "# section_names: x, y_raw, y\n");
     fprintf(f, "# bfp_exp_raw: 0x%02X (%u)\n", exp_raw, exp_raw);
@@ -586,72 +606,150 @@ static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     return 0;
 }
 
-static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
-    LOG("FFT request: dtype=%u, n_x=%u", dtype, n_x);
-
-    if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_DTYPE, "FFT: use int32 (Q15.8)");
-    if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_SIZE, "FFT: N invalido");
-
-    struct timespec t_start, t_after_recv, t_after_decode, t_after_fpga, t_after_pack, t_end;
-    clock_gettime(CLOCK_MONOTONIC, &t_start);
-
-    size_t payload_bytes = (size_t) n_x * 4;
-    static uint8_t rx_buf[RX_BUF_MAX];
-    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
-    clock_gettime(CLOCK_MONOTONIC, &t_after_recv);
-
-    static int32_t xn_re_buf[MORPHE_FFT_N];
-    decode_samples_to_q1508(rx_buf, n_x, xn_re_buf);
-    clock_gettime(CLOCK_MONOTONIC, &t_after_decode);
-
-    for (uint32_t i = 0; i < n_x; i++) {
-        g_fft_xn_re[i]   = xn_re_buf[i];
-        g_fft_xn_imag[i] = 0;
-    }
-
-    *g_pio_fft_inverse = 0;
+/* Dispara o IP da FFT sobre o que ja esta nas SRAMs de entrada e recolhe
+ * o resultado. Unico ponto do servidor que fala com o hardware da FFT --
+ * a direta e a inversa diferem so pelo argumento `inverse`.
+ *
+ * O wrapper trava o bit `inverse` na borda de subida do `start`
+ * (fft_wrapper.v:133), entao a ordem aqui e obrigatoria: escrever o bit,
+ * garantir start baixo, e so entao subir o start.
+ *
+ * Devolve 0 em sucesso e -1 em timeout. Os y_*_raw sao os inteiros como
+ * saem da SRAM; total_scale ja combina o expoente BFP com o Q15.8. */
+static int fft_run_block(uint32_t n, int inverse,
+                         int32_t *y_re_raw, int32_t *y_im_raw,
+                         uint32_t *exp_raw_out, int32_t *bfp_exp_out,
+                         float *total_scale_out) {
+    *g_pio_fft_inverse = inverse ? 1u : 0u;
     *g_pio_fft_start = 0;
     usleep(1);
     *g_pio_fft_start = 1;
 
     if (wait_done(g_pio_fft_done, FPGA_DONE_TIMEOUT_MS) < 0) {
         *g_pio_fft_start = 0;
-        return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_FPGA_TIMEOUT, "FFT: timeout");
+        return -1;
     }
     *g_pio_fft_start = 0;
-    clock_gettime(CLOCK_MONOTONIC, &t_after_fpga);
 
     uint32_t exp_raw = (*g_pio_fft_bfp_exp) & 0x3F;
     int32_t  bfp_exp = (exp_raw & 0x20) ? (int32_t)(exp_raw | 0xFFFFFFC0U) : (int32_t) exp_raw;
     float bfp_scale   = ldexpf(1.0f, -bfp_exp); /* y_real = y_raw * 2^(-exp) */
-    float total_scale = bfp_scale / (float) MORPHE_Q1508_SCALE;
+
+    for (uint32_t k = 0; k < n; k++) {
+        y_re_raw[k] = g_fft_yn_re[k];
+        y_im_raw[k] = g_fft_yn_imag[k];
+    }
+
+    *exp_raw_out     = exp_raw;
+    *bfp_exp_out     = bfp_exp;
+    *total_scale_out = bfp_scale / (float) MORPHE_Q1508_SCALE;
+    return 0;
+}
+
+/* Empacota N bins complexos em float32 big-endian, re e im intercalados.
+ * E o formato de resposta tanto da FFT quanto da IFFT. */
+static void pack_complex_be(uint8_t *tx, uint32_t n,
+                            const int32_t *re_raw, const int32_t *im_raw,
+                            float scale) {
+    for (uint32_t k = 0; k < n; k++) {
+        f32_to_be(tx + k * 8 + 0, (float) re_raw[k] * scale);
+        f32_to_be(tx + k * 8 + 4, (float) im_raw[k] * scale);
+    }
+}
+
+static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
+    LOG("FFT request: dtype=%u, n_x=%u", dtype, n_x);
+
+    if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_DTYPE, "FFT: use int32 (Q15.8)");
+    if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_SIZE, "FFT: N invalido");
+
+    size_t payload_bytes = (size_t) n_x * 4;
+    static uint8_t rx_buf[RX_BUF_MAX];
+    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+
+    static int32_t xn_re_buf[MORPHE_FFT_N];
+    decode_samples_to_q1508(rx_buf, n_x, xn_re_buf);
+
+    for (uint32_t i = 0; i < n_x; i++) {
+        g_fft_xn_re[i]   = xn_re_buf[i];
+        g_fft_xn_imag[i] = 0;
+    }
+
+    static int32_t y_re_raw[MORPHE_FFT_N];
+    static int32_t y_im_raw[MORPHE_FFT_N];
+    uint32_t exp_raw; int32_t bfp_exp; float total_scale;
+
+    if (fft_run_block(n_x, g_fft_force_inverse, y_re_raw, y_im_raw,
+                      &exp_raw, &bfp_exp, &total_scale) < 0) {
+        return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_FPGA_TIMEOUT, "FFT: timeout");
+    }
+    if (g_fft_force_inverse) LOG("  (rodou com inverse=1 -- diagnostico)");
 
     static uint8_t tx_buf[TX_BUF_MAX];
     uint8_t hdr[MORPHE_HEADER_SIZE];
     build_resp_header(hdr, MORPHE_OP_FFT, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, n_x);
+    pack_complex_be(tx_buf, n_x, y_re_raw, y_im_raw, total_scale);
 
-    /* Copiando yn_re e yn_im localmente para passar pro debug bundle */
-    static int32_t y_re_raw[MORPHE_FFT_N];
-    static int32_t y_im_raw[MORPHE_FFT_N];
-
-    for (uint32_t k = 0; k < n_x; k++) {
-        y_re_raw[k] = g_fft_yn_re[k];
-        y_im_raw[k] = g_fft_yn_imag[k];
-        float re_f = (float) y_re_raw[k] * total_scale;
-        float im_f = (float) y_im_raw[k] * total_scale;
-        f32_to_be(tx_buf + k * 8 + 0, re_f);
-        f32_to_be(tx_buf + k * 8 + 4, im_f);
-    }
-    clock_gettime(CLOCK_MONOTONIC, &t_after_pack);
-    
     /* Salva bundle de debug (x_im é NULL pois a FFT recebe apenas entrada real) */
-    save_debug_bundle_fft(n_x, xn_re_buf, NULL, y_re_raw, y_im_raw,
+    save_debug_bundle_fft("fft", n_x, xn_re_buf, NULL, y_re_raw, y_im_raw,
                           exp_raw, bfp_exp, total_scale);
 
     if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
     if (send_all(sock, tx_buf, (size_t) n_x * 8) < 0) return -1;
-    clock_gettime(CLOCK_MONOTONIC, &t_end);
 
+    return 0;
+}
+
+/* IFFT: mesmo IP, mesmo wrapper, mesma memoria -- muda o bit `inverse` e
+ * o fato de a entrada ser complexa.
+ *
+ * A entrada e um espectro, entao chegam 2*n_x int32 em Q15.8, re e im
+ * intercalados. Cabe quem chama (o cliente) escalar o espectro para a
+ * faixa do Q15.8 antes de mandar e desfazer a escala depois -- o Q15.8
+ * satura em +-32768 e um X[k] pode ser ate N vezes maior que x[n]. */
+static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
+    LOG("IFFT request: dtype=%u, n_x=%u", dtype, n_x);
+
+    if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_DTYPE, "IFFT: use int32 (Q15.8)");
+    if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_SIZE, "IFFT: N invalido");
+
+    size_t payload_bytes = (size_t) n_x * 8;   /* complexo: 4 bytes re + 4 im */
+    static uint8_t rx_buf[RX_BUF_MAX];
+    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+
+    static int32_t xn_re_buf[MORPHE_FFT_N];
+    static int32_t xn_im_buf[MORPHE_FFT_N];
+    for (uint32_t i = 0; i < n_x; i++) {
+        xn_re_buf[i] = saturate_q1508(i32_from_be(rx_buf + i * 8 + 0));
+        xn_im_buf[i] = saturate_q1508(i32_from_be(rx_buf + i * 8 + 4));
+    }
+
+    for (uint32_t i = 0; i < n_x; i++) {
+        g_fft_xn_re[i]   = xn_re_buf[i];
+        g_fft_xn_imag[i] = xn_im_buf[i];
+    }
+
+    static int32_t y_re_raw[MORPHE_FFT_N];
+    static int32_t y_im_raw[MORPHE_FFT_N];
+    uint32_t exp_raw; int32_t bfp_exp; float total_scale;
+
+    if (fft_run_block(n_x, 1, y_re_raw, y_im_raw,
+                      &exp_raw, &bfp_exp, &total_scale) < 0) {
+        return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_FPGA_TIMEOUT, "IFFT: timeout");
+    }
+
+    static uint8_t tx_buf[TX_BUF_MAX];
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_IFFT, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, n_x);
+    pack_complex_be(tx_buf, n_x, y_re_raw, y_im_raw, total_scale);
+
+    save_debug_bundle_fft("ifft", n_x, xn_re_buf, xn_im_buf, y_re_raw, y_im_raw,
+                          exp_raw, bfp_exp, total_scale);
+
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n_x * 8) < 0) return -1;
+
+    LOG("  -> IFFT OK: exp=%d, total_scale=%.8e", bfp_exp, total_scale);
     return 0;
 }
 
@@ -701,6 +799,7 @@ static void serve_connection(int sock) {
     switch (opcode) {
         case MORPHE_OP_CONV: handle_conv(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
+        case MORPHE_OP_IFFT: handle_ifft(sock, dtype, n_x); break;
         case MORPHE_OP_FIR:  handle_fir(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
@@ -715,7 +814,15 @@ int main(int argc, char **argv) {
 
     clock_gettime(CLOCK_MONOTONIC, &g_start_time);
     if (gethostname(g_hostname, sizeof g_hostname) != 0) snprintf(g_hostname, sizeof g_hostname, "morphe-server");
-    
+
+    const char *env_inv = getenv("MORPHE_FFT_INVERSE");
+    g_fft_force_inverse = (env_inv && atoi(env_inv) != 0) ? 1 : 0;
+    if (g_fft_force_inverse) {
+        LOG("DIAGNOSTICO: MORPHE_FFT_INVERSE=1 -- o OP_FFT vai rodar com o");
+        LOG("             bit inverse LIGADO. Nao e a operacao normal.");
+    }
+
+
     if (fpga_init() < 0) return 1;
 
     int srv = socket(AF_INET, SOCK_STREAM, 0);
