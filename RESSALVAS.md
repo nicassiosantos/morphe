@@ -241,57 +241,84 @@ parâmetro de dtype saiu da API sem que a ferramenta de teste acompanhasse.
 A falha é da ferramenta, não do sistema: com o bitstream correto, a FFT
 funciona normalmente pela interface gráfica.
 
-## 17. A IFFT: o bit esta vivo; o ida-e-volta ainda nao foi medido
+## 17. A IFFT: validada em hardware em 10/09/2026
 
-Escrita em 10/09/2026, na branch `estagio/v1.2-ifft`.
+Escrita e validada em 10/09/2026, branch `estagio/v1.2-ifft`, mesclada em
+`estagio/v1.1-1024pontos`.
 
-**Ja verificado na DE1-SoC (10/09/2026):** o servidor compila na placa, e o
-`testa_bit_inverse.py` elegeu a hipotese "IDFT sem normalizar" com erro
-3,1e-04 contra `conj(DFT(x))`, contra 2,0 na hipotese de FFT direta. O bit
-`inverse` chega ao IP neste bitstream. O `fpga=799us` no log confirma o core
-rodando.
+Nao houve mudanca de RTL e nada foi resintetizado. O caminho ja existia
+desligado: o IP foi gerado bidirecional
+(`Quartus/fft_core/fft_core.xml:602`), o `fft_wrapper.v` recebe o bit
+`inverse` (:21), trava ele na borda de subida do `start` (:133) e entrega ao
+IP (:298), e existe um PIO de 1 bit `fft_inverse` (`soc_system.qsys:703`,
+`ghrd_top.v:574` e `:706`) em `FFT_INVERSE_BASE 0x70`. O servidor escrevia
+zero nesse PIO desde sempre.
 
-**Ainda nao verificado:** o caminho `OP_IFFT` inteiro -- payload complexo,
-escala do espectro, ida e volta. Falta rodar o `testa_ifft_roundtrip.py`.
+### O que foi medido na DE1-SoC
 
-O que ja era verdade antes dela, e nao depende de teste nenhum:
+`testa_bit_inverse.py`, com o servidor em `MORPHE_FFT_INVERSE=1`:
 
-- O IP da FFT foi gerado **bidirecional** (`Quartus/fft_core/fft_core.xml:602`,
-  `direction = "Bi-directional"`), entao o nucleo aceita a inversa.
-- O `fft_wrapper.v` recebe o bit `inverse` (:21), trava ele na borda de subida
-  do `start` (:133) e entrega ao IP (:298). A FSM nao pressupoe direcao.
-- Existe um PIO de 1 bit `fft_inverse` (`soc_system.qsys:703`), exportado em
-  `ghrd_top.v:706` e ligado em `:574`. Endereco: `FFT_INVERSE_BASE 0x70`.
-- O servidor sempre escreveu `0` nesse PIO. Era uma constante esperando virar
-  parametro.
+| hipotese                          | erro relativo |
+|-----------------------------------|---------------|
+| DFT direta (bit morto)            | 2,0e+00       |
+| IDFT normalizada (IP aplica 1/N)  | 1,0e+03       |
+| **IDFT sem normalizar**           | **3,1e-04**   |
 
-Ou seja: **nao ha nada a resintetizar**. O `.sof` versionado ja tem o caminho.
+`testa_ifft_roundtrip.py`, zero falhas: delta espectral 3,1e-05; ida e volta
+9,5e-04 na parte real com 6,3e-04 de vazamento imaginario; ganho por minimos
+quadrados 1,0002.
 
-Ordem obrigatoria dos testes, porque o segundo so faz sentido se o primeiro
-passar:
+Contra a IDFT do professor (`DSPFinal/idft.m` no MATLAB R2024b), com um
+espectro de 1024 bins:
 
-1. `Python/testa_bit_inverse.py` -- com o servidor iniciado com
-   `MORPHE_FFT_INVERSE=1 sudo -E ./morphe_server`. Nao usa o OP_IFFT nem
-   payload complexo: manda um sinal real pelo caminho da FFT que ja funciona
-   e verifica se a parte imaginaria voltou conjugada. Responde duas coisas de
-   uma vez -- se o bit esta vivo no bitstream, e qual o fator de escala.
-2. `Python/testa_ifft_roundtrip.py` -- ida e volta pelo OP_IFFT novo.
+| comparacao                        | erro relativo | SNR      |
+|-----------------------------------|---------------|----------|
+| `idft.m` (Sanca) x `np.fft.ifft`  | 7,9e-14       | 261,0 dB |
+| IFFT na FPGA x `np.fft.ifft`      | 2,5e-05       | 94,4 dB  |
+| IFFT na FPGA x `idft.m`           | 2,5e-05       | 94,4 dB  |
 
-**`IFFT_HW_GAIN` = `1.0 / FFT_N`, medido, nao chutado.** O IP NAO aplica o
-fator 1/N da IDFT: a saida dele e N vezes a transformada inversa matematica.
-Para `x` real a IDFT vale `conj(DFT(x))/N`, ou seja, magnitude N vezes menor
-que a DFT -- e o que voltou da placa tem a MESMA magnitude (`|Y|/|DFT(x)| =
-1,00031`). O cliente aplica o fator no `decode_ifft_response`.
+O `idft.m` usa a convencao com 1/N, a mesma do NumPy -- terceiro caminho
+independente confirmando o `IFFT_HW_GAIN`.
+
+### `IFFT_HW_GAIN` = `1.0 / FFT_N`, medido
+
+O IP NAO aplica o fator 1/N da IDFT: a saida dele e N vezes a transformada
+inversa matematica. Para `x` real a IDFT vale `conj(DFT(x))/N`, ou seja,
+magnitude N vezes menor que a DFT -- e o que voltou da placa tem a MESMA
+magnitude (`|Y|/|DFT(x)| = 1,00031`). O cliente aplica o fator no
+`decode_ifft_response`.
 
 Cuidado ao reler esse numero: a primeira versao do `testa_bit_inverse.py`
 comparava contra `np.fft.fft` e imprimia a conclusao invertida, dizendo que o
-IP ja aplicava o 1/N. A logica agora testa as tres hipoteses -- direta,
-inversa normalizada, inversa sem normalizar -- e elege a de menor erro
-relativo ao pico de cada uma.
+IP ja aplicava o 1/N. A logica agora testa as tres hipoteses da tabela acima
+e elege a de menor erro relativo ao pico de cada uma.
 
-Uma limitacao que nao e bug e nao vai sumir: o espectro trafega em **Q15.8**,
-com 8 bits fracionarios (o caminho da FFT usa Q15.8; quem usa Q15.16 e o
-conv1d/FIR -- sao formatos diferentes em blocos diferentes). Por isso o
-`build_ifft_request` normaliza o espectro para a faixa cheia antes de
-codificar e desfaz a escala na volta. Mesmo assim o erro do ida-e-volta tem
-piso na ordem de 1e-3 relativo, nao 1e-7.
+### A inversa e mais limpa que a direta, e o motivo importa
+
+Medido com o mesmo sinal: FFT direta 43,9 dB de SNR contra 94,4 dB da
+inversa. Nao e o hardware -- e o uso da faixa do Q15.8.
+
+O `build_ifft_request` normaliza o espectro para encostar no teto da faixa
+antes de codificar e desfaz a escala na volta (a transformada e linear, entao
+isso e exato). Precisa fazer isso porque `X[k]` pode ser ate N vezes maior
+que o `x[n]` que o gerou e, ao mesmo tempo, os bins pequenos somem abaixo da
+resolucao de 1/256.
+
+A FFT direta nao faz nada disso: manda `x[n]` como esta. Um sinal de
+amplitude 3 numa faixa que vai a 32768 desperdica cerca de 13 bits. **A mesma
+normalizacao aplicada a FFT direta recuperaria boa parte dos 50 dB de
+diferenca** -- nao foi feito.
+
+### O que continua valendo
+
+O IP da FFT e licenciado por avaliacao: o `.sof` em uso e o
+`soc_system_time_limited.sof` e o processo do `quartus_pgm` precisa ficar
+aberto no prompt `Please enter i for info and q to quit`. Interromper comeca
+a contagem de 1 h. A IFFT herda essa amarra, nao cria uma nova.
+
+O erro do ida-e-volta nunca vai a zero: o piso e o Q15.8 do espectro, na
+ordem de 1e-3 relativo.
+
+`C/morphe_server_handling_sigs.c` e uma copia antiga do servidor, que o
+Makefile nao compila e que **nao** recebeu a IFFT. Se ainda serve para
+alguma coisa, precisa decidir se volta a ser o principal ou se sai.
