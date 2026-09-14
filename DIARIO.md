@@ -16,6 +16,59 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 14/09/2026 (tarde) — Primeira compilação do IIR: não fechou timing
+
+Branch `estagio/v1.3-iir-hw`, commit `b46befe`. A v1.2 foi mesclada nesta branch antes
+de compilar, para que o `morphe-up.sh` reenviasse o servidor sozinho quando o
+`hps_0.h` mudasse.
+
+Compilado pela interface do Quartus, ~10 min. **0 erros — e timing violado:**
+
+```
+Critical Warning (332148): Timing requirements not met
+Worst-case setup slack is -0.364   clock_50_1   TNS -12.649
+```
+
+O `clock_50_1` tem período de 20 ns. Slack de −0,364 ns significa caminho crítico de
+20,364 ns: o projeto fecha em **~49,1 MHz, abaixo dos 50 MHz** exigidos. E o TNS de
+−12,6 ns mostra que são dezenas de caminhos, não um.
+
+**O bitstream não foi programado.** Projeto fora de timing pode funcionar na bancada e
+falhar de forma intermitente, que é o pior resultado possível numa plataforma didática.
+
+**Suspeito identificado no log da síntese**, ainda não confirmado como caminho crítico:
+
+```
+Inferred divider/modulo megafunction ("lpm_divide")
+    from "iir_cascade:iir_inst|Div0"  e  "|Mod0"
+```
+
+Vem de `Quartus/iir_cascade.v:209` — `case (c_idx % 5)` com `cb0[c_idx / 5]`, onde
+`c_idx` é contador de 8 bits em tempo de execução. Dividir por 5 não é deslocamento,
+então o Quartus sintetizou um divisor inteiro. Escapou no passo 2 porque **o testbench
+valida o resultado, não a frequência**: em simulação o divisor acerta, só que devagar.
+
+**Lacuna de método descoberta aqui, e corrigida:** o `.sta.rpt` do fluxo padrão traz só
+resumos — diz o slack e o relógio, nunca os nós. Sem os nós não dá para saber o que
+corrigir, e cada palpite errado custa uma compilação. Criado
+`Quartus/relatorio_timing.tcl` para extrair Fmax e piores caminhos. **Daqui em diante,
+anotar o Fmax de toda compilação neste diário.**
+
+**Pergunta em aberto que muda a conclusão:** não se sabe se a v1.1 já falhava timing. O
+`COMPILAR-IIR.md` registrou os recursos do build anterior mas nunca o Fmax, e o
+`.sta.rpt` é ignorado pelo git. Se a v1.1 já não fechava, a plataforma vem rodando fora
+de especificação desde sempre — o que explicaria o `CONV: timeout` intermitente.
+
+**Ruído descartado:** as linhas de slack −0,77 em `HPS_DDR3_DQ[...]` são da DDR3 do
+HPS, pré-existentes, e a análise específica de DDR ao fim do log dá tudo positivo
+(Write 0,243 / Read Capture 0,234). Nada a ver com o IIR.
+
+**Também em 14/09:** decidido manter a truncação do `conv1d.v` como o autor escreveu,
+em vez de aplicar o arredondamento que derrubaria o erro de 521 para 25 LSB. Registrado
+no `RESSALVAS.md` item 3 como escolha, não como pendência.
+
+---
+
 ## 14/09/2026 — Versão 1.2: preparação da placa em um comando
 
 **Validado em hardware**, placa `172.16.230.24`, estação LABPS-47723.
