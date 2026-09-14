@@ -18,7 +18,8 @@
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
 #   ./morphe-up.sh --status             # o que esta no ar agora
-#   ./morphe-up.sh --down               # derruba servidor e tether
+#   ./morphe-up.sh --down               # encerra o tether da licenca
+#   ./morphe-up.sh --down --stop-server # e tambem para o servidor da placa
 #
 # Roda da raiz do repositorio ou de qualquer lugar: ele se localiza sozinho.
 
@@ -77,6 +78,7 @@ PORTA="$PORTA_PADRAO"
 CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
+PARAR_SERVIDOR=0
 ACAO=up
 
 while [[ $# -gt 0 ]]; do
@@ -87,6 +89,7 @@ while [[ $# -gt 0 ]]; do
         --deploy)   FORCA_DEPLOY=1; shift ;;
         --skip-fpga) PULA_FPGA=1; shift ;;
         --down)     ACAO=down; shift ;;
+        --stop-server) PARAR_SERVIDOR=1; shift ;;
         --status)   ACAO=status; shift ;;
         --setup-ssh) ACAO=setup-ssh; shift ;;
         -h|--help)  awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' \
@@ -574,15 +577,49 @@ acao_setup_ssh() {
            "depois de mexer, reinicie com /etc/init.d/ssh restart"
 }
 
+# Existe servico de boot instalado nesta placa? Muda o que o --down deve fazer.
+# Ecoa "systemd", "initd" ou nada.
+tipo_de_servico() {
+    ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$1" \
+        "if [ -f /etc/systemd/system/morphe-server.service ]; then echo systemd; \
+         elif [ -f /etc/init.d/morphe-server ]; then echo initd; fi" 2>/dev/null || true
+}
+
 acao_down() {
-    if [[ -f "$CONF_PLACA" ]]; then
-        local ip; ip="$(cat "$CONF_PLACA")"
-        passo "parando o servidor em $ip"
-        ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ip" "pkill -x morphe_server || true" || \
-            aviso "nao consegui falar com a placa; siga assim mesmo"
-    fi
+    # O tether some sempre: ele segura uma licenca do Quartus, e e o unico
+    # recurso que faz diferenca guardar quando ninguem esta usando a placa.
     passo "encerrando o tether"
     derrubar_tether
+
+    [[ -f "$CONF_PLACA" ]] || { ok "pronto"; return 0; }
+    local ip; ip="$(cat "$CONF_PLACA")"
+    local servico; servico="$(tipo_de_servico "$ip")"
+
+    if [[ -n "$servico" && $PARAR_SERVIDOR -eq 0 ]]; then
+        # Com autostart instalado, derrubar o servidor e inutil e enganoso: no
+        # systemd o Restart=always o traz de volta em segundos, e num init.d
+        # ele fica morto ate o proximo boot -- e a placa some da descoberta,
+        # que e justamente o que o autostart existe para garantir.
+        ok "servidor mantido no ar em $ip (servico de boot: $servico)"
+        printf '       %s\n' \
+            "e assim que deve ser: e o que mantem a placa visivel na rede." \
+            "para parar mesmo assim: ./morphe-up.sh --down --stop-server"
+        ok "pronto"
+        return 0
+    fi
+
+    passo "parando o servidor em $ip"
+    if [[ -n "$servico" ]]; then
+        # Pelo gerenciador, senao ele reinicia sozinho.
+        ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ip" \
+            "if [ '$servico' = systemd ]; then systemctl stop morphe-server; \
+             else /etc/init.d/morphe-server stop; fi" \
+            || aviso "nao consegui parar pelo servico"
+        aviso "o servidor volta no proximo boot da placa"
+    else
+        ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ip" "pkill -x morphe_server || true" \
+            || aviso "nao consegui falar com a placa; siga assim mesmo"
+    fi
     ok "pronto"
 }
 
