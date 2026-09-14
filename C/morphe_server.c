@@ -21,8 +21,11 @@
 #include <time.h>
 #include <math.h>
 
+#include <dirent.h>
+
 #include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -35,6 +38,13 @@
 #include "address_map_arm.h"
 
 #define ENABLE_DEBUG_FILES 1
+
+/* Quantos bundles .mrph de depuracao manter por tipo de operacao. Antes nao
+ * havia limite: cada operacao gravava um arquivo e nenhum era apagado, o que
+ * enche o cartao SD de uma placa de laboratorio em silencio -- e cartao cheio
+ * nao falha na hora, falha na proxima gravacao, longe da causa. Ajustavel em
+ * tempo de execucao pela variavel de ambiente MORPHE_DUMP_MAX; 0 desliga. */
+#define MORPHE_DUMP_MAX_PADRAO 100
 
 /* =======================================================================
  * Mmap da regiao FPGA on-chip -- tamanho derivado automaticamente do
@@ -291,6 +301,34 @@ static void build_resp_header(uint8_t hdr[MORPHE_HEADER_SIZE], uint16_t opcode, 
     u32_to_be(hdr + 16, 0);     
 }
 
+/* Le e descarta o que o cliente ja enviou e o servidor nao vai consumir.
+ *
+ * Fechar um socket com dados nao lidos no buffer de recepcao faz o kernel
+ * mandar RST em vez de FIN. O RST descarta o que ainda estava na fila de
+ * saida -- inclusive a resposta de erro recem-enviada -- e o cliente ve
+ * "Connection reset by peer" no lugar da mensagem. Era exatamente o que
+ * acontecia com um pedido de FFT de tamanho errado: o servidor recusava
+ * corretamente, com BAD_SIZE e tudo, e o cliente nunca chegava a ler a
+ * recusa; parecia queda do servidor.
+ *
+ * O teto evita ficar refem de um cliente que continue despejando dados. */
+static void drain_pending(int sock) {
+    struct timeval espera = { .tv_sec = 0, .tv_usec = 200000 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &espera, sizeof espera);
+
+    uint8_t lixo[4096];
+    size_t total = 0;
+    for (;;) {
+        ssize_t r = recv(sock, lixo, sizeof lixo, 0);
+        if (r <= 0) break;
+        total += (size_t) r;
+        if (total > (size_t) RX_BUF_MAX) break;
+    }
+
+    struct timeval sem_limite = { .tv_sec = 0, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &sem_limite, sizeof sem_limite);
+}
+
 static int send_error(int sock, uint16_t opcode, uint16_t status, const char *msg) {
     uint8_t hdr[MORPHE_HEADER_SIZE];
     size_t msg_len = strlen(msg);
@@ -298,6 +336,7 @@ static int send_error(int sock, uint16_t opcode, uint16_t status, const char *ms
     if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
     if (msg_len > 0 && send_all(sock, msg, msg_len) < 0) return -1;
     LOG("  -> erro enviado: status=%u msg=\"%s\"", status, msg);
+    drain_pending(sock);
     return 0;
 }
 
@@ -335,11 +374,47 @@ static void decode_samples_to_q1508(const uint8_t *buf, uint32_t n, int32_t *out
  * Utilities: File Dumpers (.mrph bundles)
  * ======================================================================= */
 
+/* Quantos bundles manter por prefixo. Lido de MORPHE_DUMP_MAX no main(). */
+static int g_dump_max = MORPHE_DUMP_MAX_PADRAO;
+
+/* Apaga os bundles mais antigos daquele prefixo, deixando espaco para o que
+ * esta prestes a ser gravado. Os nomes carregam %Y%m%d_%H%M%S, entao ordem
+ * alfabetica e ordem cronologica e basta apagar os primeiros da lista. */
+static void rotate_dumps(const char *prefix, int manter) {
+    if (manter <= 0) return;
+
+    struct dirent **lista = NULL;
+    int n = scandir(".", &lista, NULL, alphasort);
+    if (n < 0) return;
+
+    size_t plen = strlen(prefix);
+    #define CASA(nome) ( strlen(nome) > plen + 5 \
+                      && strncmp((nome), prefix, plen) == 0 \
+                      && (nome)[plen] == '_' \
+                      && strcmp((nome) + strlen(nome) - 5, ".mrph") == 0 )
+
+    int casados = 0;
+    for (int i = 0; i < n; i++)
+        if (CASA(lista[i]->d_name)) casados++;
+
+    int excedente = casados - (manter - 1);   /* -1 abre espaco para o novo */
+    for (int i = 0; i < n && excedente > 0; i++) {
+        if (CASA(lista[i]->d_name) && unlink(lista[i]->d_name) == 0) excedente--;
+    }
+    #undef CASA
+
+    for (int i = 0; i < n; i++) free(lista[i]);
+    free(lista);
+}
+
 static void save_debug_bundle_conv(const char *prefix, uint16_t dtype,
                                    uint32_t n_x, const int32_t *x,
                                    uint32_t n_h, const int32_t *h,
                                    uint32_t n_y, const int32_t *y) {
 #if ENABLE_DEBUG_FILES
+    if (g_dump_max <= 0) return;
+    rotate_dumps(prefix, g_dump_max);
+
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     char filename[128];
@@ -407,6 +482,9 @@ static void save_debug_bundle_fft(const char *prefix, uint32_t n_x,
                                   uint32_t exp_raw, int32_t bfp_exp,
                                   float total_scale) {
 #if ENABLE_DEBUG_FILES
+    if (g_dump_max <= 0) return;
+    rotate_dumps(prefix, g_dump_max);
+
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     char filename[128];
@@ -847,6 +925,14 @@ int main(int argc, char **argv) {
 
     clock_gettime(CLOCK_MONOTONIC, &g_start_time);
     if (gethostname(g_hostname, sizeof g_hostname) != 0) snprintf(g_hostname, sizeof g_hostname, "morphe-server");
+
+    const char *env_dump = getenv("MORPHE_DUMP_MAX");
+    if (env_dump && *env_dump) g_dump_max = atoi(env_dump);
+    if (g_dump_max > 0)
+        LOG("bundles de depuracao: ate %d por operacao, os mais antigos sao apagados",
+            g_dump_max);
+    else
+        LOG("bundles de depuracao desligados (MORPHE_DUMP_MAX=%d)", g_dump_max);
 
     const char *env_inv = getenv("MORPHE_FFT_INVERSE");
     g_fft_force_inverse = (env_inv && atoi(env_inv) != 0) ? 1 : 0;
