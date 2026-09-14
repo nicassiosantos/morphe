@@ -32,3 +32,9 @@ Quartus/vetores_*.hex
 # licenca e log do quartus_pgm. E por maquina e por sessao -- versionar faria
 # um clone novo "lembrar" de uma placa que nao e a dele.
 .morphe-estado/
+
+# Correcoes de uma vez so, ja aplicadas no codigo, e bundles de teste gerados.
+# Ficaram fora do versionamento desde sempre; listar aqui impede que um
+# 'git add -A' distraido os arraste para dentro.
+C/fix_*.py
+Python/ifft_bundle.mrph
