@@ -16,6 +16,7 @@
 #   ./morphe-up.sh --cable 'DE-SoC [1-2]'   # quando ha mais de uma placa na estacao
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
+#   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
 #   ./morphe-up.sh --status             # o que esta no ar agora
 #   ./morphe-up.sh --down               # derruba servidor e tether
 #
@@ -87,6 +88,7 @@ while [[ $# -gt 0 ]]; do
         --skip-fpga) PULA_FPGA=1; shift ;;
         --down)     ACAO=down; shift ;;
         --status)   ACAO=status; shift ;;
+        --setup-ssh) ACAO=setup-ssh; shift ;;
         -h|--help)  awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' \
                         "${BASH_SOURCE[0]}"; exit 0 ;;
         *)          morrer "opcao desconhecida: $1" "use --help" ;;
@@ -304,16 +306,23 @@ resolver_placa() {
         printf '%s' "$MORPHE_BOARD"; return 0
     fi
 
+    local lembrada=""
+    [[ -f "$CONF_PLACA" ]] && lembrada="$(cat "$CONF_PLACA")"
+
     local py; py="$(achar_python || true)"
     if [[ -n "$py" ]]; then
         local achada
-        achada="$(cd "$RAIZ/Python" && "$py" -c "
-import sys
+        # A busca comeca pelo /24 da placa lembrada: elas trocam de IP por DHCP
+        # e ja apareceram fora dos 101/102/103 historicos.
+        achada="$(cd "$RAIZ/Python" && MORPHE_LEMBRADA="$lembrada" "$py" -c "
+import os, sys
 try:
-    from morphe_protocol import detect_subnets, discover_servers
+    from morphe_protocol import subredes_provaveis, discover_servers
 except Exception:
     sys.exit(1)
-achados = discover_servers(detect_subnets(), port=$PORTA, stop_on_first=True)
+lembrada = os.environ.get('MORPHE_LEMBRADA') or None
+achados = discover_servers(subredes_provaveis(lembrada), port=$PORTA,
+                           stop_on_first=True)
 if achados:
     print(achados[0].ip)
 " 2>/dev/null || true)"
@@ -322,8 +331,8 @@ if achados:
         fi
     fi
 
-    if [[ -f "$CONF_PLACA" ]]; then
-        printf '%s' "$(cat "$CONF_PLACA")"; return 0
+    if [[ -n "$lembrada" ]]; then
+        printf '%s' "$lembrada"; return 0
     fi
     return 1
 }
@@ -332,7 +341,13 @@ if achados:
 # 5. Servidor: enviar, compilar, (re)iniciar
 # ---------------------------------------------------------------------------
 
-ssh_placa() { ssh -o BatchMode=no -o ConnectTimeout=8 "$USUARIO_PLACA@$ALVO" "$@"; }
+# accept-new aceita a chave de uma placa nunca vista, mas continua recusando
+# uma chave que MUDOU. Sem isso, cada IP novo do DHCP para o fluxo com a
+# pergunta "authenticity of host can't be established" -- e as placas trocam de
+# IP com frequencia.
+SSH_OPTS=(-o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new)
+
+ssh_placa() { ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ALVO" "$@"; }
 
 # O erro cru do ssh ("No route to host") nao diz o que fazer, e a v1.2 existe
 # justamente para isso. A checagem tambem separa dois casos que se parecem: a
@@ -373,7 +388,7 @@ verificar_alcance() {
 enviar_servidor() {
     passo "enviando e compilando o servidor em $ALVO"
     ssh_placa "mkdir -p $DIR_REMOTO"
-    ( cd "$RAIZ/C" && scp -q "${FONTES_SERVIDOR[@]}" "$USUARIO_PLACA@$ALVO:$DIR_REMOTO/" )
+    ( cd "$RAIZ/C" && scp -q "${SSH_OPTS[@]}" "${FONTES_SERVIDOR[@]}" "$USUARIO_PLACA@$ALVO:$DIR_REMOTO/" )
     # Nunca 'make clean' aqui: RESSALVAS item 9.
     ssh_placa "cd $DIR_REMOTO && make morphe_server"
     ok "servidor compilado na placa"
@@ -384,10 +399,33 @@ reiniciar_servidor() {
     # programacao responde aos testes 1 e 2 do ping e da FPGA_TIMEOUT nos
     # testes 3 e 4 -- o sintoma mais confuso da plataforma.
     passo "(re)iniciando o servidor"
+
+    # pkill/pgrep -x casam o NOME do processo; -f casaria a linha de comando
+    # inteira -- inclusive a do proprio shell remoto, que carrega a string
+    # "morphe_server" neste comando. Com -f, o pkill matava o shell que o
+    # executava e o pgrep dava positivo sem servidor nenhum.
+    #
     # 'sudo' so quando nao se entrou como root: as imagens minimas das placas
     # nem sempre tem sudo instalado, e o servidor precisa e de /dev/mem.
-    ssh_placa "cd $DIR_REMOTO || exit 1; pkill -f morphe_server || true; sleep 1; if [ \"\$(id -u)\" = 0 ]; then SU=; else SU=sudo; fi; nohup \$SU ./morphe_server $PORTA > morphe_server.log 2>&1 & sleep 2; pgrep -f morphe_server > /dev/null"
-    ok "servidor no ar na porta $PORTA"
+    local remoto="cd $DIR_REMOTO || exit 1
+pkill -x morphe_server || true
+sleep 1
+if [ \"\$(id -u)\" = 0 ]; then SU=; else SU=sudo; fi
+nohup \$SU ./morphe_server $PORTA > morphe_server.log 2>&1 &
+sleep 2
+pgrep -x morphe_server > /dev/null"
+
+    if ssh_placa "$remoto"; then
+        ok "servidor no ar na porta $PORTA"
+        return 0
+    fi
+
+    erro "o servidor nao subiu em $ALVO."
+    ssh_placa "tail -n 20 $DIR_REMOTO/morphe_server.log 2>/dev/null" 2>/dev/null \
+        | sed 's/^/       /' >&2 || true
+    morrer "sem servidor, nao ha o que verificar." \
+           "se o log acima estiver vazio, tente na mao para ver a mensagem:" \
+           "  ssh $USUARIO_PLACA@$ALVO 'cd $DIR_REMOTO && ./morphe_server $PORTA'"
 }
 
 # ---------------------------------------------------------------------------
@@ -426,7 +464,7 @@ acao_status() {
         local ip; ip="$(cat "$CONF_PLACA")"
         printf '    placa lembrada: %s\n' "$ip"
         if ssh -o BatchMode=yes -o ConnectTimeout=5 "$USUARIO_PLACA@$ip" \
-               "pgrep -f morphe_server > /dev/null" 2>/dev/null; then
+               "pgrep -x morphe_server > /dev/null" 2>/dev/null; then
             ok "servidor no ar em $ip"
         else
             aviso "servidor nao responde em $ip (ou o SSH pediu senha)"
@@ -436,11 +474,56 @@ acao_status() {
     fi
 }
 
+# Uma vez por placa: instala a chave publica da estacao na placa, e a partir
+# dai nenhum passo pede senha. Sem isto, um unico morphe-up.sh pede senha tres
+# vezes (scp, make, start) -- o que ja desmonta a promessa de "um comando".
+acao_setup_ssh() {
+    ALVO="$(resolver_placa || true)"
+    [[ -n "${ALVO:-}" ]] || morrer "nao sei em qual placa instalar a chave." \
+        "use: ./morphe-up.sh --setup-ssh --board <ip>"
+    ok "placa: $ALVO"
+
+    mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+
+    local chave="$HOME/.ssh/id_ed25519"
+    if [[ -f "$chave" ]]; then
+        ok "chave ja existe: $chave"
+    elif [[ -f "$HOME/.ssh/id_rsa" ]]; then
+        chave="$HOME/.ssh/id_rsa"
+        ok "chave ja existe: $chave"
+    else
+        passo "criando uma chave SSH sem frase secreta"
+        ssh-keygen -t ed25519 -N "" -f "$chave" -C "morphe@$(hostname)" >/dev/null
+        ok "criada: $chave"
+    fi
+
+    passo "instalando a chave na placa -- esta e a ultima vez que pede senha"
+    if command -v ssh-copy-id >/dev/null 2>&1; then
+        ssh-copy-id -o StrictHostKeyChecking=accept-new \
+                    -i "$chave.pub" "$USUARIO_PLACA@$ALVO"
+    else
+        ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ALVO" \
+            "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys" \
+            < "$chave.pub"
+    fi
+
+    if ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_PLACA@$ALVO" true 2>/dev/null; then
+        ok "pronto: $USUARIO_PLACA@$ALVO entra sem senha"
+        printf '%s' "$ALVO" > "$CONF_PLACA"
+    else
+        morrer "a chave foi enviada, mas o login sem senha ainda nao funciona." \
+               "na placa, confira /etc/ssh/sshd_config:" \
+               "  PubkeyAuthentication yes" \
+               "  PermitRootLogin yes            (se estiver entrando como root)" \
+               "e reinicie com /etc/init.d/ssh restart"
+    fi
+}
+
 acao_down() {
     if [[ -f "$CONF_PLACA" ]]; then
         local ip; ip="$(cat "$CONF_PLACA")"
         passo "parando o servidor em $ip"
-        ssh -o ConnectTimeout=8 "$USUARIO_PLACA@$ip" "pkill -f morphe_server || true" || \
+        ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ip" "pkill -x morphe_server || true" || \
             aviso "nao consegui falar com a placa; siga assim mesmo"
     fi
     passo "encerrando o tether"
@@ -489,7 +572,8 @@ acao_up() {
 }
 
 case "$ACAO" in
-    up)     acao_up ;;
-    down)   acao_down ;;
-    status) acao_status ;;
+    up)        acao_up ;;
+    down)      acao_down ;;
+    status)    acao_status ;;
+    setup-ssh) acao_setup_ssh ;;
 esac

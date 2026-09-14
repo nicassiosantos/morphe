@@ -61,6 +61,16 @@ Outros modos:
 
 `--status` diz se o tether está vivo — ou seja, se a FFT ainda está dentro do prazo.
 
+## Uma vez por placa: acabar com as senhas
+
+```
+./morphe-up.sh --setup-ssh --board <ip>
+```
+
+Cria uma chave SSH na estação, se ainda não houver, e a instala na placa. É a
+última vez que alguém digita senha: sem isso, um único `morphe-up.sh` pede senha
+três vezes (scp, make, start), o que já desmonta a promessa de "um comando".
+
 ## Uma vez por placa: o servidor no boot
 
 ```

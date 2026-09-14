@@ -32,8 +32,8 @@ from typing import Optional
 
 import morphe_theme as theme
 from morphe_protocol import (
-    TcpClient, ServerInfo, detect_subnets, discover_servers,
-    build_ping_request, decode_ping_response,
+    TcpClient, ServerInfo, discover_servers,
+    subredes_provaveis, build_ping_request, decode_ping_response,
 )
 
 
@@ -159,9 +159,10 @@ class TcpConfigPanel(ttk.LabelFrame):
         # Linha 5: banner informativo (Conectar + Autoconnect)
         theme.make_banner(
             self, kind="info",
-            text=("Conectar valida o servidor informado (host/porta/timeout). "
-                  "Autoconnect busca o primeiro servidor Morphe na LAN "
-                  "(/24 nos octetos 101, 102 e 103 do /16 local)."),
+            text=("A placa é procurada sozinha ao abrir. Conectar valida um "
+                  "servidor informado à mão; Autoconnect refaz a busca — "
+                  "primeiro o /24 da última placa usada, depois o da estação, "
+                  "depois os /24 históricos do laboratório."),
         ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
         if autoconectar:
@@ -204,7 +205,7 @@ class TcpConfigPanel(ttk.LabelFrame):
                     return
             try:
                 achados = discover_servers(
-                    subnets=detect_subnets((101, 102, 103)), port=porta,
+                    subnets=subredes_provaveis(lembrada), port=porta,
                     connect_timeout=0.3, read_timeout=0.5, max_workers=64,
                     cancel_event=self._cancel_event, stop_on_first=True,
                 )
@@ -343,7 +344,9 @@ class TcpConfigPanel(ttk.LabelFrame):
         if self._busy():
             return
 
-        subnets = detect_subnets((101, 102, 103))
+        # Comeca pelo /24 da placa lembrada: as placas trocam de IP por DHCP
+        # e ja foram vistas fora dos 101/102/103.
+        subnets = subredes_provaveis(ler_placa_lembrada())
         port = 5000  # constante do hardware
 
         self._set_busy(True)
