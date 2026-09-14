@@ -27,3 +27,8 @@ __pycache__/
 # a cada execucao do roda_tb_iir.sh. Nao versionar -- vetor guardado
 # desatualiza em silencio e o teste passa a validar o passado.
 Quartus/vetores_*.hex
+
+# Estado local do morphe-up.sh: qual placa foi preparada, PID do tether da
+# licenca e log do quartus_pgm. E por maquina e por sessao -- versionar faria
+# um clone novo "lembrar" de uma placa que nao e a dele.
+.morphe-estado/

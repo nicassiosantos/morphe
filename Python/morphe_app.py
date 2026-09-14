@@ -64,8 +64,10 @@ class MorpheMainWindow(tk.Tk):
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
 
-        # Conexão TCP
-        self.tcp_panel = TcpConfigPanel(main)
+        # Conexão TCP. autoconectar=True: a janela abre já procurando a placa
+        # (a lembrada pelo morphe-up.sh primeiro, depois a LAN), para que o
+        # aluno não precise saber nem digitar endereço nenhum.
+        self.tcp_panel = TcpConfigPanel(main, autoconectar=True)
         self.tcp_panel.pack(fill="x", pady=(0, 16))
 
         # Ferramentas FPGA (ações primárias)

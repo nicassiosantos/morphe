@@ -13,3 +13,8 @@ C/morphe_server.c            -text
 *.sof   binary
 *.rbf   binary
 *.pof   binary
+
+# Scripts de shell precisam sair do clone com LF mesmo em checkout no Windows.
+# Um .sh com CRLF falha no Linux com "bad interpreter: /bin/bash^M", que nao
+# parece um problema de fim de linha para quem le a mensagem.
+*.sh text eol=lf
