@@ -2,12 +2,14 @@
 # bytes exatos que sairam da estacao de trabalho e da placa. Sem isto, a
 # conversao automatica de fim de linha no Windows quebraria a verificacao.
 Quartus/conv1d.v             -text
+Quartus/fir_wrapper.v        -text
 Quartus/ghrd_top.v           -text
 Quartus/soc_system.qsys      -text
 Quartus/soc_system.sopcinfo  -text
 C/hps_0.h                    -text
 C/morphe_config.h            -text
 C/morphe_server.c            -text
+C/address_map_arm.h          -text
 
 # Artefatos binarios
 *.sof   binary
@@ -18,3 +20,8 @@ C/morphe_server.c            -text
 # Um .sh com CRLF falha no Linux com "bad interpreter: /bin/bash^M", que nao
 # parece um problema de fim de linha para quem le a mensagem.
 *.sh text eol=lf
+
+# O proprio arquivo de conferencia precisa de LF. Com CRLF, o sha256sum le
+# 'Quartus/conv1d.v' como nome de arquivo e os DEZ falham com "No such
+# file or directory" -- num clone Windows a verificacao nunca funcionou.
+PROVENIENCIA.sha256  text eol=lf
