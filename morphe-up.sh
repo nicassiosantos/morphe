@@ -405,12 +405,30 @@ verificar_alcance() {
     exit 1
 }
 
+# Impressao digital das fontes do servidor. O RESSALVAS item 1 diz que
+# bitstream, hps_0.h e morphe_server sao um conjunto inseparavel; "o binario
+# existe na placa" nunca provou que ele corresponde a estas fontes. Como o
+# hps_0.h esta entre os arquivos medidos, e o bitstream vem deste mesmo clone,
+# a impressao bater significa que o conjunto esta consistente.
+impressao_fontes() {
+    ( cd "$RAIZ/C" && cat "${FONTES_SERVIDOR[@]}" | sha256sum | cut -d' ' -f1 )
+}
+
+servidor_confere() {
+    local aqui la
+    aqui="$(impressao_fontes)"
+    la="$(ssh_placa "cat $DIR_REMOTO/.fontes.sha256 2>/dev/null; test -x $DIR_REMOTO/morphe_server" 2>/dev/null || true)"
+    [[ -n "$la" && "$la" == "$aqui" ]]
+}
+
 enviar_servidor() {
     passo "enviando e compilando o servidor em $ALVO"
     ssh_placa "mkdir -p $DIR_REMOTO"
     ( cd "$RAIZ/C" && scp -q "${SSH_OPTS[@]}" "${FONTES_SERVIDOR[@]}" "$USUARIO_PLACA@$ALVO:$DIR_REMOTO/" )
     # Nunca 'make clean' aqui: RESSALVAS item 9.
     ssh_placa "cd $DIR_REMOTO && make morphe_server"
+    # A marca so e gravada depois do build dar certo.
+    ssh_placa "printf '%s' '$(impressao_fontes)' > $DIR_REMOTO/.fontes.sha256"
     ok "servidor compilado na placa"
 }
 
@@ -464,9 +482,13 @@ verificar() {
     fi
     erro "o morphe_ping falhou."
     printf '       %s\n' \
-        "1 e 2 falham .............. rede ou servidor" \
-        "3 e 4 dao FPGA_TIMEOUT .... FPGA nao programada, ou servidor antes dela" \
-        "4 passa e 3 falha ......... hps_0.h desatualizado (rode gen_hps_header.py)" >&2
+        "1 e 2 falham ................ rede ou servidor" \
+        "3 e 4 dao FPGA_TIMEOUT ...... FPGA nao programada, ou servidor antes dela" \
+        "4 passa e 3 falha ........... hps_0.h desatualizado (gen_hps_header.py)" \
+        "'Connection reset by peer' .. o servidor MORREU no meio da operacao." \
+        "   quase sempre e binario da placa fora de sincronia com o bitstream" \
+        "   -- por exemplo, servidor de 128 pontos contra FFT de 1024." \
+        "   tente: ./morphe-up.sh --deploy --skip-fpga --board $ALVO" >&2
     return 1
 }
 
@@ -586,14 +608,13 @@ acao_up() {
     verificar_alcance
     printf '%s' "$ALVO" > "$CONF_PLACA"
 
-    local tem_binario=1
-    ssh -o ConnectTimeout=8 "$USUARIO_PLACA@$ALVO" \
-        "test -x $DIR_REMOTO/morphe_server" 2>/dev/null || tem_binario=0
-
-    if (( FORCA_DEPLOY )) || (( ! tem_binario )); then
+    if (( FORCA_DEPLOY )); then
         enviar_servidor
+    elif servidor_confere; then
+        ok "o servidor da placa confere com as fontes deste clone"
     else
-        ok "servidor ja compilado na placa (use --deploy para reenviar)"
+        aviso "o servidor da placa nao confere com as fontes deste clone -- reenviando"
+        enviar_servidor
     fi
 
     reiniciar_servidor
