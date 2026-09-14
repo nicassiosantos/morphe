@@ -13,6 +13,7 @@
 # Uso:
 #   ./morphe-up.sh                      # placa lembrada ou descoberta na rede
 #   ./morphe-up.sh --board 172.16.103.226
+#   ./morphe-up.sh --cable 'DE-SoC [1-2]'   # quando ha mais de uma placa na estacao
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --status             # o que esta no ar agora
@@ -72,6 +73,7 @@ morrer() {
 
 PLACA=""
 PORTA="$PORTA_PADRAO"
+CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
 ACAO=up
@@ -80,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --board|-b) PLACA="${2:-}"; shift 2 ;;
         --port|-p)  PORTA="${2:-}"; shift 2 ;;
+        --cable|-c) CABO_PEDIDO="${2:-}"; shift 2 ;;
         --deploy)   FORCA_DEPLOY=1; shift ;;
         --skip-fpga) PULA_FPGA=1; shift ;;
         --down)     ACAO=down; shift ;;
@@ -149,15 +152,49 @@ CABO=""
 achar_cabo() {
     local saida
     saida="$(jtagconfig 2>&1 || true)"
-    CABO="$(printf '%s\n' "$saida" | sed -n 's/^[0-9]*) \(.*\)$/\1/p' | head -1)"
-    if [[ -z "$CABO" ]]; then
+
+    # O jtagconfig desenha uma barra de progresso, volta ao inicio da linha com
+    # \r e escreve o resultado por cima. No terminal isso some; no buffer, a
+    # linha vira "<barra>\r1) DE-SoC [1-2]" e um ^[0-9] nunca casa. Trocar cada
+    # \r por quebra de linha deixa o nome do cabo sozinho na sua linha.
+    local limpa
+    limpa="$(printf '%s\n' "$saida" | tr '\r' '\n')"
+
+    local cabos=()
+    while IFS= read -r c; do
+        [[ -n "$c" ]] && cabos+=("$c")
+    done < <(printf '%s\n' "$limpa" | sed -n 's/^[[:space:]]*[0-9]\{1,\}) \(.*[^[:space:]]\)[[:space:]]*$/\1/p')
+
+    if (( ${#cabos[@]} == 0 )); then
         erro "o jtagconfig nao enxergou nenhum cabo."
-        printf '%s\n' "$saida" | sed 's/^/       /' >&2
+        printf '%s\n' "$limpa" | sed 's/^/       /' >&2
         morrer "sem cabo JTAG, nao da para programar a FPGA." \
                "confira o cabo: e o mini-USB AO LADO DO BOTAO DE POWER," \
                "nao o USB-to-UART que fica logo ao lado." \
                "se o cabo esta certo, faltam as regras udev (INSTALACAO.md 4.2)."
     fi
+
+    # Mais de um cabo = mais de uma placa nesta estacao. Escolher sozinho seria
+    # programar a placa errada sem avisar.
+    if [[ -n "$CABO_PEDIDO" ]]; then
+        local achou=""
+        for c in "${cabos[@]}"; do
+            [[ "$c" == "$CABO_PEDIDO" ]] && achou="$c"
+        done
+        [[ -n "$achou" ]] || morrer "o cabo '$CABO_PEDIDO' nao esta na lista do jtagconfig." \
+            "cabos vistos: ${cabos[*]}"
+        CABO="$achou"
+        return 0
+    fi
+
+    if (( ${#cabos[@]} > 1 )); then
+        erro "ha mais de um cabo JTAG nesta estacao:"
+        for c in "${cabos[@]}"; do printf '       %s\n' "$c" >&2; done
+        morrer "escolha qual placa programar." \
+               "use: ./morphe-up.sh --cable '${cabos[0]}' --board <ip>"
+    fi
+
+    CABO="${cabos[0]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -234,10 +271,11 @@ programar_fpga() {
         fi
         # So o formato de erro do Quartus ("Error (209042): ...") no inicio da
         # linha. Um 'grep -i error' solto casa com "0 errors" e aborta uma
-        # programacao que deu certo.
-        if grep -qE "^Error" "$LOG_TETHER" 2>/dev/null; then
+        # programacao que deu certo. O tr desfaz o \r da barra de progresso,
+        # que senao deixaria o "Error" no meio da linha e fora do ^.
+        if tr '\r' '\n' < "$LOG_TETHER" 2>/dev/null | grep -qE "^Error"; then
             erro "o quartus_pgm falhou:"
-            sed 's/^/       /' "$LOG_TETHER" >&2
+            tr '\r' '\n' < "$LOG_TETHER" | sed 's/^/       /' >&2
             derrubar_tether
             morrer "programacao da FPGA falhou." \
                    "se for 'Application SLD HUB CLIENT ... is using the target device'," \
