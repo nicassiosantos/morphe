@@ -484,6 +484,19 @@ verificar() {
         return 0
     fi
     erro "o morphe_ping falhou."
+
+    # O log da placa e a unica testemunha do que o servidor viu. Sem guardar
+    # isto na hora, uma falha intermitente -- que na proxima execucao pode nao
+    # se repetir -- fica sem evidencia nenhuma.
+    local diario="$ESTADO/falha-$(date +%Y%m%d_%H%M%S).log"
+    {
+        printf 'placa %s porta %s\n' "$ALVO" "$PORTA"
+        printf 'tether: %s\n' "$(tether_vivo && cat "$PID_TETHER" || echo ausente)"
+        printf -- '--- morphe_server.log (ultimas 40 linhas) ---\n'
+        ssh_placa "tail -n 40 $DIR_REMOTO/morphe_server.log 2>/dev/null" 2>/dev/null || true
+    } > "$diario"
+    aviso "log da placa guardado em $diario"
+
     printf '       %s\n' \
         "1 e 2 falham ................ rede ou servidor" \
         "3 e 4 dao FPGA_TIMEOUT ...... FPGA nao programada, ou servidor antes dela" \
