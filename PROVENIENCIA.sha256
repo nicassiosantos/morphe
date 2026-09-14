@@ -5,6 +5,18 @@
 # Build   : Quartus Prime 20.1.0 Lite, Fitter+Assembler, 2026-09-08 16:53
 # Validado: conv1d 1024x1024 em 213,9 ms, erro 0,00 contra impulso
 #
+# 14/09/2026 -- C/morphe_server.c atualizado e revalidado na placa
+# 172.16.230.24: morphe_ping 4/4, conv1d erro 0,00 em 214,1 ms e FFT de
+# 1024 pontos com espectro plano (variacao 0,0%) em 21,2 ms.
+# Os nove artefatos de hardware NAO mudaram desde o build de 08/09.
+#
+# O hash antigo de morphe_server.c (e86226f2...) vinha da coleta de 09/09 e
+# ja estava vencido desde 10/09, quando a IFFT entrou no servidor sem que
+# este arquivo fosse regerado -- ou seja, 'sha256sum -c' vinha falhando
+# nesta linha em qualquer clone. Corrigido aqui. Regerar SEMPRE que um dos
+# arquivos listados mudar; um registro de proveniencia que falha por
+# desatualizacao ensina a ignorar o proprio registro.
+#
 # ATENCAO: registre sempre o caminho de origem. Existem sete copias de
 # soc_system_time_limited.sof nesta estacao e so uma funciona.
 #
@@ -18,5 +30,5 @@ a50fd348c5750a4a70ff4d8aceff029962fde638d8dda4a5580cff503508517c  Quartus/soc_sy
 92a5dc35f16fd0b5b09c637423b09b5c9c197fdb48b90f88f84b0e125af0db30  Quartus/output_files/soc_system_time_limited.sof
 82eb44bb1eba4e860a0056529f004cee68cfe23fd2fd10ce2771a34c64af6e27  C/hps_0.h
 800224af1dfc78cbb369cfa58f2b2009cf4f18678c35a0727d618398d12adccb  C/morphe_config.h
-e86226f2d1f7c8926592dfe364c84767a972895274ebbe454dd5ee28a143af45  C/morphe_server.c
+7ef07fa0574760eb79877d18f3bda12ad92048ac43ee75108adc797af269a3e1  C/morphe_server.c
 2a887b03e166a65ae9c7083ec76a576667d99741e73e4d824c32698940fc9d0e  C/address_map_arm.h

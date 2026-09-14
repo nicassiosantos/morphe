@@ -502,6 +502,41 @@ def detect_subnets(third_octets: Iterable[int] = (101, 102, 103),
     return [f"{prefix}.{int(o)}.0/24" for o in third_octets]
 
 
+def subredes_provaveis(ip_conhecido: str | None = None,
+                       third_octets: Iterable[int] = (101, 102, 103),
+                       fallback_prefix: str = "172.16") -> list[str]:
+    """Ordem de busca: o /24 da placa conhecida, o /24 da própria estação, e
+    só então os /24 históricos do laboratório.
+
+    A rede do laboratório é /16 — 65 mil endereços, minutos de varredura — e as
+    placas pegam IP por DHCP: a mesma placa já foi vista em 172.16.103.226 e em
+    172.16.230.24. Fixar a lista em 101/102/103, como era antes, fazia a busca
+    passar longe dela. Aqui a varredura começa pelo que tem chance real.
+
+    Isto é um paliativo honesto, não a solução: uma placa que apareça num /24
+    nunca visto continua invisível. A solução de verdade é o servidor responder
+    a um broadcast UDP, o que exige mexer no servidor em C — fica para a v1.4,
+    junto com o gerenciamento do conjunto de placas.
+    """
+    ordem: list[str] = []
+
+    def junta(sub: str) -> None:
+        if sub not in ordem:
+            ordem.append(sub)
+
+    for ip in (ip_conhecido, get_local_ip()):
+        if not ip:
+            continue
+        partes = ip.split(".")
+        if len(partes) == 4:
+            junta(f"{partes[0]}.{partes[1]}.{partes[2]}.0/24")
+
+    for sub in detect_subnets(third_octets, fallback_prefix):
+        junta(sub)
+
+    return ordem
+
+
 def _enum_ips(subnet: str) -> list[str]:
     """Expande um /24 em uma lista de 254 IPs (.1 a .254). Aceita 'a.b.c.0/24'
     ou 'a.b.c.0' (sem mascara, assume /24). Para outras mascaras, retorna []."""

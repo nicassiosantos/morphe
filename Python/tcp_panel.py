@@ -23,6 +23,7 @@ isso que não há nada a "desconectar" ao fechar a GUI.
 """
 from __future__ import annotations
 
+import os
 import socket
 import threading
 import tkinter as tk
@@ -31,15 +32,51 @@ from typing import Optional
 
 import morphe_theme as theme
 from morphe_protocol import (
-    TcpClient, ServerInfo, detect_subnets, discover_servers,
-    build_ping_request, decode_ping_response,
+    TcpClient, ServerInfo, discover_servers,
+    subredes_provaveis, build_ping_request, decode_ping_response,
 )
+
+
+# ======================================================================
+# Placa lembrada — o mesmo arquivo que o morphe-up.sh escreve
+# ======================================================================
+# A versão 1.2 do plano tira do usuário a tarefa de saber o endereço da
+# placa. O morphe-up.sh grava em .morphe-estado/placa a placa que acabou
+# de preparar; o cliente lê dali e já abre conectado. Se o arquivo não
+# existir (cliente em outra máquina, por exemplo), cai na busca pela LAN.
+
+
+def _caminho_placa_lembrada() -> str:
+    """<raiz do repositório>/.morphe-estado/placa — este módulo vive em Python/."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(raiz, ".morphe-estado", "placa")
+
+
+def ler_placa_lembrada() -> Optional[str]:
+    try:
+        with open(_caminho_placa_lembrada(), encoding="utf-8") as f:
+            ip = f.read().strip()
+        return ip or None
+    except OSError:
+        return None
+
+
+def gravar_placa_lembrada(ip: str) -> None:
+    """Melhor esforço: um clone somente-leitura não é motivo para falhar."""
+    try:
+        caminho = _caminho_placa_lembrada()
+        os.makedirs(os.path.dirname(caminho), exist_ok=True)
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write(ip)
+    except OSError:
+        pass
 
 
 class TcpConfigPanel(ttk.LabelFrame):
     def __init__(self, parent,
                  default_host: str = "192.168.1.10",
-                 default_port: int = 5000):
+                 default_port: int = 5000,
+                 autoconectar: bool = False):
         # Garante que os estilos do tema existem mesmo se este painel
         # for instanciado fora do hub principal.
         theme.setup_styles(parent)
@@ -65,7 +102,9 @@ class TcpConfigPanel(ttk.LabelFrame):
         # Linha 0: Host
         ttk.Label(self, text="Host", style="Card.TLabel").grid(
             row=0, column=0, sticky="w", pady=(0, 6))
-        self.var_host = tk.StringVar(value=default_host)
+        # A placa preparada pelo morphe-up.sh tem precedência sobre o
+        # default fixo — que, no laboratório, nunca é o endereço certo.
+        self.var_host = tk.StringVar(value=ler_placa_lembrada() or default_host)
         ttk.Entry(self, textvariable=self.var_host).grid(
             row=0, column=1, sticky="ew", pady=(0, 6))
 
@@ -120,10 +159,89 @@ class TcpConfigPanel(ttk.LabelFrame):
         # Linha 5: banner informativo (Conectar + Autoconnect)
         theme.make_banner(
             self, kind="info",
-            text=("Conectar valida o servidor informado (host/porta/timeout). "
-                  "Autoconnect busca o primeiro servidor Morphe na LAN "
-                  "(/24 nos octetos 101, 102 e 103 do /16 local)."),
+            text=("A placa é procurada sozinha ao abrir. Conectar valida um "
+                  "servidor informado à mão; Autoconnect refaz a busca — "
+                  "primeiro o /24 da última placa usada, depois o da estação, "
+                  "depois os /24 históricos do laboratório."),
         ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+
+        if autoconectar:
+            # Depois que a janela existe, para o status já ter onde aparecer.
+            self.after(200, self._conectar_automaticamente)
+
+    # ==================================================================
+    # Conexão automática ao abrir (versão 1.2)
+    # ==================================================================
+
+    def _conectar_automaticamente(self):
+        """Conecta sozinho, sem o usuário clicar em nada e sem diálogos.
+
+        Tenta primeiro a placa lembrada — um handshake só, instantâneo — e
+        só cai na varredura da LAN se ela não responder. Falhar aqui não é
+        erro: o painel continua utilizável à mão, e quem está sem placa
+        (gerador de sinais, comparação, projeto de FIR) não leva um pop-up
+        na cara ao abrir o programa.
+        """
+        if self._busy():
+            return
+
+        lembrada = ler_placa_lembrada()
+        try:
+            porta = int(self.var_port.get())
+        except ValueError:
+            porta = 5000
+
+        self._set_busy(True)
+        self.var_status.set("Procurando a placa...")
+        self.lbl_status.configure(foreground=theme.COLORS["info_fg"])
+        self._cancel_event = threading.Event()
+        self._success_handled = False
+
+        def run():
+            if lembrada:
+                srv = self._sondar(lembrada, porta)
+                if srv is not None:
+                    self.after(0, self._on_search_success, srv)
+                    return
+            try:
+                achados = discover_servers(
+                    subnets=subredes_provaveis(lembrada), port=porta,
+                    connect_timeout=0.3, read_timeout=0.5, max_workers=64,
+                    cancel_event=self._cancel_event, stop_on_first=True,
+                )
+            except Exception:
+                achados = []
+            if achados:
+                self.after(0, self._on_search_success, achados[0])
+            else:
+                self.after(0, self._autoconexao_sem_placa, lembrada)
+
+        self._search_thread = threading.Thread(target=run, daemon=True)
+        self._search_thread.start()
+
+    @staticmethod
+    def _sondar(host: str, porta: int) -> Optional[ServerInfo]:
+        """Um OP_PING contra um host conhecido. Devolve None em vez de levantar."""
+        try:
+            resp = TcpClient(host, porta, timeout=2.0).request(build_ping_request())
+            return ServerInfo(ip=host, port=porta,
+                              info=decode_ping_response(resp))
+        except Exception:
+            return None
+
+    def _autoconexao_sem_placa(self, lembrada: Optional[str]):
+        self._set_busy(False)
+        if lembrada:
+            self.var_status.set(
+                f"A placa {lembrada} não respondeu e nenhuma outra foi "
+                "encontrada. Rode ./morphe-up.sh ou informe o host."
+            )
+        else:
+            self.var_status.set(
+                "Nenhuma placa encontrada na rede. Rode ./morphe-up.sh, "
+                "ou use as ferramentas que não precisam de placa."
+            )
+        self.lbl_status.configure(foreground=theme.COLORS["text_muted"])
 
     # ==================================================================
     # Guarda de exclusão mútua
@@ -172,6 +290,7 @@ class TcpConfigPanel(ttk.LabelFrame):
 
     def _on_connect_success(self, srv: ServerInfo):
         self._set_connect_busy(False)
+        gravar_placa_lembrada(srv.ip)
         self.var_status.set(
             f"Conectado a {srv.ip}:{srv.port} — {srv.hostname} "
             f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max})"
@@ -225,7 +344,9 @@ class TcpConfigPanel(ttk.LabelFrame):
         if self._busy():
             return
 
-        subnets = detect_subnets((101, 102, 103))
+        # Comeca pelo /24 da placa lembrada: as placas trocam de IP por DHCP
+        # e ja foram vistas fora dos 101/102/103.
+        subnets = subredes_provaveis(ler_placa_lembrada())
         port = 5000  # constante do hardware
 
         self._set_busy(True)
@@ -265,6 +386,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._success_handled = True
         self.var_host.set(srv.ip)
         self.var_port.set(str(srv.port))
+        gravar_placa_lembrada(srv.ip)
         self._set_busy(False)
         self.var_status.set(
             f"Conectado a {srv.ip} — {srv.hostname} "

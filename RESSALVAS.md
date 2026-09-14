@@ -231,15 +231,34 @@ Compile a sonda com as mesmas flags do Makefile do projeto, senão falta
 
 Rode com o `morphe_server` **parado**, senão os dois disputam o mesmo core.
 
-## 16. O teste 4 do `morphe_ping.py` está quebrado
+## 16. O teste 4 do `morphe_ping.py` está quebrado — duas vezes, por motivos diferentes
 
-`Quartus/morphe_ping.py:185` chama `build_fft_request(x, DTYPE_FLOAT32)` com
-dois argumentos, mas a assinatura em `Python/morphe_protocol.py:135` é
-`build_fft_request(x_float)`, com um só — a FFT sempre codifica em Q15.8, e o
-parâmetro de dtype saiu da API sem que a ferramenta de teste acompanhasse.
+**Primeira versão (resolvida).** `morphe_ping.py` chamava
+`build_fft_request(x, DTYPE_FLOAT32)` com dois argumentos, contra uma
+assinatura de um só. Corrigido.
 
-A falha é da ferramenta, não do sistema: com o bitstream correto, a FFT
-funciona normalmente pela interface gráfica.
+**Segunda versão (14/09/2026).** O teste montava um impulso de **64 amostras
+fixas**. O `handle_fft` exige `n_x == MORPHE_FFT_N`, que passou a ser 1024 na
+expansão de 08/09 — então o servidor recusava, corretamente, com `BAD_SIZE`.
+
+Só que a recusa **não chegava**: o cliente via `Connection reset by peer`. O
+servidor respondia o erro e voltava sem ler o payload de 256 bytes que o
+cliente já havia mandado; fechar um socket com dados não lidos no buffer de
+recepção faz o kernel emitir **RST em vez de FIN**, e o RST descarta o que
+ainda estava na fila de saída — inclusive a resposta de erro. A recusa
+educada virava queda aparente do servidor.
+
+Os dois lados foram corrigidos: o teste pergunta o `fft_n` ao servidor pelo
+PING em vez de assumir um tamanho, e o `send_error` drena o que sobrou antes
+de devolver.
+
+**A lição é geral, e vale para a v1.4:** todo caminho de erro que rejeita um
+pedido antes de consumir o corpo dele precisa drenar o socket, ou o cliente
+recebe um reset no lugar da mensagem. Vale para qualquer operação, não só a
+FFT.
+
+Nas duas vezes a falha foi da ferramenta de teste, não do sistema: com o
+bitstream correto, a FFT sempre funcionou pela interface gráfica.
 
 ## 17. A IFFT: validada em hardware em 10/09/2026
 

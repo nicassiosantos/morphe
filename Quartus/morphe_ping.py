@@ -35,7 +35,8 @@ try:
     import dsp_core as dsp
     from morphe_protocol import (
         TcpClient, build_conv_request, build_fft_request,
-        decode_fft_response, DTYPE_INT32, DTYPE_FLOAT32,
+        decode_fft_response, build_ping_request, decode_ping_response,
+        DTYPE_INT32, DTYPE_FLOAT32,
     )
 except ImportError:
     print("ERRO: não achei morphe_protocol.py / dsp_core.py no path.")
@@ -180,7 +181,24 @@ def test_4_fft_impulse(host: str, port: int) -> bool:
     step(4, "FFT com impulso (x = δ[n] → |X[k]| constante)")
     try:
         client = TcpClient(host, port, timeout=5)
-        x = np.zeros(64, dtype=np.float64)
+
+        # O N da FFT e fixo no hardware e o servidor recusa qualquer outro
+        # tamanho. Este teste mandava 64 amostras fixas, que pararam de servir
+        # quando o core passou de 128 para 1024 pontos -- e a recusa chegava
+        # como "Connection reset by peer", nao como mensagem de erro, o que
+        # fazia a falha parecer queda do servidor. Agora o tamanho vem do
+        # proprio servidor, pelo PING.
+        info = decode_ping_response(client.request(build_ping_request()))
+        try:
+            n_fft = int(info.get("fft_n", 0))
+        except (TypeError, ValueError):
+            n_fft = 0
+        if n_fft <= 0:
+            fail("o servidor nao informou fft_n no PING",
+                 "servidor antigo? o campo fft_n saiu da resposta de PING")
+            return False
+
+        x = np.zeros(n_fft, dtype=np.float64)
         x[0] = 0.5  # impulso (amplitude 0.5 para caber confortavelmente em Q1.7)
         req, escala_fft = build_fft_request(x)
         t0 = time.monotonic()
@@ -199,7 +217,7 @@ def test_4_fft_impulse(host: str, port: int) -> bool:
                  "possíveis causas: BFP exponent com sinal trocado, "
                  "janela aplicada por engano, bug no FFT wrapper")
             return False
-        ok(f"|X[k]| plano (variação {spread*100:.1f}%), "
+        ok(f"|X[k]| plano (variação {spread*100:.1f}%) em N={n_fft}, "
            f"magnitude ~ {np.mean(mag):.3f}, resposta em {dt_ms:.1f} ms")
         return True
     except Exception as e:
