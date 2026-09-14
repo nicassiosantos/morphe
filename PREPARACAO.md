@@ -96,6 +96,22 @@ varia de placa para placa. Depois disso a placa sobe o servidor sozinha — e a
 descoberta pela rede passa a achar a placa **sem ninguém precisar saber o IP**, que é
 o ponto da versão 1.2.
 
+## Bundles de depuração na placa
+
+O servidor grava um `.mrph` a cada operação, no diretório dele na placa. Não
+havia limite: numa turma de PDS isso enche o cartão SD em silêncio — e cartão
+cheio não falha na hora, falha na próxima gravação, longe da causa.
+
+Agora ele mantém **100 por tipo de operação** (conv1d, fir, fft, ifft) e apaga
+os mais antigos. Para mudar, ou desligar de vez:
+
+```
+ssh root@<ip> 'cd morphe && MORPHE_DUMP_MAX=0 nohup ./morphe_server 5000 &'
+```
+
+No autostart de boot, acrescente a variável ao serviço instalado por
+`C/autostart/`.
+
 ## No cliente
 
 O painel de conexão agora procura a placa ao abrir, sem clique: primeiro a que o
