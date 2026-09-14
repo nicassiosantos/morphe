@@ -334,6 +334,42 @@ if achados:
 
 ssh_placa() { ssh -o BatchMode=no -o ConnectTimeout=8 "$USUARIO_PLACA@$ALVO" "$@"; }
 
+# O erro cru do ssh ("No route to host") nao diz o que fazer, e a v1.2 existe
+# justamente para isso. A checagem tambem separa dois casos que se parecem: a
+# placa sem energia e a placa ligada mas fora da rede -- se o JTAG acabou de
+# enxergar o SOCVHPS, energia tem.
+verificar_alcance() {
+    passo "conferindo o caminho ate a placa"
+    if ping -c 1 -W 3 "$ALVO" >/dev/null 2>&1; then
+        ok "a placa responde em $ALVO"
+        return 0
+    fi
+    # ICMP as vezes e bloqueado; a porta do SSH e a que interessa de verdade.
+    if command -v nc >/dev/null 2>&1 && nc -z -w 4 "$ALVO" 22 >/dev/null 2>&1; then
+        ok "porta 22 aberta em $ALVO (o ping esta bloqueado, sem problema)"
+        return 0
+    fi
+
+    erro "nao ha caminho de rede ate $ALVO."
+    if (( ! PULA_FPGA )); then
+        printf '       %s\n' \
+            "a placa TEM energia -- o JTAG acabou de enxerga-la. E so a rede." >&2
+    fi
+    printf '       %s\n' \
+        "confira, nesta ordem:" \
+        "  1. o cabo de rede da placa, e o LED do conector" \
+        "  2. o IP atual, pelo console serial: screen /dev/ttyUSB0 115200 -> ip addr" \
+        "     (o que serve e o 172.16.x.x da eth0; os 192.168.x.123 sao de fabrica)" \
+        "  3. se o IP mudou, rode de novo com --skip-fpga --board <ip-novo>" \
+        "     -- assim voce nao reprograma a FPGA nem reinicia a licenca" >&2
+    if tether_vivo; then
+        printf '       %s\n' \
+            "o tether continua vivo (PGID $(cat "$PID_TETHER")): a FFT nao esta" \
+            "perdendo tempo enquanto voce resolve a rede." >&2
+    fi
+    exit 1
+}
+
 enviar_servidor() {
     passo "enviando e compilando o servidor em $ALVO"
     ssh_placa "mkdir -p $DIR_REMOTO"
@@ -431,6 +467,7 @@ acao_up() {
                "(C/autostart/) a descoberta pela rede passa a bastar."
     fi
     ok "placa: $ALVO"
+    verificar_alcance
     printf '%s' "$ALVO" > "$CONF_PLACA"
 
     local tem_binario=1
