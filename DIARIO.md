@@ -29,15 +29,27 @@ Resultado final do `morphe_ping`, pelo `./morphe-up.sh`:
 | 3 — convolução com impulso | `y == x`, erro `0,00e+00`, 214,1 ms |
 | 4 — FFT com impulso | espectro plano (variação 0,0%) em N=1024, 21,2 ms |
 
+Validado em duas etapas. Primeiro as metades separadas; depois **o fluxo completo numa
+tacada só**, com `./morphe-up.sh` sem argumento nenhum: achou o Quartus, substituiu o
+tether antigo, leu o cabo `DE-SoC [1-2]`, programou a FPGA, achou a placa sem que o IP
+fosse informado, conferiu que o servidor dela correspondia às fontes do clone,
+reiniciou o servidor e fechou com 4/4. Em seguida o cliente abriu **já conectado**, sem
+nenhum endereço digitado.
+
 O que passou a existir:
 
 - **`morphe-up.sh`** — um comando que acha o Quartus, lê o cabo JTAG do `jtagconfig`,
   programa a FPGA mantendo o tether da licença vivo, acha a placa, confere se o
   servidor dela corresponde às fontes do clone, reenvia se não, reinicia o servidor
   e verifica antes de devolver o controle. Também `--setup-ssh`, `--status`, `--down`.
+- **Autoconexão do cliente** ao abrir, sem clique. Validada contra placa viva.
 - **`C/autostart/`** — servidor no boot da placa, detecta systemd ou init.d.
   **Escrito, ainda não instalado em nenhuma placa.**
-- **Autoconexão do cliente** ao abrir, sem clique. **Falta confirmar contra placa viva.**
+
+**Resultado de usabilidade medido:** a rotina do dia a dia caiu de **9 passos para 3**,
+e destes três um é a operação em si — ou seja, a preparação da plataforma saiu de 8
+passos para 1. Os sete pontos de conhecimento tácito deixaram de ser do usuário.
+Contagem pela mesma regra do "antes", em `LINHA-DE-BASE-PASSOS.md`.
 
 Seis defeitos encontrados e corrigidos no caminho, em ordem de descoberta:
 
@@ -77,7 +89,8 @@ na hora, falha na próxima gravação, longe da causa.
 - **O MAC da placa é `12:34:56:78:90:12`**, o default de fábrica da Terasic. Se as
   cinco placas vieram da mesma imagem, as cinco têm o mesmo MAC e o mesmo hostname
   (`de1soclinux`) — o que **bloqueia a v1.4**, que pressupõe cinco placas vivas ao
-  mesmo tempo. **Falta confirmar ligando uma segunda placa.**
+  mesmo tempo. **Falta confirmar ligando uma segunda placa**, o que não foi possível
+  neste dia. É o primeiro item a resolver antes de começar a v1.4.
 
 ---
 
