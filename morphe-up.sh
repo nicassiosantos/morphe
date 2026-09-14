@@ -347,6 +347,26 @@ if achados:
 # IP com frequencia.
 SSH_OPTS=(-o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new)
 
+# Chave propria para as placas, separada da chave pessoal de quem usa a estacao.
+CHAVE_MORPHE="${MORPHE_KEY:-$HOME/.ssh/id_rsa_morphe}"
+
+montar_ssh_opts() {
+    # As placas rodam OpenSSH 6.0 (Debian 7): nao conhecem ed25519, que so
+    # existe a partir do 6.5, e assinam apenas com ssh-rsa/SHA-1. A estacao
+    # roda OpenSSH 8.9, que desabilitou ssh-rsa por padrao desde a 8.8. Sem
+    # reabilitar aqui, a chave RSA e gerada, instalada na placa e nunca usada
+    # -- que e exatamente o sintoma de "a chave foi enviada mas ainda pede
+    # senha". A opcao so entra se o ssh local a reconhecer.
+    if ssh -G -o PubkeyAcceptedKeyTypes=+ssh-rsa localhost >/dev/null 2>&1; then
+        SSH_OPTS+=(-o PubkeyAcceptedKeyTypes=+ssh-rsa)
+    fi
+    # IdentitiesOnly evita que o agente ofereca antes a chave pessoal (ed25519,
+    # que a placa recusa) e gaste as tentativas de autenticacao.
+    if [[ -f "$CHAVE_MORPHE" ]]; then
+        SSH_OPTS+=(-i "$CHAVE_MORPHE" -o IdentitiesOnly=yes)
+    fi
+}
+
 ssh_placa() { ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ALVO" "$@"; }
 
 # O erro cru do ssh ("No route to host") nao diz o que fazer, e a v1.2 existe
@@ -463,7 +483,7 @@ acao_status() {
     if [[ -f "$CONF_PLACA" ]]; then
         local ip; ip="$(cat "$CONF_PLACA")"
         printf '    placa lembrada: %s\n' "$ip"
-        if ssh -o BatchMode=yes -o ConnectTimeout=5 "$USUARIO_PLACA@$ip" \
+        if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$ip" \
                "pgrep -x morphe_server > /dev/null" 2>/dev/null; then
             ok "servidor no ar em $ip"
         else
@@ -485,38 +505,51 @@ acao_setup_ssh() {
 
     mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
 
-    local chave="$HOME/.ssh/id_ed25519"
-    if [[ -f "$chave" ]]; then
-        ok "chave ja existe: $chave"
-    elif [[ -f "$HOME/.ssh/id_rsa" ]]; then
-        chave="$HOME/.ssh/id_rsa"
-        ok "chave ja existe: $chave"
+    # RSA, e nao ed25519, de proposito: o sshd 6.0 das placas e anterior ao
+    # 6.5, que foi quando o ed25519 apareceu. Uma chave ed25519 e aceita pelo
+    # ssh-copy-id, gravada no authorized_keys e simplesmente ignorada na hora
+    # de autenticar -- sem mensagem de erro, so a senha pedida de novo.
+    if [[ -f "$CHAVE_MORPHE" ]]; then
+        ok "chave ja existe: $CHAVE_MORPHE"
     else
-        passo "criando uma chave SSH sem frase secreta"
-        ssh-keygen -t ed25519 -N "" -f "$chave" -C "morphe@$(hostname)" >/dev/null
-        ok "criada: $chave"
+        passo "criando uma chave RSA sem frase secreta (a placa nao le ed25519)"
+        ssh-keygen -t rsa -b 4096 -N "" -f "$CHAVE_MORPHE" \
+                   -C "morphe@$(hostname)" >/dev/null
+        ok "criada: $CHAVE_MORPHE"
+        SSH_OPTS+=(-i "$CHAVE_MORPHE" -o IdentitiesOnly=yes)
     fi
 
     passo "instalando a chave na placa -- esta e a ultima vez que pede senha"
-    if command -v ssh-copy-id >/dev/null 2>&1; then
-        ssh-copy-id -o StrictHostKeyChecking=accept-new \
-                    -i "$chave.pub" "$USUARIO_PLACA@$ALVO"
-    else
-        ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ALVO" \
-            "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys" \
-            < "$chave.pub"
+    local opcoes=(-o StrictHostKeyChecking=accept-new)
+    if ssh -G -o PubkeyAcceptedKeyTypes=+ssh-rsa localhost >/dev/null 2>&1; then
+        opcoes+=(-o PubkeyAcceptedKeyTypes=+ssh-rsa)
     fi
 
-    if ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_PLACA@$ALVO" true 2>/dev/null; then
+    if command -v ssh-copy-id >/dev/null 2>&1; then
+        ssh-copy-id "${opcoes[@]}" -i "$CHAVE_MORPHE.pub" "$USUARIO_PLACA@$ALVO"
+    else
+        ssh "${opcoes[@]}" "$USUARIO_PLACA@$ALVO" \
+            "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys" \
+            < "$CHAVE_MORPHE.pub"
+    fi
+
+    if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$ALVO" true 2>/dev/null; then
         ok "pronto: $USUARIO_PLACA@$ALVO entra sem senha"
         printf '%s' "$ALVO" > "$CONF_PLACA"
-    else
-        morrer "a chave foi enviada, mas o login sem senha ainda nao funciona." \
-               "na placa, confira /etc/ssh/sshd_config:" \
-               "  PubkeyAuthentication yes" \
-               "  PermitRootLogin yes            (se estiver entrando como root)" \
-               "e reinicie com /etc/init.d/ssh restart"
+        return 0
     fi
+
+    erro "a chave foi enviada, mas o login sem senha ainda nao funciona."
+    printf '       %s\n' "o que o ssh diz da negociacao:" >&2
+    ssh "${SSH_OPTS[@]}" -v -o BatchMode=yes "$USUARIO_PLACA@$ALVO" true 2>&1 \
+        | grep -E "remote software version|Offering|Authentications that can continue|no mutual" \
+        | sed 's/^/       /' >&2 || true
+    morrer "restam tres suspeitos, nesta ordem de probabilidade:" \
+           "  1. permissoes: ~/.ssh precisa ser 700 e authorized_keys 600" \
+           "  2. /etc/ssh/sshd_config: PubkeyAuthentication yes, PermitRootLogin yes" \
+           "     e o usuario listado em AllowUsers, se a diretiva existir" \
+           "  3. o home do usuario gravavel por grupo, que o StrictModes recusa" \
+           "depois de mexer, reinicie com /etc/init.d/ssh restart"
 }
 
 acao_down() {
@@ -570,6 +603,9 @@ acao_up() {
     printf 'Abra o cliente:  cd Python && ./.venv/bin/python morphe_app.py\n'
     printf 'Ao terminar:     ./morphe-up.sh --down\n'
 }
+
+# Depois que todas as funcoes existem, e antes de qualquer ssh.
+montar_ssh_opts
 
 case "$ACAO" in
     up)        acao_up ;;

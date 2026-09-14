@@ -71,6 +71,16 @@ Cria uma chave SSH na estação, se ainda não houver, e a instala na placa. É 
 última vez que alguém digita senha: sem isso, um único `morphe-up.sh` pede senha
 três vezes (scp, make, start), o que já desmonta a promessa de "um comando".
 
+A chave é **RSA, não ed25519**, e isso não é conservadorismo: as placas rodam
+OpenSSH 6.0 (Debian 7), anterior ao 6.5, que foi quando o ed25519 apareceu. Uma
+chave ed25519 é aceita pelo `ssh-copy-id`, gravada no `authorized_keys` e
+simplesmente ignorada na autenticação — sem erro, só a senha pedida de novo.
+
+E a recíproca morde do outro lado: o OpenSSH 8.9 da estação desabilitou `ssh-rsa`
+(SHA-1) por padrão desde a 8.8, que é o único tipo que um sshd 6.0 assina. Por
+isso as conexões levam `PubkeyAcceptedKeyTypes=+ssh-rsa`. Os dois ajustes só
+funcionam juntos; qualquer um sozinho reproduz o mesmo sintoma.
+
 ## Uma vez por placa: o servidor no boot
 
 ```
