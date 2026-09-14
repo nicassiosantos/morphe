@@ -46,9 +46,14 @@ O erro contra o NumPy chega a centenas de LSBs com N=1024, por truncamento
 acumulado em `Quartus/conv1d.v:104`. Não é regressão. Só passa de milhares se
 houver wraparound (item 2).
 
-A correção de melhor retorno é arredondar no shift, trocando `[47:16]` por
-`[47:16] + mult_result_reg[15]`: derruba o erro máximo de 521 para 25 LSB.
-**Ainda não aplicada** — exige recompilação completa e nova validação.
+A correção de melhor retorno seria arredondar no shift, trocando `[47:16]` por
+`[47:16] + mult_result_reg[15]`: derrubaria o erro máximo de 521 para 25 LSB.
+
+**Decidido em 14/09/2026 NÃO aplicar.** O truncamento é a implementação original do
+autor da plataforma e fica como está; o comportamento numérico do conv1d permanece o
+que o TCC descreve. A alternativa fica registrada aqui, com o número já medido, para
+quem quiser retomar a discussão mais tarde — não é um defeito esquecido, é uma
+escolha.
 
 ## 4. O corte por `nx+nh-1` no cliente não é bug
 
