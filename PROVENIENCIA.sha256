@@ -1,34 +1,24 @@
 # PROVENIENCIA -- sha256 do conjunto validado em hardware.
 #
-# Origem  : LABPS-47723:/home/coordenador/Documentos/morphe/tcc
-# Coleta  : 2026-09-09T13:20:46-03:00
-# Build   : Quartus Prime 20.1.0 Lite, Fitter+Assembler, 2026-09-08 16:53
-# Validado: conv1d 1024x1024 em 213,9 ms, erro 0,00 contra impulso
+# Origem  : LABPS-47723:/home/coordenador/Documentos/validacao-final/morphe
+# Commit  : 90d4bf8
+# Coleta  : 2026-09-15T12:14:28-0300
+# Build   : Quartus Prime 20.1 Lite, Quartus/output_files/soc_system_time_limited.sof de 2026-09-15 10:58
+# Validado: morphe_ping 4/4 (conv1d 0,00 em 217,7 ms; FFT 21,3 ms); testa_ifft_roundtrip 0 falhas; Fmax 60,99 MHz; compilado deste clone a partir do git
 #
-# 14/09/2026 -- C/morphe_server.c atualizado e revalidado na placa
-# 172.16.230.24: morphe_ping 4/4, conv1d erro 0,00 em 214,1 ms e FFT de
-# 1024 pontos com espectro plano (variacao 0,0%) em 21,2 ms.
-# Os nove artefatos de hardware NAO mudaram desde o build de 08/09.
-#
-# O hash antigo de morphe_server.c (e86226f2...) vinha da coleta de 09/09 e
-# ja estava vencido desde 10/09, quando a IFFT entrou no servidor sem que
-# este arquivo fosse regerado -- ou seja, 'sha256sum -c' vinha falhando
-# nesta linha em qualquer clone. Corrigido aqui. Regerar SEMPRE que um dos
-# arquivos listados mudar; um registro de proveniencia que falha por
-# desatualizacao ensina a ignorar o proprio registro.
-#
-# ATENCAO: registre sempre o caminho de origem. Existem sete copias de
-# soc_system_time_limited.sof nesta estacao e so uma funciona.
-#
+# Gerado por ./gera_proveniencia.sh -- nao edite a mao; rode de novo.
 # Verificar:  sha256sum -c PROVENIENCIA.sha256
 #
 cc079300729271c4030828fa4c9479a1cd547bd285edeb0bf6da57a371c5327d  Quartus/conv1d.v
-be278a065320cdd7134c734c9afe7d9112e9a2be9c1df01a76fa6939d2bda813  Quartus/ghrd_top.v
 e706811bae12cb2e09039b0c5ba44a6d6beffb618cc4aac694795081c752278d  Quartus/fir_wrapper.v
-a50fd348c5750a4a70ff4d8aceff029962fde638d8dda4a5580cff503508517c  Quartus/soc_system.qsys
-262886e679eccb3f5ba1bbf3dc22dc0d862c3baea8cbec68f16f783dce4e459a  Quartus/soc_system.sopcinfo
-92a5dc35f16fd0b5b09c637423b09b5c9c197fdb48b90f88f84b0e125af0db30  Quartus/output_files/soc_system_time_limited.sof
-82eb44bb1eba4e860a0056529f004cee68cfe23fd2fd10ce2771a34c64af6e27  C/hps_0.h
+dfb90740d2bccf2778201336f0a77c09c20ba67f9124ef50a6022bbfbfd8d5f5  Quartus/fft_wrapper.v
+f32101e5a7e276aa9fcc05660c83b1f4f483a9f09851a4cc418002171437b842  Quartus/iir_cascade.v
+e382469ef32105fcc483952a3e90548789ff0198d5f36eaf68b4921bfcbfcc66  Quartus/iir_biquad_mac.v
+c1c0f380e2fb52b110bf186bace3d441ccc5d166f2a6a27f9d896587a03b330c  Quartus/ghrd_top.v
+f90c650fa57fbc3cddaf0db2b19214bdf358e28f6ef3f4cd070537ed100dccf2  Quartus/soc_system.qsys
+a3907a70ab79bbf13514b55fa162c29fb2153c37b6c84a003ff89e3d685544db  Quartus/soc_system.sopcinfo
+f31d9f82742b91905ece7a1bc72f68c6bd3344f75594f5d31acf905191901f29  Quartus/output_files/soc_system_time_limited.sof
+7cd9cff0f3bae7feefaa2c66576e86b6bc3eea479af266e21c9131c709b66b81  C/hps_0.h
 800224af1dfc78cbb369cfa58f2b2009cf4f18678c35a0727d618398d12adccb  C/morphe_config.h
 7ef07fa0574760eb79877d18f3bda12ad92048ac43ee75108adc797af269a3e1  C/morphe_server.c
 2a887b03e166a65ae9c7083ec76a576667d99741e73e4d824c32698940fc9d0e  C/address_map_arm.h

@@ -18,35 +18,35 @@
 // altera message_level Level1 
 // altera message_off 10034 10035 10036 10037 10230 10240 10030 
 
-module soc_system_conv1d_hn (
-                              // inputs:
-                               address,
-                               address2,
-                               byteenable,
-                               byteenable2,
-                               chipselect,
-                               chipselect2,
-                               clk,
-                               clk2,
-                               clken,
-                               clken2,
-                               freeze,
-                               reset,
-                               reset2,
-                               reset_req,
-                               reset_req2,
-                               write,
-                               write2,
-                               writedata,
-                               writedata2,
+module soc_system_iir_yn (
+                           // inputs:
+                            address,
+                            address2,
+                            byteenable,
+                            byteenable2,
+                            chipselect,
+                            chipselect2,
+                            clk,
+                            clk2,
+                            clken,
+                            clken2,
+                            freeze,
+                            reset,
+                            reset2,
+                            reset_req,
+                            reset_req2,
+                            write,
+                            write2,
+                            writedata,
+                            writedata2,
 
-                              // outputs:
-                               readdata,
-                               readdata2
-                            )
+                           // outputs:
+                            readdata,
+                            readdata2
+                         )
 ;
 
-  parameter INIT_FILE = "soc_system_conv1d_hn.hex";
+  parameter INIT_FILE = "soc_system_iir_yn.hex";
 
 
   output  [ 31: 0] readdata;

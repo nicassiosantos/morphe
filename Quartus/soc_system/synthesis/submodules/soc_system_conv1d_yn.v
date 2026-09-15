@@ -51,8 +51,8 @@ module soc_system_conv1d_yn (
 
   output  [ 31: 0] readdata;
   output  [ 31: 0] readdata2;
-  input   [  7: 0] address;
-  input   [  7: 0] address2;
+  input   [ 10: 0] address;
+  input   [ 10: 0] address2;
   input   [  3: 0] byteenable;
   input   [  3: 0] byteenable2;
   input            chipselect;
@@ -106,9 +106,9 @@ wire             wren2;
            the_altsyncram.indata_reg_b = "CLOCK1",
            the_altsyncram.init_file = INIT_FILE,
            the_altsyncram.lpm_type = "altsyncram",
-           the_altsyncram.maximum_depth = 255,
-           the_altsyncram.numwords_a = 255,
-           the_altsyncram.numwords_b = 255,
+           the_altsyncram.maximum_depth = 2048,
+           the_altsyncram.numwords_a = 2048,
+           the_altsyncram.numwords_b = 2048,
            the_altsyncram.operation_mode = "BIDIR_DUAL_PORT",
            the_altsyncram.outdata_reg_a = "UNREGISTERED",
            the_altsyncram.outdata_reg_b = "UNREGISTERED",
@@ -118,8 +118,8 @@ wire             wren2;
            the_altsyncram.width_b = 32,
            the_altsyncram.width_byteena_a = 4,
            the_altsyncram.width_byteena_b = 4,
-           the_altsyncram.widthad_a = 8,
-           the_altsyncram.widthad_b = 8,
+           the_altsyncram.widthad_a = 11,
+           the_altsyncram.widthad_b = 11,
            the_altsyncram.wrcontrol_wraddress_reg_b = "CLOCK1";
 
   //s1, which is an e_avalon_slave

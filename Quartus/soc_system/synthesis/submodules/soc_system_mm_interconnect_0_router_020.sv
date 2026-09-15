@@ -42,12 +42,12 @@
 
 `timescale 1 ns / 1 ns
 
-module soc_system_mm_interconnect_0_router_006_default_decode
+module soc_system_mm_interconnect_0_router_020_default_decode
   #(
-     parameter DEFAULT_CHANNEL = -1,
-               DEFAULT_WR_CHANNEL = 0,
-               DEFAULT_RD_CHANNEL = 1,
-               DEFAULT_DESTID = 1 
+     parameter DEFAULT_CHANNEL = 0,
+               DEFAULT_WR_CHANNEL = -1,
+               DEFAULT_RD_CHANNEL = -1,
+               DEFAULT_DESTID = 0 
    )
   (output [108 - 104 : 0] default_destination_id,
    output [30-1 : 0] default_wr_channel,
@@ -81,7 +81,7 @@ module soc_system_mm_interconnect_0_router_006_default_decode
 endmodule
 
 
-module soc_system_mm_interconnect_0_router_006
+module soc_system_mm_interconnect_0_router_020
 (
     // -------------------
     // Clock & Reset
@@ -158,31 +158,23 @@ module soc_system_mm_interconnect_0_router_006
     assign src_valid         = sink_valid;
     assign src_startofpacket = sink_startofpacket;
     assign src_endofpacket   = sink_endofpacket;
-    wire [30-1 : 0] default_rd_channel;
-    wire [30-1 : 0] default_wr_channel;
+    wire [30-1 : 0] default_src_channel;
 
 
 
 
-    // -------------------------------------------------------
-    // Write and read transaction signals
-    // -------------------------------------------------------
-    wire write_transaction;
-    assign write_transaction = sink_data[PKT_TRANS_WRITE];
-    wire read_transaction;
-    assign read_transaction  = sink_data[PKT_TRANS_READ];
 
 
-    soc_system_mm_interconnect_0_router_006_default_decode the_default_decode(
+    soc_system_mm_interconnect_0_router_020_default_decode the_default_decode(
       .default_destination_id (),
-      .default_wr_channel   (default_wr_channel),
-      .default_rd_channel   (default_rd_channel),
-      .default_src_channel  ()
+      .default_wr_channel   (),
+      .default_rd_channel   (),
+      .default_src_channel  (default_src_channel)
     );
 
     always @* begin
         src_data    = sink_data;
-        src_channel = write_transaction ? default_wr_channel : default_rd_channel;
+        src_channel = default_src_channel;
 
         // --------------------------------------------------
         // DestinationID Decoder
@@ -192,12 +184,8 @@ module soc_system_mm_interconnect_0_router_006
 
 
 
-        if (destid == 1  && write_transaction) begin
-            src_channel = 30'b01;
-        end
-
-        if (destid == 1  && read_transaction) begin
-            src_channel = 30'b10;
+        if (destid == 0 ) begin
+            src_channel = 30'b1;
         end
 
 

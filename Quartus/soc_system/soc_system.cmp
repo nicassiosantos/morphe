@@ -2,7 +2,7 @@
 		port (
 			clk_clk                               : in    std_logic                     := 'X';             -- clk
 			conv1d_done_export                    : in    std_logic                     := 'X';             -- export
-			conv1d_hn_address                     : in    std_logic_vector(6 downto 0)  := (others => 'X'); -- address
+			conv1d_hn_address                     : in    std_logic_vector(9 downto 0)  := (others => 'X'); -- address
 			conv1d_hn_clken                       : in    std_logic                     := 'X';             -- clken
 			conv1d_hn_chipselect                  : in    std_logic                     := 'X';             -- chipselect
 			conv1d_hn_write                       : in    std_logic                     := 'X';             -- write
@@ -10,14 +10,14 @@
 			conv1d_hn_writedata                   : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
 			conv1d_hn_byteenable                  : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
 			conv1d_start_export                   : out   std_logic;                                        -- export
-			conv1d_xn_address                     : in    std_logic_vector(6 downto 0)  := (others => 'X'); -- address
+			conv1d_xn_address                     : in    std_logic_vector(9 downto 0)  := (others => 'X'); -- address
 			conv1d_xn_clken                       : in    std_logic                     := 'X';             -- clken
 			conv1d_xn_chipselect                  : in    std_logic                     := 'X';             -- chipselect
 			conv1d_xn_write                       : in    std_logic                     := 'X';             -- write
 			conv1d_xn_readdata                    : out   std_logic_vector(31 downto 0);                    -- readdata
 			conv1d_xn_writedata                   : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
 			conv1d_xn_byteenable                  : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
-			conv1d_yn_address                     : in    std_logic_vector(7 downto 0)  := (others => 'X'); -- address
+			conv1d_yn_address                     : in    std_logic_vector(10 downto 0) := (others => 'X'); -- address
 			conv1d_yn_clken                       : in    std_logic                     := 'X';             -- clken
 			conv1d_yn_chipselect                  : in    std_logic                     := 'X';             -- chipselect
 			conv1d_yn_write                       : in    std_logic                     := 'X';             -- write
@@ -58,7 +58,7 @@
 			fft_yn_re_byteenable                  : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
 			fir_done_export                       : in    std_logic                     := 'X';             -- export
 			fir_error_export                      : in    std_logic                     := 'X';             -- export
-			fir_hn_address                        : in    std_logic_vector(6 downto 0)  := (others => 'X'); -- address
+			fir_hn_address                        : in    std_logic_vector(9 downto 0)  := (others => 'X'); -- address
 			fir_hn_clken                          : in    std_logic                     := 'X';             -- clken
 			fir_hn_chipselect                     : in    std_logic                     := 'X';             -- chipselect
 			fir_hn_write                          : in    std_logic                     := 'X';             -- write
@@ -66,14 +66,14 @@
 			fir_hn_writedata                      : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
 			fir_hn_byteenable                     : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
 			fir_start_export                      : out   std_logic;                                        -- export
-			fir_xn_address                        : in    std_logic_vector(6 downto 0)  := (others => 'X'); -- address
+			fir_xn_address                        : in    std_logic_vector(9 downto 0)  := (others => 'X'); -- address
 			fir_xn_clken                          : in    std_logic                     := 'X';             -- clken
 			fir_xn_chipselect                     : in    std_logic                     := 'X';             -- chipselect
 			fir_xn_write                          : in    std_logic                     := 'X';             -- write
 			fir_xn_readdata                       : out   std_logic_vector(31 downto 0);                    -- readdata
 			fir_xn_writedata                      : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
 			fir_xn_byteenable                     : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
-			fir_yn_address                        : in    std_logic_vector(6 downto 0)  := (others => 'X'); -- address
+			fir_yn_address                        : in    std_logic_vector(10 downto 0) := (others => 'X'); -- address
 			fir_yn_clken                          : in    std_logic                     := 'X';             -- clken
 			fir_yn_chipselect                     : in    std_logic                     := 'X';             -- chipselect
 			fir_yn_write                          : in    std_logic                     := 'X';             -- write
@@ -156,7 +156,32 @@
 			memory_mem_odt                        : out   std_logic;                                        -- mem_odt
 			memory_mem_dm                         : out   std_logic_vector(3 downto 0);                     -- mem_dm
 			memory_oct_rzqin                      : in    std_logic                     := 'X';             -- oct_rzqin
-			reset_reset_n                         : in    std_logic                     := 'X'              -- reset_n
+			reset_reset_n                         : in    std_logic                     := 'X';             -- reset_n
+			iir_xn_address                        : in    std_logic_vector(9 downto 0)  := (others => 'X'); -- address
+			iir_xn_clken                          : in    std_logic                     := 'X';             -- clken
+			iir_xn_chipselect                     : in    std_logic                     := 'X';             -- chipselect
+			iir_xn_write                          : in    std_logic                     := 'X';             -- write
+			iir_xn_readdata                       : out   std_logic_vector(31 downto 0);                    -- readdata
+			iir_xn_writedata                      : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
+			iir_xn_byteenable                     : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
+			iir_yn_address                        : in    std_logic_vector(9 downto 0)  := (others => 'X'); -- address
+			iir_yn_clken                          : in    std_logic                     := 'X';             -- clken
+			iir_yn_chipselect                     : in    std_logic                     := 'X';             -- chipselect
+			iir_yn_write                          : in    std_logic                     := 'X';             -- write
+			iir_yn_readdata                       : out   std_logic_vector(31 downto 0);                    -- readdata
+			iir_yn_writedata                      : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
+			iir_yn_byteenable                     : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
+			iir_coef_address                      : in    std_logic_vector(7 downto 0)  := (others => 'X'); -- address
+			iir_coef_clken                        : in    std_logic                     := 'X';             -- clken
+			iir_coef_chipselect                   : in    std_logic                     := 'X';             -- chipselect
+			iir_coef_write                        : in    std_logic                     := 'X';             -- write
+			iir_coef_readdata                     : out   std_logic_vector(31 downto 0);                    -- readdata
+			iir_coef_writedata                    : in    std_logic_vector(31 downto 0) := (others => 'X'); -- writedata
+			iir_coef_byteenable                   : in    std_logic_vector(3 downto 0)  := (others => 'X'); -- byteenable
+			iir_start_export                      : out   std_logic;                                        -- export
+			iir_done_export                       : in    std_logic                     := 'X';             -- export
+			iir_error_export                      : in    std_logic                     := 'X';             -- export
+			iir_nsecoes_export                    : out   std_logic_vector(4 downto 0)                      -- export
 		);
 	end component soc_system;
 

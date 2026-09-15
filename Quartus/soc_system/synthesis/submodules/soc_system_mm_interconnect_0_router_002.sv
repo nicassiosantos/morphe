@@ -47,12 +47,12 @@ module soc_system_mm_interconnect_0_router_002_default_decode
      parameter DEFAULT_CHANNEL = 0,
                DEFAULT_WR_CHANNEL = -1,
                DEFAULT_RD_CHANNEL = -1,
-               DEFAULT_DESTID = 21 
+               DEFAULT_DESTID = 28 
    )
   (output [108 - 104 : 0] default_destination_id,
-   output [23-1 : 0] default_wr_channel,
-   output [23-1 : 0] default_rd_channel,
-   output [23-1 : 0] default_src_channel
+   output [30-1 : 0] default_wr_channel,
+   output [30-1 : 0] default_rd_channel,
+   output [30-1 : 0] default_src_channel
   );
 
   assign default_destination_id = 
@@ -63,7 +63,7 @@ module soc_system_mm_interconnect_0_router_002_default_decode
       assign default_src_channel = '0;
     end
     else begin : default_channel_assignment
-      assign default_src_channel = 23'b1 << DEFAULT_CHANNEL;
+      assign default_src_channel = 30'b1 << DEFAULT_CHANNEL;
     end
   endgenerate
 
@@ -73,8 +73,8 @@ module soc_system_mm_interconnect_0_router_002_default_decode
       assign default_rd_channel = '0;
     end
     else begin : default_rw_channel_assignment
-      assign default_wr_channel = 23'b1 << DEFAULT_WR_CHANNEL;
-      assign default_rd_channel = 23'b1 << DEFAULT_RD_CHANNEL;
+      assign default_wr_channel = 30'b1 << DEFAULT_WR_CHANNEL;
+      assign default_rd_channel = 30'b1 << DEFAULT_RD_CHANNEL;
     end
   endgenerate
 
@@ -103,7 +103,7 @@ module soc_system_mm_interconnect_0_router_002
     // -------------------
     output                          src_valid,
     output reg [133-1    : 0] src_data,
-    output reg [23-1 : 0] src_channel,
+    output reg [30-1 : 0] src_channel,
     output                          src_startofpacket,
     output                          src_endofpacket,
     input                           src_ready
@@ -119,7 +119,7 @@ module soc_system_mm_interconnect_0_router_002
     localparam PKT_PROTECTION_H = 123;
     localparam PKT_PROTECTION_L = 121;
     localparam ST_DATA_W = 133;
-    localparam ST_CHANNEL_W = 23;
+    localparam ST_CHANNEL_W = 30;
     localparam DECODER_TYPE = 0;
 
     localparam PKT_TRANS_WRITE = 70;
@@ -167,7 +167,7 @@ module soc_system_mm_interconnect_0_router_002
     assign src_startofpacket = sink_startofpacket;
     assign src_endofpacket   = sink_endofpacket;
     wire [PKT_DEST_ID_W-1:0] default_destid;
-    wire [23-1 : 0] default_src_channel;
+    wire [30-1 : 0] default_src_channel;
 
 
 
@@ -198,26 +198,26 @@ module soc_system_mm_interconnect_0_router_002
 
     // ( 0x0 .. 0x10000 )
     if ( {address[RG:PAD0],{PAD0{1'b0}}} == 18'h0   ) begin
-            src_channel = 23'b0001;
-            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 21;
+            src_channel = 30'b0001;
+            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 28;
     end
 
     // ( 0x10000 .. 0x10008 )
     if ( {address[RG:PAD1],{PAD1{1'b0}}} == 18'h10000  && read_transaction  ) begin
-            src_channel = 23'b1000;
-            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 22;
+            src_channel = 30'b1000;
+            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 29;
     end
 
     // ( 0x20000 .. 0x20008 )
     if ( {address[RG:PAD2],{PAD2{1'b0}}} == 18'h20000   ) begin
-            src_channel = 23'b0010;
-            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 20;
+            src_channel = 30'b0010;
+            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 27;
     end
 
     // ( 0x30000 .. 0x30008 )
     if ( {address[RG:PAD3],{PAD3{1'b0}}} == 18'h30000  && read_transaction  ) begin
-            src_channel = 23'b0100;
-            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 19;
+            src_channel = 30'b0100;
+            src_data[PKT_DEST_ID_H:PKT_DEST_ID_L] = 26;
     end
 
 end
