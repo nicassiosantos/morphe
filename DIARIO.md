@@ -38,9 +38,33 @@ intocados.
 - **Testbench (Icarus, Windows): bit a bit igual ao modelo nos 3 casos.**
 - Custo: **35 ciclos por amostra** (eram 24), medido no `tb_iir_cascade`. Em 1024
   amostras a 50 MHz: +0,2 ms. Irrelevante.
-- **Escrito, não sintetizado.** Se a multiplicação 32×32 mais a soma de 72 bits ainda
+- **Sintetizado às 10h: `clock_50_1` = 59,81 MHz, 0 caminhos violados, pior slack
+  +3,28 ns.** Um estágio de registro, +10,7 MHz. Recursos: 11.140 ALMs (35%), 30/87 DSP
+  (o IIR custou 15: cada 32×32 vira três blocos de 27×27), 29% da memória.
+- **Programado com `morphe-up.sh`: `morphe_ping` 4/4** — conv1d erro 0,00 em 214 ms,
+  FFT plana em 21,4 ms. O remapeamento não quebrou o que existia.
+
+**Dois defeitos encontrados ao validar, nenhum no IIR:**
+
+1. **`--deploy` não recompilava o servidor.** A placa não tem RTC e acorda em 1970; o
+   binário datado de 2026 é "do futuro" para o `make`, que responde "up to date". A
+   impressão digital `.fontes.sha256` era gravada em seguida e atestava um binário que
+   não correspondia às fontes. Corrigido com `make -B` (`acb5423`).
+2. **`IFFT: timeout` — e depois `FFT: timeout` em tudo.** A inversa travava o
+   `fft_wrapper` em `S_RECV_WAIT` e só reprogramar a FPGA destravava. Causa: o
+   `fft_wrapper.v` do git tinha `source_ready` como registrador que cai a cada amostra;
+   o de `~/Documentos/morphe/tcc` — origem byte a byte do `.sof` versionado, sha256
+   `92a5dc35…` — tem um `[FIX]` que o torna combinacional (`state == S_RECV_WAIT`).
+   **O bitstream versionado sempre foi de um RTL que o repositório não tinha**; hoje
+   foi a primeira compilação de ponta a ponta a partir do git, e foi ela que expôs
+   isso. O `fft_core` é o mesmo (só CRLF/LF). Correção trazida para o git.
+   Encerra a validação de 09/09 de forma honesta: o clone reproduzia o *bitstream*,
+   não a *compilação*.
+
+- Se a multiplicação 32×32 mais a soma de 72 bits ainda
   não couber em 20 ns, o próximo estágio é registrar os produtos no
   `iir_biquad_mac.v`, como o `COMPILAR-IIR.md` já previa. Uma mudança por compilação.
+  (Não foi preciso.)
 
 ---
 

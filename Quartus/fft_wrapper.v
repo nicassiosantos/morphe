@@ -99,7 +99,16 @@ module fft_wrapper #(
     reg  [FFT_DATA_WIDTH-1:0]      sink_real, sink_imag;
 
     wire                           source_valid;
-    reg                            source_ready;
+
+    // [FIX]: source_ready e um fio combinacional, funcao do estado, e nao um
+    // registrador que sobe ao entrar em S_RECV_WAIT e cai a cada amostra.
+    // O IP da FFT em arquitetura streaming nao tolera o ready oscilando no
+    // meio do quadro: na direta escapava, na inversa perdia o fim do quadro e
+    // o wrapper ficava preso em S_RECV_WAIT para sempre (IFFT: timeout, e
+    // toda FFT seguinte tambem). Esta e a versao que gerou o bitstream de
+    // 08/09/2026 em ~/Documentos/morphe/tcc; nunca tinha sido commitada.
+    wire                           source_ready;
+    assign source_ready = (state == S_RECV_WAIT);
     wire [1:0]                     source_error;
     wire                           source_sop, source_eop;
     wire [FFT_DATA_WIDTH-1:0]      source_real, source_imag; 
@@ -115,7 +124,6 @@ module fft_wrapper #(
             fft_exponent <= 0;
             feed_addr <= 0; recv_addr <= 0;
             sink_valid <= 0; sink_error <= 0; sink_sop <= 0; sink_eop <= 0;
-            source_ready <= 0; // START AT ZERO to avoid lost samples!
             rd_start <= 0; wr_start <= 0;
         end
         else begin
@@ -125,7 +133,6 @@ module fft_wrapper #(
             case (state)
                 S_IDLE: begin
                     done         <= 1'b0;
-                    source_ready <= 1'b0; // Ensure FFT output is blocked
                     sink_valid   <= 1'b0;
                     if (start_rising) begin
                         feed_addr    <= 0;
@@ -169,7 +176,6 @@ module fft_wrapper #(
                 end
                 
                 S_RECV_WAIT: begin
-                    source_ready <= 1'b1; // NOW we are ready to receive output
                     if (source_valid) begin
                         // Sign extension from 24-bit FFT result to 32-bit SRAM storage
                         capt_real <= {{ (SRAM_DATA_WIDTH - FFT_DATA_WIDTH){source_real[FFT_DATA_WIDTH-1]} }, source_real};
@@ -177,7 +183,6 @@ module fft_wrapper #(
 
                         if (source_sop) fft_exponent <= source_exp;
                             
-                        source_ready <= 1'b0; // De-assert until next write is done
                         state        <= S_WRITE_START;
                     end
                 end
