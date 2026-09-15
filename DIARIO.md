@@ -61,6 +61,13 @@ intocados.
    Encerra a validação de 09/09 de forma honesta: o clone reproduzia o *bitstream*,
    não a *compilação*.
 
+**Recompilado com o wrapper corrigido, 11h: `clock_50_1` = 60,99 MHz, 0 violações.**
+`morphe_ping` 4/4 (conv1d erro 0,00 em 217,7 ms; FFT plana em 21,3 ms) e
+**`testa_ifft_roundtrip.py`: 0 falhas** — delta espectral com erro relativo 3,1e-5, ida e
+volta 6,1e-5, ganho residual 0,99995. **Primeira vez que o repositório se prova de ponta
+a ponta:** clone → compila → programa → tudo que existia passa. O IIR está na FPGA
+(30/87 DSP), sem caminho de software ainda — é o passo 4.
+
 - Se a multiplicação 32×32 mais a soma de 72 bits ainda
   não couber em 20 ns, o próximo estágio é registrar os produtos no
   `iir_biquad_mac.v`, como o `COMPILAR-IIR.md` já previa. Uma mudança por compilação.
