@@ -78,6 +78,16 @@ com zeros), e saturação provocada na ressonância com a flag `extra` = 1. Satu
 Estado do bloco IIR: passos 0 a 4 prontos e validados em hardware. Faltam a tela do
 projetista (5) e o comparador reconhecer o bundle `iir_*.mrph` (6) — software só.
 
+**Passo 5, fim da tarde: tela do projetista IIR e janela "Filtro IIR (FPGA)"** —
+`iir_designer_window.py` é o porte da `Iir_filter_window.m` do DSPFinal (aproximação,
+tipo, fp/fs/δp/δs/Fs; tipo e ordem; polos e zeros + impulso; freqz), mais o que o
+hardware exige: polos **depois de quantizar** sobre o mapa, resposta quantizada sobre
+a ideal e o veredito de viabilidade antes de deixar aplicar. `iir_window.py` é a gêmea
+da FIR: sinal, filtro, "Aplicar IIR (FPGA)", bundle — e confere a saída da placa bit a
+bit com o modelo na hora. Botão "Filtro IIR (FPGA)" no hub. **Escrito e ensaiado sem
+placa** (fluxo completo com a resposta simulada pelo modelo); falta rodar contra a
+placa e o passo 6 (comparador).
+
 Ambiente: o `.venv` da estação não tem scipy; a elíptica do `iir_design.py` não roda
 lá. O teste usa Chebyshev I por isso.
 

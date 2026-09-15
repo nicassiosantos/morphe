@@ -834,3 +834,84 @@ def verifica_viabilidade(sos: np.ndarray, frac_bits: int = 16,
         "dead_band_estimada": estima_dead_band(sos, frac_bits),
         "sos_q": a["sos_q"],
     }
+
+
+# ======================================================================
+# Arquivo de coeficientes: o que o projetista salva e a janela IIR carrega
+# ======================================================================
+#
+# Uma secao por linha, seis colunas b0 b1 b2 a0 a1 a2 em ponto flutuante,
+# a0 = 1. O cabecalho guarda a descricao e a fs, porque um filtro so faz
+# sentido na taxa em que foi projetado -- a janela IIR trava a fs do sinal
+# de entrada nesse valor, como a FIR faz.
+
+def salva_sos_txt(path: str, sos: np.ndarray, descricao: str = "",
+                  fs: float | None = None) -> None:
+    if not path.lower().endswith((".txt", ".sos")):
+        path += ".txt"
+    sos = np.atleast_2d(np.asarray(sos, dtype=np.float64))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("# Morphe IIR SOS -- %s\n" % (descricao or "cascata de biquads"))
+        if fs is not None:
+            f.write("# fs=%.10g\n" % fs)
+        f.write("# secoes=%d  colunas: b0 b1 b2 a0 a1 a2\n" % sos.shape[0])
+        for sec in sos:
+            f.write(" ".join("%.12g" % v for v in sec) + "\n")
+
+
+def carrega_sos_txt(path: str) -> tuple[np.ndarray, str, float | None]:
+    """Devolve (sos, descricao, fs). Aceita tambem 5 colunas (a0 implicito)."""
+    descricao, fs, linhas = "", None, []
+    with open(path, "r", encoding="utf-8") as f:
+        for bruta in f:
+            s = bruta.strip()
+            if not s:
+                continue
+            if s.startswith("#"):
+                corpo = s.lstrip("#").strip()
+                if corpo.startswith("fs="):
+                    try:
+                        fs = float(corpo[3:].split()[0])
+                    except ValueError:
+                        pass
+                elif corpo.startswith("Morphe IIR SOS"):
+                    descricao = corpo.split("--", 1)[1].strip() if "--" in corpo else ""
+                continue
+            vals = [float(v) for v in s.replace(",", " ").split()]
+            if len(vals) == 5:
+                vals = vals[:3] + [1.0] + vals[3:]
+            if len(vals) != 6:
+                raise IIRSpecError(
+                    "Linha com %d valores; esperava 6 (b0 b1 b2 a0 a1 a2) "
+                    "ou 5 (a0 implicito): %r" % (len(vals), s))
+            if vals[3] == 0.0:
+                raise IIRSpecError("a0 = 0 numa secao: %r" % s)
+            if vals[3] != 1.0:
+                vals = [v / vals[3] for v in vals]
+            linhas.append(vals)
+    if not linhas:
+        raise IIRSpecError("Arquivo sem nenhuma secao: %s" % path)
+    return np.asarray(linhas, dtype=np.float64), descricao, fs
+
+
+def resposta_impulso_sos(sos: np.ndarray, n: int) -> np.ndarray:
+    """h[k], k < n, da cascata em ponto flutuante (Forma Direta I).
+
+    E o impz() da janela do professor. Ponto flutuante de proposito: aqui
+    a pergunta e 'que filtro e este', nao 'o que o hardware faz com ele'
+    -- para isso existe filtra_sos_fixo.
+    """
+    x = np.zeros(n, dtype=np.float64)
+    x[0] = 1.0
+    y = x
+    for b0, b1, b2, a0, a1, a2 in np.atleast_2d(sos):
+        out = np.empty(n, dtype=np.float64)
+        x1 = x2 = y1 = y2 = 0.0
+        for k in range(n):
+            xn = y[k]
+            yn = (b0 * xn + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0
+            x2, x1 = x1, xn
+            y2, y1 = y1, yn
+            out[k] = yn
+        y = out
+    return y

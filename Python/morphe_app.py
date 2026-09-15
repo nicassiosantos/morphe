@@ -18,6 +18,7 @@ from conv_window import ConvolutionWindow
 from fft_window import FFTWindow
 from ifft_window import IFFTWindow
 from fir_window import FIRWindow
+from iir_window import IIRWindow
 from comparator_window import ComparatorWindow
 from tcp_panel import TcpConfigPanel
 
@@ -88,6 +89,7 @@ class MorpheMainWindow(tk.Tk):
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
             ("IFFT  (espectro de arquivo → FPGA)", self._open_ifft),
             ("Filtro FIR  (FPGA)",             self._open_fir),
+            ("Filtro IIR  (FPGA)",             self._open_iir),
         ]
         for label, cmd in primary_actions:
             ttk.Button(
@@ -130,6 +132,9 @@ class MorpheMainWindow(tk.Tk):
 
     def _open_fir(self):
         FIRWindow(self)
+
+    def _open_iir(self):
+        IIRWindow(self)
 
     def _open_comparator(self):
         ComparatorWindow(self)
