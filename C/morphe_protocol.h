@@ -10,11 +10,12 @@
  * Request header (20 bytes):
  *   uint32 magic    = 0x4D52504D ('MRPM')
  *   uint16 version  = 1
- *   uint16 opcode   (1=CONV, 2=FFT, 3=PING, 4=FIR, 5=IFFT)
+ *   uint16 opcode   (1=CONV, 2=FFT, 3=PING, 4=FIR, 5=IFFT, 6=IIR)
  *   uint16 dtype    (1=int32, 2=float32)
  *   uint16 flags    (0)
  *   uint32 n_x      (comprimento de x)
- *   uint32 n_h      (comprimento de h; 0 para FFT/IFFT)
+ *   uint32 n_h      (comprimento de h; 0 para FFT/IFFT; no IIR, o
+ *                    NUMERO DE SECOES de 2a ordem)
  *
  * Payload do request, por opcode:
  *   CONV/FIR -> n_x amostras de x, seguidas de n_h amostras de h
@@ -23,6 +24,10 @@
  *               re e im intercalados: re[0] im[0] re[1] im[1] ...
  *               A IFFT recebe um espectro, que e complexo por natureza;
  *               dai o payload dobrar em relacao a FFT.
+ *   IIR      -> n_x amostras de x (int32 Q15.16), seguidas de 5*n_h
+ *               coeficientes (int32 Q15.16), na ordem b0 b1 b2 a1 a2
+ *               por secao -- a mesma da SRAM iir_coef e do
+ *               iir_design.coeficientes_inteiros(). a0 = 1 implicito.
  *
  * Response header (20 bytes):
  *   uint32 magic    = 0x4D52504E ('MRPN')
@@ -31,7 +36,8 @@
  *   uint16 dtype    (dtype do payload de saida)
  *   uint16 status   (0 = OK)
  *   uint32 n_out    (no. de amostras; para erro: bytes da msg)
- *   uint32 extra    (0)
+ *   uint32 extra    (0; no IIR, 1 se alguma amostra saturou -- o
+ *                    resultado vem mesmo assim, saturado, nao errado)
  */
 #ifndef MORPHE_PROTOCOL_H
 #define MORPHE_PROTOCOL_H
@@ -49,6 +55,7 @@
 #define MORPHE_OP_PING     3U   /* descoberta de servico */
 #define MORPHE_OP_FIR      4U   /* filtro FIR (igual ao OP_FIR=4 do cliente) */
 #define MORPHE_OP_IFFT     5U   /* transformada inversa: mesmo IP, bit inverse=1 */
+#define MORPHE_OP_IIR      6U   /* cascata de biquads Q15.16 (iir_cascade.v) */
 
 #define MORPHE_DTYPE_INT32    1U
 #define MORPHE_DTYPE_FLOAT32  2U

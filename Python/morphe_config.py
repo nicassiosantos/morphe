@@ -47,6 +47,16 @@ CONV_N_MAX: int = 1024
 #: Tamanho maximo do vetor de saida y[n] = x[n] * h[n].
 CONV_Y_MAX: int = 2 * CONV_N_MAX - 1  # = 2047
 
+# ---- IIR (cascata de secoes de 2a ordem, iir_cascade.v) -------------------
+# O bloco processa SEMPRE IIR_N_MAX amostras; o servidor completa com zeros.
+IIR_N_MAX: int = 1024
+# Secoes por execucao: 1..IIR_SECOES_MAX (o PIO iir_nsecoes tem 5 bits).
+IIR_SECOES_MAX: int = 16
+# Palavras por secao na SRAM de coeficientes: b0 b1 b2 a1 a2 (a0 = 1).
+IIR_COEF_POR_SECAO: int = 5
+# Amostras e coeficientes em Q15.16, o mesmo da conv1d.
+IIR_FRAC_BITS: int = 16
+
 # ---- Rede ----------------------------------------------------------------
 
 #: Porta TCP padrao do servidor (cliente pode sobrescrever).
@@ -63,3 +73,4 @@ assert FFT_DATA_BITS in (8, 16, 24, 32), \
 assert 0 <= FFT_FRAC_BITS < FFT_DATA_BITS, \
     "FFT_FRAC_BITS deve ser >= 0 e < FFT_DATA_BITS"
 assert CONV_N_MAX > 0, "CONV_N_MAX deve ser > 0"
+assert 1 <= IIR_SECOES_MAX <= 31, "IIR_SECOES_MAX tem que caber nos 5 bits do PIO"

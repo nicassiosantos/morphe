@@ -78,9 +78,15 @@
         _MORPHE_END(FIR_HN_BASE, FIR_HN_SPAN), \
         _MORPHE_END(FIR_YN_BASE, FIR_YN_SPAN))
 
+#define _MORPHE_END_IIR \
+    _MORPHE_MAX3( \
+        _MORPHE_END(IIR_XN_BASE,   IIR_XN_SPAN), \
+        _MORPHE_END(IIR_YN_BASE,   IIR_YN_SPAN), \
+        _MORPHE_END(IIR_COEF_BASE, IIR_COEF_SPAN))
+
 #define MORPHE_ONCHIP_MMAP_SPAN \
     _MORPHE_ROUND_UP( \
-        _MORPHE_MAX3(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR), \
+        _MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
         _MORPHE_PAGE_SIZE)
 
 /* Saida maxima do FIR: derivada do span real de fir_yn no hps_0.h. */
@@ -96,6 +102,9 @@ _Static_assert(CONV1D_YN_SPAN   >= MORPHE_CONV_Y_MAX * (int)sizeof(int32_t), "Er
 _Static_assert(FIR_XN_SPAN      >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(FIR_HN_SPAN      >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(FIR_YN_SPAN      >= MORPHE_CONV_Y_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(IIR_XN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(IIR_YN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(IIR_COEF_SPAN    >= MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO * (int)sizeof(int32_t), "Erro");
 _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 
 #define FPGA_DONE_TIMEOUT_MS 5000
@@ -129,6 +138,10 @@ static int32_t  *g_fir_xn     = NULL;
 static int32_t  *g_fir_hn     = NULL;
 static int32_t  *g_fir_yn     = NULL;
 
+static int32_t  *g_iir_xn     = NULL;
+static int32_t  *g_iir_yn     = NULL;
+static int32_t  *g_iir_coef   = NULL;
+
 static volatile uint32_t *g_pio_fft_start    = NULL;
 static volatile uint32_t *g_pio_fft_inverse  = NULL;
 static volatile uint32_t *g_pio_fft_done     = NULL;
@@ -140,6 +153,11 @@ static volatile uint32_t *g_pio_conv_done    = NULL;
 static volatile uint32_t *g_pio_fir_start    = NULL;
 static volatile uint32_t *g_pio_fir_done     = NULL;
 static volatile uint32_t *g_pio_fir_error    = NULL;
+
+static volatile uint32_t *g_pio_iir_start    = NULL;
+static volatile uint32_t *g_pio_iir_done     = NULL;
+static volatile uint32_t *g_pio_iir_error    = NULL;
+static volatile uint32_t *g_pio_iir_nsecoes  = NULL;
 
 static struct timespec  g_start_time;
 static char             g_hostname[128] = "morphe-server";
@@ -248,6 +266,10 @@ static int fpga_init(void) {
     g_fir_hn = (int32_t *)((char *)g_fpga_virt + FIR_HN_BASE);
     g_fir_yn = (int32_t *)((char *)g_fpga_virt + FIR_YN_BASE);
 
+    g_iir_xn   = (int32_t *)((char *)g_fpga_virt + IIR_XN_BASE);
+    g_iir_yn   = (int32_t *)((char *)g_fpga_virt + IIR_YN_BASE);
+    g_iir_coef = (int32_t *)((char *)g_fpga_virt + IIR_COEF_BASE);
+
     g_pio_fft_start   = (volatile uint32_t *)((char *)g_lw_virt + FFT_WRAPPER_START_BASE);
     g_pio_fft_inverse = (volatile uint32_t *)((char *)g_lw_virt + FFT_INVERSE_BASE);
     g_pio_fft_done    = (volatile uint32_t *)((char *)g_lw_virt + FFT_WRAPPER_DONE_BASE);
@@ -260,9 +282,15 @@ static int fpga_init(void) {
     g_pio_fir_done   = (volatile uint32_t *)((char *)g_lw_virt + FIR_DONE_BASE);
     g_pio_fir_error  = (volatile uint32_t *)((char *)g_lw_virt + FIR_ERROR_BASE);
 
+    g_pio_iir_start   = (volatile uint32_t *)((char *)g_lw_virt + IIR_START_BASE);
+    g_pio_iir_done    = (volatile uint32_t *)((char *)g_lw_virt + IIR_DONE_BASE);
+    g_pio_iir_error   = (volatile uint32_t *)((char *)g_lw_virt + IIR_ERROR_BASE);
+    g_pio_iir_nsecoes = (volatile uint32_t *)((char *)g_lw_virt + IIR_NSECOES_BASE);
+
     *g_pio_fft_start  = 0;
     *g_pio_conv_start = 0;
     *g_pio_fir_start  = 0;
+    *g_pio_iir_start  = 0;
 
     LOG("FPGA mapeada. FFT_ONCHIP=%p (%u KiB)", g_fpga_virt, MORPHE_ONCHIP_MMAP_SPAN / 1024U);
     return 0;
@@ -684,6 +712,103 @@ static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     return 0;
 }
 
+/* IIR: cascata de n_h secoes de 2a ordem sobre n_x amostras, no
+ * iir_cascade.v. Payload: x (n_x palavras) e depois os coeficientes
+ * (5 por secao: b0 b1 b2 a1 a2), tudo int32 Q15.16.
+ *
+ * Diferencas para o FIR, que e o vizinho mais proximo:
+ *   - o hardware processa SEMPRE MORPHE_IIR_N_MAX amostras; o que o
+ *     cliente nao mandou vai como zero e so as n_x primeiras voltam;
+ *   - n_h nao e um comprimento de vetor, e o numero de secoes, e vai
+ *     para o PIO iir_nsecoes ANTES do start (o bloco le o PIO durante a
+ *     carga dos coeficientes e a cada amostra);
+ *   - saturacao NAO e erro: o bloco satura em vez de dar wrap, e o
+ *     resultado continua valido como resultado saturado. O aviso vai no
+ *     campo `extra` do cabecalho (1 = saturou), com status OK. O FIR
+ *     devolve INTERNAL_ERROR nessa situacao e o cliente perde o vetor;
+ *     aqui o vetor e justamente o que se quer ver. */
+static void log_tempos(const char *op, const struct timespec *t0,
+                       const struct timespec *t_entrada,
+                       const struct timespec *t_fpga,
+                       const struct timespec *t_fim);
+
+static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
+    LOG("IIR request: dtype=%u, n_x=%u, n_secoes=%u", dtype, n_x, n_sec);
+
+    if (n_x == 0 || n_x > MORPHE_IIR_N_MAX) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "IIR: n_x fora de [1, %d]", MORPHE_IIR_N_MAX);
+        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, msg);
+    }
+    if (n_sec == 0 || n_sec > MORPHE_IIR_SECOES_MAX) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "IIR: secoes fora de [1, %d]", MORPHE_IIR_SECOES_MAX);
+        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, msg);
+    }
+
+    uint32_t n_coef = n_sec * MORPHE_IIR_COEF_POR_SECAO;
+    size_t payload_bytes = (size_t)(n_x + n_coef) * 4;
+    static uint8_t rx_buf[RX_BUF_MAX];
+    if (payload_bytes > sizeof rx_buf) return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, "IIR: payload excedido");
+    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+
+    static int32_t x_buf[MORPHE_IIR_N_MAX];
+    static int32_t c_buf[MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO];
+    decode_samples_to_i32(rx_buf,           n_x,    dtype, x_buf);
+    decode_samples_to_i32(rx_buf + n_x * 4, n_coef, dtype, c_buf);
+
+    struct timespec t0, t_entrada, t_fpga, t_fim;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    /* Zero alem de n_x: o bloco roda as MORPHE_IIR_N_MAX de qualquer jeito
+     * e o estado das secoes e zerado a cada start, entao o lixo que
+     * sobrasse na SRAM entraria na conta e sairia como cauda. */
+    for (uint32_t i = 0; i < MORPHE_IIR_N_MAX; i++) g_iir_xn[i] = (i < n_x) ? x_buf[i] : 0;
+    for (uint32_t i = 0; i < n_coef; i++) g_iir_coef[i] = c_buf[i];
+
+    *g_pio_iir_nsecoes = n_sec;
+    clock_gettime(CLOCK_MONOTONIC, &t_entrada);
+
+    *g_pio_iir_start = 0;
+    usleep(1);
+    *g_pio_iir_start = 1;
+
+    if (wait_done(g_pio_iir_done, FPGA_DONE_TIMEOUT_MS) < 0) {
+        *g_pio_iir_start = 0;
+        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_FPGA_TIMEOUT, "IIR: timeout");
+    }
+    *g_pio_iir_start = 0;
+    clock_gettime(CLOCK_MONOTONIC, &t_fpga);
+
+    uint32_t saturou = (*g_pio_iir_error) & 0x1U;
+
+    static int32_t y_buf[MORPHE_IIR_N_MAX];
+    for (uint32_t i = 0; i < n_x; i++) y_buf[i] = g_iir_yn[i];
+
+    /* O bundle guarda os coeficientes no lugar de h: e o que o comparador
+     * precisa para refazer a conta no modelo em Python. */
+    save_debug_bundle_conv("iir", dtype, n_x, x_buf, n_coef, c_buf, n_x, y_buf);
+
+    static uint8_t tx_buf[TX_BUF_MAX];
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_IIR, dtype, MORPHE_STATUS_OK, n_x);
+    u32_to_be(hdr + 16, saturou);   /* extra: 1 = alguma amostra saturou */
+
+    if (dtype == MORPHE_DTYPE_INT32) {
+        for (uint32_t i = 0; i < n_x; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
+    } else {
+        for (uint32_t i = 0; i < n_x; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
+    }
+
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n_x * 4) < 0) return -1;
+    clock_gettime(CLOCK_MONOTONIC, &t_fim);
+
+    LOG("  -> IIR OK: n_out=%u, secoes=%u%s", n_x, n_sec, saturou ? ", SATUROU" : "");
+    log_tempos("IIR", &t0, &t_entrada, &t_fpga, &t_fim);
+    return 0;
+}
+
 /* Cronometra as tres fases de um request e imprime.
  *
  * O `fpga` e o numero que interessa: o item 13 do RESSALVAS usa o tempo de
@@ -872,9 +997,11 @@ static int handle_ping(int sock) {
     char body[512];
     int body_len = snprintf(body, sizeof body,
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
-        "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\nuptime_s=%ld\n",
+        "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
+        "iir_n_max=%d\niir_secoes_max=%d\nuptime_s=%ld\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS, 
-        MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX, uptime_s);
+        MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
+        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX, uptime_s);
 
     uint8_t hdr[MORPHE_HEADER_SIZE];
     build_resp_header(hdr, MORPHE_OP_PING, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, (uint32_t) body_len);
@@ -912,6 +1039,7 @@ static void serve_connection(int sock) {
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
         case MORPHE_OP_IFFT: handle_ifft(sock, dtype, n_x); break;
         case MORPHE_OP_FIR:  handle_fir(sock, dtype, n_x, n_h); break;
+        case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");

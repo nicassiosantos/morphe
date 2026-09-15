@@ -60,6 +60,7 @@ OP_FFT  = 2
 OP_PING = 3   # descoberta de servico
 OP_FIR  = 4   # filtro FIR (instancia separada do conv1d, mesmo Verilog)
 OP_IFFT = 5   # transformada inversa: mesmo IP da FFT, bit inverse=1
+OP_IIR  = 6   # cascata de biquads Q15.16 (iir_cascade.v); n_h = no. de secoes
 
 DTYPE_INT32   = 1
 DTYPE_FLOAT32 = 2
@@ -131,6 +132,32 @@ def build_fir_request(x: np.ndarray, h: np.ndarray, dtype_code: int) -> bytes:
         len(x), len(h),
     )
     return hdr + pack_samples(x, dtype_code) + pack_samples(h, dtype_code)
+
+
+def build_iir_request(x_q: np.ndarray, coefs_q, dtype_code: int = DTYPE_INT32) -> bytes:
+    """Constroi request IIR.
+
+    x_q      : amostras JA em inteiros Q15.16 (o que sai de
+               iir_design.quantiza / floor(v*65536+0.5)).
+    coefs_q  : lista de secoes, cada uma [b0, b1, b2, a1, a2] em inteiros
+               Q15.16 -- exatamente o que iir_design.coeficientes_inteiros()
+               devolve. a0 = 1 e implicito; o projetista normaliza.
+
+    n_x vai no campo n_x do cabecalho; o NUMERO DE SECOES vai no campo
+    n_h (nao e um comprimento de vetor). O payload e x seguido dos 5*S
+    coeficientes, na ordem da SRAM do hardware.
+    """
+    coefs = np.asarray(coefs_q, dtype=np.int64)
+    if coefs.ndim != 2 or coefs.shape[1] != 5:
+        raise ValueError("coefs_q deve ter forma (S, 5): b0 b1 b2 a1 a2 por secao")
+    n_sec = int(coefs.shape[0])
+    hdr = struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_IIR, dtype_code, 0,
+        len(x_q), n_sec,
+    )
+    return hdr + pack_samples(np.asarray(x_q), dtype_code) \
+               + pack_samples(coefs.reshape(-1), dtype_code)
 
 
 def escala_para_q1508(v: np.ndarray, folga: float = 0.98) -> float:
@@ -252,6 +279,7 @@ class Response:
     status: int
     n_out: int
     payload: bytes
+    extra: int = 0   # reservado; no IIR, 1 = alguma amostra saturou
 
     @property
     def ok(self) -> bool:
@@ -312,7 +340,7 @@ class TcpClient:
             self._send_all(s, payload)
 
             hdr = self._recv_exact(s, RESP_HEADER_SIZE)
-            opcode, dtype_code, status, n_out, _ = parse_response_header(hdr)
+            opcode, dtype_code, status, n_out, extra = parse_response_header(hdr)
 
             # tamanho do payload depende da operação
             if status != STATUS_OK:
@@ -327,7 +355,7 @@ class TcpClient:
             body = self._recv_exact(s, body_size) if body_size > 0 else b""
 
         return Response(opcode=opcode, dtype_code=dtype_code,
-                        status=status, n_out=n_out, payload=body)
+                        status=status, n_out=n_out, payload=body, extra=extra)
 
 
 # ---- decodificadores de alto nível ----------------------------------------
@@ -353,6 +381,21 @@ def decode_fir_response(resp: Response) -> np.ndarray:
     be = _np_dtype_be(resp.dtype_code)
     arr = np.frombuffer(resp.payload, dtype=be, count=resp.n_out)
     return arr.astype(np.float64)
+
+
+def decode_iir_response(resp: Response) -> tuple[np.ndarray, bool]:
+    """Decodifica resposta do IIR: (y em inteiros Q15.16, saturou).
+
+    Saturacao NAO vem como erro: o vetor e valido, so que grudado no
+    limite onde estourou. Quem chama decide se avisa ou descarta.
+    """
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_IIR:
+        raise ValueError(f"esperado opcode IIR, veio {resp.opcode}")
+    be = _np_dtype_be(resp.dtype_code)
+    arr = np.frombuffer(resp.payload, dtype=be, count=resp.n_out)
+    return arr.astype(np.int64), bool(resp.extra & 1)
 
 
 def decode_fft_response(resp: Response, scale: float = 1.0) -> np.ndarray:

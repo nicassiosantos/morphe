@@ -62,6 +62,23 @@
  * 16 bits frac = escala de 2^16 = 65536. */
 #define MORPHE_CONV_FRAC_BITS   16
 
+/* ---- IIR (cascata de secoes de 2a ordem) ------------------------------- */
+
+/* O iir_cascade processa SEMPRE MORPHE_IIR_N_MAX amostras (N_SAMPLES do
+ * Verilog); o servidor completa com zeros o que o cliente nao mandou e
+ * devolve so as n_x pedidas. */
+#define MORPHE_IIR_N_MAX        1024
+
+/* Secoes de 2a ordem por execucao: 1..MORPHE_IIR_SECOES_MAX (MAX_SECOES
+ * do Verilog; o PIO iir_nsecoes tem 5 bits). Ordem maxima 32. */
+#define MORPHE_IIR_SECOES_MAX   16
+
+/* Palavras de coeficiente por secao na SRAM iir_coef: b0 b1 b2 a1 a2. */
+#define MORPHE_IIR_COEF_POR_SECAO 5
+
+/* Amostras E coeficientes em Q15.16, o mesmo formato da conv1d. */
+#define MORPHE_IIR_FRAC_BITS    16
+
 /* ---- Rede -------------------------------------------------------------- */
 
 /* Porta TCP padrao do servidor (cliente pode sobrescrever). */
