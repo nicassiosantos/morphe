@@ -1,7 +1,8 @@
 """comparator_window.py — janela "Comparador Morphe".
 
-Carrega um bundle .mrph (conv ou FFT), recomputa o algoritmo em NumPy
-sobre o mesmo sinal de entrada, e mostra a comparação numérica e visual
+Carrega um bundle .mrph (conv, FIR, FFT, IFFT ou IIR), recomputa o
+algoritmo em NumPy -- ou, no IIR, no modelo em ponto fixo -- sobre o mesmo
+sinal de entrada, e mostra a comparação numérica e visual
 contra o resultado lido do bundle (resposta da FPGA).
 
 Refatorado para consumir `morphe_theme`.
@@ -22,6 +23,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import dsp_core as dsp
+import iir_design as iir
 import morphe_theme as theme
 from popout_helper import open_or_focus, refresh_all
 from plot_toolbar import PlotToolbar
@@ -38,6 +40,7 @@ _BUNDLE_CONV = "conv"
 _BUNDLE_FFT  = "fft"
 _BUNDLE_FIR  = "fir"
 _BUNDLE_IFFT = "ifft"
+_BUNDLE_IIR  = "iir"
 
 
 def _attach_stem_format_coord(ax, n_arr: np.ndarray, x_arr: np.ndarray,
@@ -75,8 +78,11 @@ def _draw_discrete(ax, n, y, color, *, markersize_stem: int = 3, label=None):
 def _detect_bundle_type(bundle: dict) -> str:
     title = bundle.get("title", "").lower()
     names = {s["name"] for s in bundle["sections"]}
-    # FIR é checado ANTES de conv: ambos têm sections {x, h, y} idênticas,
-    # a única distinção é o title ("Morphe FIR" vs "Morphe convolucao").
+    # FIR e IIR são checados ANTES de conv: os três têm sections {x, h, y}
+    # idênticas, a única distinção é o title ("Morphe FIR", "Morphe IIR"
+    # ou "iir server debug dump" vs "Morphe convolucao").
+    if "iir" in title:
+        return _BUNDLE_IIR
     if "fir" in title:
         return _BUNDLE_FIR
     if "conv" in title or names == {"x", "h", "y"}:
@@ -404,7 +410,8 @@ class ComparatorWindow(tk.Toplevel):
         self.bundle_type = btype
 
         # (Re)monta os subplots: conv/FIR têm subplot próprio para h[n].
-        self._rebuild_layout(has_h=(btype in (_BUNDLE_CONV, _BUNDLE_FIR)))
+        self._rebuild_layout(has_h=(btype in (_BUNDLE_CONV, _BUNDLE_FIR,
+                                              _BUNDLE_IIR)))
 
         self.var_path.set(os.path.basename(path))
         type_label = {
@@ -412,6 +419,7 @@ class ComparatorWindow(tk.Toplevel):
             _BUNDLE_FFT:  "FFT 1024 pontos",
             _BUNDLE_IFFT: "IFFT 1024 pontos",
             _BUNDLE_FIR:  "Filtro FIR",
+            _BUNDLE_IIR:  "Filtro IIR (cascata de biquads Q15.16)",
         }.get(btype, btype)
         self.var_type.set(type_label)
         self.var_saved.set(bundle.get("saved", "—"))
@@ -424,7 +432,7 @@ class ComparatorWindow(tk.Toplevel):
 
         # h[n] só existe em conv/FIR — mostra a linha e sua descrição;
         # em FFT a linha fica oculta.
-        if btype in (_BUNDLE_CONV, _BUNDLE_FIR):
+        if btype in (_BUNDLE_CONV, _BUNDLE_FIR, _BUNDLE_IIR):
             h_sec = dsp.section_by_name(bundle, "h")
             self.var_descr_h.set(h_sec.get("description", "—"))
             for w in self._h_row_widgets:
@@ -467,6 +475,8 @@ class ComparatorWindow(tk.Toplevel):
                 self._compute_conv()
             elif self.bundle_type == _BUNDLE_FIR:
                 self._compute_fir()
+            elif self.bundle_type == _BUNDLE_IIR:
+                self._compute_iir()
             elif self.bundle_type == _BUNDLE_IFFT:
                 self._compute_ifft()
             else:
@@ -521,6 +531,77 @@ class ComparatorWindow(tk.Toplevel):
         self._compute_conv()
         self._cmp_label = "y[n] (FIR)"
 
+    def _compute_iir(self):
+        """Comparação IIR: FPGA × modelo em ponto fixo, bit a bit.
+
+        A referência NÃO é o NumPy em ponto flutuante: é o
+        iir_design.filtra_sos_fixo, o mesmo modelo que o testbench do RTL e
+        o testa_iir_hw.py usam. Num filtro realimentado o hardware faz
+        contas inteiras com um arredondamento por amostra, e comparar com
+        float daria um "erro" que não é da placa. Contra o modelo certo o
+        erro esperado é exatamente zero -- qualquer LSB é defeito.
+
+        A seção h não é uma resposta ao impulso: são os coeficientes
+        inteiros Q15.16, 5 por seção (b0 b1 b2 a1 a2), como o servidor e a
+        janela IIR gravam. O bundle da janela vem em unidades reais
+        (float32); o dump do servidor vem nos inteiros crus (int32) --
+        o campo `type` da seção diz qual é.
+        """
+        b = self.bundle
+        sec_x = dsp.section_by_name(b, "x")
+        sec_y = dsp.section_by_name(b, "y")
+        x = np.asarray(sec_x["data"], dtype=np.float64)
+        h = np.asarray(dsp.section_by_name(b, "h")["data"], dtype=np.float64)
+        y_fpga = np.asarray(sec_y["data"], dtype=np.float64)
+
+        if len(h) == 0 or len(h) % 5 != 0:
+            raise ValueError(
+                "A seção h de um bundle IIR tem 5 coeficientes por seção "
+                f"(b0 b1 b2 a1 a2); veio com {len(h)} valores.")
+        escala = float(1 << 16)
+        coefs = np.round(h).astype(np.int64).reshape(-1, 5)
+        if np.max(np.abs(coefs - h.reshape(-1, 5))) > 1e-6:
+            raise ValueError(
+                "A seção h de um bundle IIR guarda os coeficientes INTEIROS "
+                "Q15.16, e estes não são inteiros.")
+        sos = np.zeros((coefs.shape[0], 6), dtype=np.float64)
+        sos[:, 0:3] = coefs[:, 0:3] / escala
+        sos[:, 3] = 1.0
+        sos[:, 4:6] = coefs[:, 3:5] / escala
+
+        # Dump do servidor: x e y são os inteiros Q15.16 crus. Bundle da
+        # janela: unidades reais em float32, que não representa todo k/2^16
+        # exatamente -- encaixa de volta na grade Q15.16 antes de comparar,
+        # senão o ruído do float32 apareceria como "erro da placa".
+        if sec_x.get("type", "float32") == "int32":
+            x = x / escala
+        else:
+            x = np.round(x * escala) / escala
+        if sec_y.get("type", "float32") == "int32":
+            y_fpga = y_fpga / escala
+        else:
+            y_fpga = np.round(y_fpga * escala) / escala
+
+        y_ref_q = iir.filtra_sos_fixo(x, sos, 16, 32)
+        y_python = np.floor(np.asarray(y_ref_q) * escala + 0.5) / escala
+
+        n_compare = min(len(y_python), len(y_fpga))
+        y_python = y_python[:n_compare]
+        y_fpga_cmp = y_fpga[:n_compare]
+
+        self.metrics = dsp.compute_error_metrics(y_fpga_cmp, y_python)
+
+        self._x_input  = x
+        self._n_input  = sec_x["n"]
+        self._h_input  = h
+        self._n_h_input = dsp.section_by_name(b, "h")["n"]
+        self._n_output = np.arange(n_compare, dtype=np.int64)
+        self._y_fpga   = y_fpga_cmp
+        self._y_python = y_python
+        self._error    = y_fpga_cmp - y_python
+        self._is_complex_compare = False
+        self._cmp_label = "y[n] (IIR, %d seções)" % coefs.shape[0]
+
     def _compute_fft(self):
         b = self.bundle
         x = dsp.section_by_name(b, "x")["data"]
@@ -561,6 +642,10 @@ class ComparatorWindow(tk.Toplevel):
         self._y_python = b_ref
         self._error    = a - b_ref
         self._is_complex_compare = False
+
+    def _nome_ref(self) -> str:
+        """Quem e a referencia: NumPy em float, ou o modelo Q15.16 no IIR."""
+        return "modelo Q15.16" if self.bundle_type == _BUNDLE_IIR else "NumPy"
 
     def _rotulos_entrada(self):
         """(titulo, rotulo x, rotulo y) do subplot de entrada.
@@ -664,9 +749,15 @@ class ComparatorWindow(tk.Toplevel):
             self.ax_h.clear()
             nh = np.asarray(self._n_h_input, dtype=float)
             _draw_discrete(self.ax_h, nh, self._h_input, _COLOR_H)
-            self.ax_h.set_title(
-                f"Filtro / resposta h[n]  (N={len(self._h_input)})",
-                fontsize=9)
+            if self.bundle_type == _BUNDLE_IIR:
+                self.ax_h.set_title(
+                    "Coeficientes Q15.16 inteiros, 5 por seção "
+                    f"(b0 b1 b2 a1 a2)  ({len(self._h_input) // 5} seções)",
+                    fontsize=9)
+            else:
+                self.ax_h.set_title(
+                    f"Filtro / resposta h[n]  (N={len(self._h_input)})",
+                    fontsize=9)
             self.ax_h.set_xlabel("n")
             self.ax_h.set_ylabel("h[n]")
             self.ax_h.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
@@ -683,7 +774,7 @@ class ComparatorWindow(tk.Toplevel):
                                  linewidth=1.0, label="FPGA")
             self.ax_compare.plot(n_out_f, self._y_python, color=_COLOR_PYTHON,
                                  linewidth=1.0, linestyle="--",
-                                 label="NumPy (ref)")
+                                 label=f"{self._nome_ref()} (ref)")
         else:
             ml, sl, _ = self.ax_compare.stem(n_out_f, self._y_fpga,
                                               basefmt=" ", label="FPGA")
@@ -694,7 +785,7 @@ class ComparatorWindow(tk.Toplevel):
             self.ax_compare.plot(n_out_f, self._y_python,
                                  color=_COLOR_PYTHON, linewidth=1.2,
                                  linestyle="--", marker="o", markersize=3,
-                                 label="NumPy (ref)")
+                                 label=f"{self._nome_ref()} (ref)")
         self.ax_compare.set_title(
             f"Comparação: {self._cmp_label}", fontsize=9)
         self.ax_compare.set_xlabel(self._eixo_x_label())
@@ -720,7 +811,7 @@ class ComparatorWindow(tk.Toplevel):
             ml.set_markerfacecolor(_COLOR_ERROR)
             sl.set_color(_COLOR_ERROR)
         self.ax_error.set_title(
-            f"Erro (FPGA − NumPy), max abs = "
+            f"Erro (FPGA − {self._nome_ref()}), max abs = "
             f"{self.metrics['max_abs_error']:.4g}",
             fontsize=9)
         self.ax_error.set_xlabel(self._eixo_x_label())
@@ -810,7 +901,7 @@ class ComparatorWindow(tk.Toplevel):
                     ml, sl, _ = ax.stem(nout, self._error, basefmt=" ")
                     ml.set_color(_COLOR_ERROR); ml.set_markerfacecolor(_COLOR_ERROR)
                     ml.set_markersize(3); sl.set_color(_COLOR_ERROR)
-                ax.set_title(f"Erro (FPGA − NumPy), max abs = "
+                ax.set_title(f"Erro (FPGA − {self._nome_ref()}), max abs = "
                              f"{self.metrics['max_abs_error']:.4g}")
                 ax.set_xlabel(self._eixo_x_label())
                 ax.set_ylabel("erro")

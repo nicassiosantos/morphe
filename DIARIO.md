@@ -88,6 +88,16 @@ bit com o modelo na hora. Botão "Filtro IIR (FPGA)" no hub. **Escrito e ensaiad
 placa** (fluxo completo com a resposta simulada pelo modelo); falta rodar contra a
 placa e o passo 6 (comparador).
 
+**Passo 6: o comparador reconhece o bundle IIR** (título com "iir": tanto o `Morphe IIR`
+da janela quanto o `iir server debug dump` do servidor). A referência **não** é o NumPy
+em float, é o `filtra_sos_fixo` — o mesmo modelo do testbench e do `testa_iir_hw.py` —
+então o erro esperado é exatamente zero e qualquer LSB é defeito. Ensaiado: bundle da
+janela dá erro 0; dump do servidor com um LSB plantado em n=7 é apontado em n=7.
+
+Com isso os seis passos do bloco IIR estão escritos; 0–4 validados na placa, 5 e 6
+ensaiados sem placa. **Mesclar na principal só depois de testar 5 e 6 na interface**,
+por decisão do estagiário.
+
 Ambiente: o `.venv` da estação não tem scipy; a elíptica do `iir_design.py` não roda
 lá. O teste usa Chebyshev I por isso.
 

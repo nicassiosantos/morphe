@@ -432,7 +432,9 @@ class IIRWindow(tk.Toplevel):
                 fs = 1.0
             coefs = np.asarray(iir.coeficientes_inteiros(self.sos, FRAC, TOTAL),
                                dtype=np.float64).reshape(-1)
-            x = self.x_input[:MAX_N]
+            # x vai já encaixado na grade Q15.16 (o que a placa recebeu),
+            # para o comparador refazer a conta a partir dos mesmos inteiros.
+            x = _q(self.x_input[:MAX_N]) / ESCALA
             sections = [
                 {"name": "x", "kind": "real", "type": "float32", "fs": fs,
                  "data": x.astype(np.float32),
