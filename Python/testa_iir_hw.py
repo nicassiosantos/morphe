@@ -82,15 +82,16 @@ def main() -> int:
     client = TcpClient(host, port, timeout=15.0)
     falhas = 0
 
-    # Os dois filtros do testbench: a eliptica (poucas secoes) e o
+    # Dois filtros: Chebyshev I (poucas secoes; so NumPy -- a eliptica do
+    # testbench precisa de scipy, que o .venv da estacao nao tem) e o
     # Butterworth de ordem 22 (o mais duro do estudo).
-    elip = iir.design_iir("ellip", 1000.0, 1500.0, 1.0, 40.0, 8000.0)
+    elip = iir.design_iir("cheby1", 1000.0, 1500.0, 1.0, 40.0, 8000.0)
     elip.sos = iir.distribui_ganho(elip.sos)
     butt = iir.design_iir("butterworth", 200.0, 300.0, 0.1, 60.0, 8000.0)
     butt.sos = iir.distribui_ganho(butt.sos)
 
     # -- 1. impulso por uma secao -----------------------------------------
-    print("1) impulso por uma secao da eliptica")
+    print("1) impulso por uma secao do Chebyshev I")
     raios = [float(np.max(np.abs(np.roots(s[3:6])))) for s in elip.sos]
     secao = elip.sos[int(np.argmax(raios)):int(np.argmax(raios)) + 1]
     coefs = iir.coeficientes_inteiros(secao, FRAC, TOTAL)
