@@ -68,6 +68,19 @@ volta 6,1e-5, ganho residual 0,99995. **Primeira vez que o repositório se prova
 a ponta:** clone → compila → programa → tudo que existia passa. O IIR está na FPGA
 (30/87 DSP), sem caminho de software ainda — é o passo 4.
 
+**Passo 4 do IIR, tarde: `MORPHE_OP_IIR` (6), `handle_iir` no servidor, cliente Python
+(`857a5ea`, `56d28fe`). `testa_iir_hw.py` contra a placa: 0 falhas em 4 casos, bit a
+bit igual ao `filtra_sos_fixo`** — impulso por uma seção (Chebyshev I), cascata de 11
+seções com 1024 e com 300 amostras (o hardware roda sempre 1024; o servidor completa
+com zeros), e saturação provocada na ressonância com a flag `extra` = 1. Saturação não
+é erro no protocolo: o vetor saturado chega ao cliente com o aviso.
+
+Estado do bloco IIR: passos 0 a 4 prontos e validados em hardware. Faltam a tela do
+projetista (5) e o comparador reconhecer o bundle `iir_*.mrph` (6) — software só.
+
+Ambiente: o `.venv` da estação não tem scipy; a elíptica do `iir_design.py` não roda
+lá. O teste usa Chebyshev I por isso.
+
 - Se a multiplicação 32×32 mais a soma de 72 bits ainda
   não couber em 20 ns, o próximo estágio é registrar os produtos no
   `iir_biquad_mac.v`, como o `COMPILAR-IIR.md` já previa. Uma mudança por compilação.
