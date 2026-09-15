@@ -428,8 +428,13 @@ enviar_servidor() {
     passo "enviando e compilando o servidor em $ALVO"
     ssh_placa "mkdir -p $DIR_REMOTO"
     ( cd "$RAIZ/C" && scp -q "${SSH_OPTS[@]}" "${FONTES_SERVIDOR[@]}" "$USUARIO_PLACA@$ALVO:$DIR_REMOTO/" )
+    # -B: recompila SEMPRE. A placa nao tem RTC e acorda em 1970; um binario
+    # datado de 2026 e "do futuro" para o make, que responde "up to date" e
+    # nao toca nele -- e a impressao digital abaixo passaria a atestar um
+    # binario que nao corresponde as fontes. Visto em 15/09/2026: o hps_0.h
+    # novo foi enviado e o servidor continuou o antigo.
     # Nunca 'make clean' aqui: RESSALVAS item 9.
-    ssh_placa "cd $DIR_REMOTO && make morphe_server"
+    ssh_placa "cd $DIR_REMOTO && make -B morphe_server"
     # A marca so e gravada depois do build dar certo.
     ssh_placa "printf '%s' '$(impressao_fontes)' > $DIR_REMOTO/.fontes.sha256"
     ok "servidor compilado na placa"
