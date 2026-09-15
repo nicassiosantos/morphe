@@ -16,6 +16,34 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 15/09/2026 — Caminho crítico identificado; estágio S_SEL no `iir_cascade`
+
+**Fmax medido, build de 14/09:** `clock_50_1` = **49,11 MHz** (`quartus_sta -t
+relatorio_timing.tcl`, modelo Slow 1100 mV 85 °C). Primeiro Fmax registrado do projeto;
+daqui em diante toda compilação anota o seu.
+
+**O caminho crítico não era o divisor nem o acumulador.** Os 15 piores caminhos são o
+mesmo: `iir_cascade:iir_inst|s[2..3]` → `sy1[9][28]`, `sy1[11][16]`, `amostra[15]`,
+com **19,7 ns de lógica** em 20 ns. Era o estado `S_MAC` inteiro num ciclo: mux de
+MAX_SECOES entradas selecionado por `s` (nove sinais × 32 bits), cinco multiplicações
+32×32, soma de 72 bits, arredondamento, saturação e escrita de volta em `sy1[s]`,
+decodificada pelo mesmo `s`. O `Div0`/`Mod0` do `c_idx % 5` não aparece entre os
+violadores.
+
+**Correção:** novo estado `S_SEL` copia `sx1[s]`…`ca2[s]` para registradores planos
+`op_*`; o `S_MAC` calcula a partir deles. O multiplexador sai do caminho crítico e o
+Quartus passa a medir as duas metades separadamente. `iir_biquad_mac.v` e `iir_sos.v`
+intocados.
+
+- **Testbench (Icarus, Windows): bit a bit igual ao modelo nos 3 casos.**
+- Custo: **35 ciclos por amostra** (eram 24), medido no `tb_iir_cascade`. Em 1024
+  amostras a 50 MHz: +0,2 ms. Irrelevante.
+- **Escrito, não sintetizado.** Se a multiplicação 32×32 mais a soma de 72 bits ainda
+  não couber em 20 ns, o próximo estágio é registrar os produtos no
+  `iir_biquad_mac.v`, como o `COMPILAR-IIR.md` já previa. Uma mudança por compilação.
+
+---
+
 ## 14/09/2026 (tarde) — Primeira compilação do IIR: não fechou timing
 
 Branch `estagio/v1.3-iir-hw`, commit `b46befe`. A v1.2 foi mesclada nesta branch antes

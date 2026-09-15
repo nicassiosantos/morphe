@@ -36,8 +36,21 @@
 // CUSTO
 // -----
 // Um unico iir_biquad_mac, compartilhado no tempo entre as secoes: 5
-// blocos DSP, independentemente de S. O preco e 1 ciclo por secao por
+// blocos DSP, independentemente de S. O preco e 2 ciclos por secao por
 // amostra, o que e barato perto dos ~13 ciclos que as memorias custam.
+//
+// POR QUE 2 CICLOS POR SECAO, E NAO 1
+// -----------------------------------
+// A primeira versao fazia tudo num ciclo: selecionar os operandos da secao
+// s (nove multiplexadores de MAX_SECOES entradas), multiplicar, somar,
+// arredondar, saturar e escrever de volta em sy1[s]. Medido no Quartus em
+// 14/09/2026: 19,7 ns de logica num periodo de 20 ns, Fmax 49,11 MHz --
+// nao fecha a 50 MHz. Os 15 piores caminhos saiam do registrador s.
+//
+// Agora o estado S_SEL copia os operandos de [s] para registradores planos
+// e o S_MAC calcula a partir deles. O multiplexador sai do caminho critico
+// e o Quartus mede as duas metades separadamente. O resultado e bit a bit
+// o mesmo: mudou quando a conta acontece, nao a conta.
 //
 // Estado zerado a cada start: sem isso o resultado dependeria da rodada
 // anterior, e o mesmo sinal daria saidas diferentes.
@@ -92,10 +105,11 @@ module iir_cascade #(
     localparam [3:0] S_COEF_WAIT  = 4'd2;
     localparam [3:0] S_READ       = 4'd3;
     localparam [3:0] S_WAIT_READ  = 4'd4;
-    localparam [3:0] S_MAC        = 4'd5;  // uma secao por ciclo
+    localparam [3:0] S_MAC        = 4'd5;  // calcula a secao s
     localparam [3:0] S_WRITE      = 4'd6;
     localparam [3:0] S_WAIT_WRITE = 4'd7;
     localparam [3:0] S_DONE       = 4'd8;
+    localparam [3:0] S_SEL        = 4'd9;  // seleciona os operandos da secao s
 
     reg [3:0] state;
     assign debug_state = state;
@@ -131,6 +145,11 @@ module iir_cascade #(
     // Amostra circulando entre as secoes: entra x[n], sai y[n].
     reg signed [DATA_WIDTH-1:0] amostra;
 
+    // Operandos da secao corrente, copiados de [s] no S_SEL. E este
+    // estagio que tira o multiplexador por s do caminho critico.
+    reg signed [DATA_WIDTH-1:0] op_x1, op_x2, op_y1, op_y2;
+    reg signed [DATA_WIDTH-1:0] op_b0, op_b1, op_b2, op_a1, op_a2;
+
     integer k;
 
     // --- Controle das memorias ---
@@ -159,10 +178,10 @@ module iir_cascade #(
         .ACC_WIDTH  (ACC_WIDTH)
     ) u_mac (
         .xn (amostra),
-        .x1 (sx1[s]), .x2 (sx2[s]),
-        .y1 (sy1[s]), .y2 (sy2[s]),
-        .b0 (cb0[s]), .b1 (cb1[s]), .b2 (cb2[s]),
-        .a1 (ca1[s]), .a2 (ca2[s]),
+        .x1 (op_x1), .x2 (op_x2),
+        .y1 (op_y1), .y2 (op_y2),
+        .b0 (op_b0), .b1 (op_b1), .b2 (op_b2),
+        .a1 (op_a1), .a2 (op_a2),
         .yn (yn), .saturou (estourou)
     );
 
@@ -173,6 +192,8 @@ module iir_cascade #(
             error_sat <= 1'b0;
             n <= 0; s <= 0; c_idx <= 0;
             amostra <= 0;
+            op_x1 <= 0; op_x2 <= 0; op_y1 <= 0; op_y2 <= 0;
+            op_b0 <= 0; op_b1 <= 0; op_b2 <= 0; op_a1 <= 0; op_a2 <= 0;
             cf_start <= 1'b0; rd_start <= 1'b0; wr_start <= 1'b0;
             cf_addr <= 0; rd_addr <= 0; wr_addr <= 0; wr_data <= 0;
             for (k = 0; k < MAX_SECOES; k = k + 1) begin
@@ -234,23 +255,35 @@ module iir_cascade #(
                     if (rd_done) begin
                         amostra <= rd_data;
                         s       <= 0;
-                        state   <= S_MAC;
+                        state   <= S_SEL;
                     end
                 end
 
-                // Uma secao por ciclo. A saida de uma vira a entrada da
-                // proxima na mesma amostra -- e o que faz a cascata ser
-                // uma passagem so.
+                // Ciclo 1 da secao: copia estado e coeficientes de [s].
+                // A amostra que entra ja esta em 'amostra' (x[n] na primeira
+                // secao, y da secao anterior nas seguintes).
+                S_SEL: begin
+                    op_x1 <= sx1[s];  op_x2 <= sx2[s];
+                    op_y1 <= sy1[s];  op_y2 <= sy2[s];
+                    op_b0 <= cb0[s];  op_b1 <= cb1[s];  op_b2 <= cb2[s];
+                    op_a1 <= ca1[s];  op_a2 <= ca2[s];
+                    state <= S_MAC;
+                end
+
+                // Ciclo 2 da secao: yn e combinacional sobre os op_*. A
+                // saida de uma secao vira a entrada da proxima na mesma
+                // amostra -- e o que faz a cascata ser uma passagem so.
                 S_MAC: begin
                     if (estourou) error_sat <= 1'b1;
-                    sx2[s] <= sx1[s];  sx1[s] <= amostra;
-                    sy2[s] <= sy1[s];  sy1[s] <= yn;
+                    sx2[s] <= op_x1;  sx1[s] <= amostra;
+                    sy2[s] <= op_y1;  sy1[s] <= yn;
                     amostra <= yn;
                     if (s == n_secoes - 1) begin
                         wr_data <= yn;
                         state   <= S_WRITE;
                     end else begin
-                        s <= s + 1'b1;
+                        s     <= s + 1'b1;
+                        state <= S_SEL;
                     end
                 end
 
