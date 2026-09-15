@@ -98,6 +98,28 @@ Com isso os seis passos do bloco IIR estão escritos; 0–4 validados na placa, 
 ensaiados sem placa. **Mesclar na principal só depois de testar 5 e 6 na interface**,
 por decisão do estagiário.
 
+**Interface testada no PC Windows contra a placa** (15/09, fim do dia): projetar →
+aplicar → *Aplicar IIR (FPGA)* → "bit a bit igual ao modelo" → bundle → comparador com
+erro 0. Passos 5 e 6 validados na interface.
+
+**O código do professor contra a FPGA** (`compara_professor_fpga.py`, MATLAB R2024b
+neste PC, `dsp_iir_filter.m` do DSPFinal; Butterworth 200/300 Hz, 1/40 dB, 8 kHz,
+ordem 13, coeficientes **dele** via `tf2sos` enviados à placa):
+
+| comparação | erro máx |
+|---|---|
+| FPGA × modelo em ponto fixo | **0 amostras diferentes** |
+| FPGA × cascata de biquads em double | 1,7e-3 (0,34% do pico) — o custo real do Q15.16 |
+| FPGA × `filter(numz,denz)` do MATLAB | 2,1e-2 (4,0% do pico) |
+| forma direta em Python × `filter()` do MATLAB, **mesmo polinômio** | 3,1e-2 (6,1%) |
+
+Duas implementações em dupla precisão do polinômio de ordem 13 dele não concordam
+entre si: o polinômio é mal condicionado (13 polos em |p| ≈ 0,98; |H(100 Hz)| = 0,962
+pelo polinômio, 0,978 pela cascata). **A FPGA em cascata fica mais perto da resposta
+certa do que o MATLAB do professor com o polinômio** — o argumento do cabeçalho do
+`iir_cascade.v`, medido. E o projeto dele erra a especificação: −3,28 dB em fp para 1 dB
+pedido (`Wn` do `buttord` ignorado); o do cliente dá −1,03 dB.
+
 Ambiente: o `.venv` da estação não tem scipy; a elíptica do `iir_design.py` não roda
 lá. O teste usa Chebyshev I por isso.
 
