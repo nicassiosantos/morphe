@@ -16,6 +16,63 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 16/09/2026 — A plataforma sai da conta do coordenador; o tether não sobrevive ao logout
+
+**Instalação de turma em `/opt/morphe`, validada.** Até hoje a plataforma só tinha sido
+usada da conta `coordenador`. Medido da conta `alunopds`: a home do coordenador é
+`drwxr-x---`, então **nada dentro dela é legível pelo aluno** — nem o clone, nem o
+`.morphe-estado/placa` que o cliente lê para abrir já conectado. Era o único bloqueio:
+`ping` na placa responde (1 ms) e o `python3` **do sistema** já tem `tkinter`, `numpy`,
+`matplotlib` e `scipy`, então o aluno não precisa de venv nenhum.
+
+A plataforma foi copiada para `/opt/morphe` (`coordenador:alunopds`, `u+rwX g+rX o-rwx`,
+sem `Quartus/db`, sem `incremental_db` e **sem `.venv`**), com `g+s` nos diretórios para
+o grupo sobreviver aos `git pull` seguintes. `./morphe-up.sh` rodado de lá fecha
+**4/4**: conv1d com erro 0,00 em 424,4 ms e FFT plana em 21,7 ms.
+
+- **O coordenador passa a rodar o `morphe-up.sh` de `/opt/morphe`**, não da home: o
+  cliente lê o IP em `<raiz>/.morphe-estado/placa` e as duas pontas precisam da mesma
+  raiz. Se divergirem, o aluno não acha placa e o sintoma **parece ser de rede**.
+- Na conta do aluno o app **abre**; o roteiro de operação dentro dele ainda não foi
+  exercitado.
+
+**Medido: o tether da licença não sobrevive ao logout do coordenador.** Sobrevive à troca
+de usuário. O `systemd-logind` destrói o escopo da sessão inteiro, e o `setsid` que o
+`morphe-up.sh` usa não protege contra isso — `pgrep -af quartus_pgm` volta vazio depois do
+logout. Até existir correção, a regra de operação é **trocar de usuário, nunca encerrar
+sessão**. Correção proposta e ainda não implementada: `loginctl enable-linger` mais
+`systemd-run --user --unit=morphe-tether`, que sobrevive por ficar sob o `user@.service`
+em vez de sob o escopo da sessão.
+
+**Defeito encontrado, na conta do coordenador: o app não abre.** O
+`~/.local/lib/python3.10/site-packages` dele tem **numpy 2.2.6** instalado por
+`pip --user`, que sombreia o do sistema; o scipy do sistema foi compilado contra numpy 1.x
+e quebra com `AttributeError: _ARRAY_API not found`. A conta do aluno não tem o problema.
+Contorno imediato: `PYTHONNOUSERSITE=1`.
+
+**Limpeza do git (`742152a`).** `Quartus/db/` e `incremental_db/` estavam **rastreados**
+apesar do `.gitignore` — 987 arquivos de banco de dados intermediário do Quartus. Saíram
+do índice; nada foi apagado do disco. Com isso some a trava que proibia `git reset --hard`
+na estação, que revertia o `db/` para um estado antigo e corrompia o projeto.
+
+**Documentação técnica do bloco IIR** (item 7 do plano), escrita e **ainda não
+versionada**: `docs/iir-em-hardware.html`. Organizada pelo fluxo de execução — o que sai
+do computador, o que o servidor faz, o que cada módulo da FPGA calcula e o que volta —,
+com a derivação de onde vem cada um dos cinco coeficientes de uma seção, incluindo o
+ganho, e duas calculadoras interativas: uma seção amostra a amostra e a cascata seção a
+seção, ambas com a aritmética inteira do hardware.
+
+**Achado no `distribui_ganho()`, documentado e não corrigido.** A medida usada é o ganho
+em DC (`b0+b1+b2`). Num passa-alta os zeros ficam em `z = +1` e essa soma é **zero
+exato**, então a guarda de produto nulo dispara e a distribuição **nunca acontece**.
+Medidos: HP 3800/3700 Hz (ordem 13), 3900/3800 e 3950/3900 (ordem 8) todos produzem
+`b0 = 0` depois de quantizar. Nada errado chega à placa — o `verifica_viabilidade()`
+recusa os três —, mas a mensagem manda distribuir o ganho, que já foi tentado. A correção
+é trocar a soma dos `b` por uma medida que nunca zere (`max|b|` ou a norma): qualquer
+medida positiva preserva o produto, porque `∏(alvo/gᵢ) = alvoˢ/∏gᵢ = 1`.
+
+---
+
 ## 15/09/2026 — Caminho crítico identificado; estágio S_SEL no `iir_cascade`
 
 **Fmax medido, build de 14/09:** `clock_50_1` = **49,11 MHz** (`quartus_sta -t
