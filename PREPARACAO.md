@@ -120,12 +120,113 @@ O painel de conexão agora procura a placa ao abrir, sem clique: primeiro a que 
 com uma mensagem no próprio painel — sem pop-up, porque quem vai usar o gerador de
 sinais, a comparação ou o projeto de FIR não precisa de placa nenhuma.
 
+## Instalação para uso em turma
+
+Tudo acima supõe **uma conta só**. Na estação do laboratório são duas, e elas não são
+equivalentes:
+
+| | `coordenador` | `alunopds` |
+|---|---|---|
+| sudo | sim | não |
+| Quartus | sim | **não** |
+| Home | `drwxr-x---` | — |
+
+Medido em 16/09/2026, da conta `alunopds`: a home do coordenador é `0750`, então
+**nada dentro dela é legível pelo aluno** — nem o clone, nem o `.morphe-estado/placa`,
+nem o cliente. Em compensação, o resto estava verde: `ping` na placa responde, e o
+`python3` **do sistema** já tem `tkinter`, `numpy`, `matplotlib` e `scipy` — ou seja, o
+aluno não precisa de venv nenhum. (O `.venv` do coordenador, esse sim, não tem scipy, e
+a aproximação elíptica não roda nele.)
+
+A divisão do trabalho decorre disso e não é negociável: **programar a FPGA exige
+Quartus, logo é sempre do coordenador.** Ao aluno sobra o cliente — que é um passo só.
+
+### A instalação, uma vez
+
+Como a plataforma não pode morar numa home, ela vai para `/opt/morphe`. Na conta do
+coordenador:
+
+```bash
+cd ~/Documentos/validacao-final/morphe && ./morphe-up.sh --down
+```
+
+```bash
+sudo mkdir -p /opt/morphe && sudo cp -a ~/Documentos/validacao-final/morphe/. /opt/morphe/
+```
+
+```bash
+sudo rm -rf /opt/morphe/Quartus/db /opt/morphe/Quartus/incremental_db /opt/morphe/Python/.venv
+```
+
+```bash
+sudo chown -R coordenador:alunopds /opt/morphe && sudo chmod -R u+rwX,g+rX,o-rwx /opt/morphe
+```
+
+O `.venv` sai **de propósito**: sem ele tudo passa a usar o `python3` do sistema, que é o
+que tem scipy, e o aluno não esbarra num ambiente onde não pode instalar nada. O
+`achar_python` do `morphe-up.sh` já cai para o `python3` do sistema quando não há venv.
+
+O clone na home continua sendo onde se compila e se desenvolve. `/opt/morphe` é a
+**instalação de turma**, atualizada com uma cópia quando algo mudar.
+
+### A rotina, depois disso
+
+Coordenador, uma vez por dia de aula — **de dentro de `/opt/morphe`**:
+
+```bash
+cd /opt/morphe && ./morphe-up.sh
+```
+
+Aluno:
+
+```bash
+cd /opt/morphe/Python && python3 morphe_app.py
+```
+
+**Por que o coordenador tem de rodar de `/opt/morphe` e não da home:** o cliente lê o
+endereço da placa em `<raiz do repositório>/.morphe-estado/placa`, e quem escreve esse
+arquivo é o `morphe-up.sh`. Se os dois rodarem de raízes diferentes, o aluno abre o
+cliente e não acha placa nenhuma — o sintoma parece ser de rede, e não é.
+
+### O tether da licença, com duas contas
+
+O `quartus_pgm` que segura a licença de avaliação da FFT vive na **sessão do
+coordenador**. Duas consequências práticas:
+
+- Ele precisa **trocar de usuário**, não fazer logout. Se a sessão morrer, o tether cai e
+  a FFT passa a devolver zeros depois de uma hora. A convolução, o FIR e o IIR continuam
+  funcionando — só a FFT e a IFFT usam IP licenciada.
+- Da conta do aluno dá para diagnosticar isso sem pedir ajuda:
+
+```bash
+pgrep -af quartus_pgm
+```
+
+Se não imprimir nada, o tether caiu: FFT zerada é consequência, não defeito do aluno.
+
+### O que já foi verificado, e o que falta
+
+Verificado em 16/09/2026, da conta `alunopds`: permissões da home (é o bloqueio), rede
+até a placa, dependências do Python no interpretador do sistema, e que o tether continua
+vivo e visível depois da troca de usuário.
+
+Falta verificar, na próxima ida:
+
+1. O fluxo do aluno de ponta a ponta a partir de `/opt/morphe` — abrir já conectado, uma
+   convolução, uma FFT, e **salvar um bundle na home dele** (o repositório é só-leitura
+   para o aluno, de propósito).
+2. Se o tether sobrevive a um **logout** do coordenador, e não só à troca de usuário. É o
+   que decide se a sessão dele precisa ficar aberta durante toda a aula.
+
 ## Estado desta versão
 
-Escrita e verificada estaticamente: sintaxe dos três scripts conferida, módulos Python
-compilados, e o caminho de autoconexão do cliente exercitado de ponta a ponta sem placa
-(tenta a lembrada, cai na varredura, desiste em 6 s com a mensagem certa).
+**Validada em hardware em 14/09/2026**, na estação LABPS-47723 contra a placa
+172.16.230.24: um `./morphe-up.sh` sem argumento nenhum achou a placa, programou a FPGA,
+enviou e reiniciou o servidor, e fechou com `morphe_ping` 4/4 — conv1d com erro 0,00 em
+214,1 ms e FFT de 1024 pontos com espectro plano em 21,2 ms. O cliente abriu já
+conectado, sem endereço digitado. **A rotina diária caiu de 9 passos para 3**, e destes
+três um é a operação em si — a preparação saiu de 8 passos para 1. A contagem anterior
+está em `LINHA-DE-BASE-PASSOS.md`.
 
-**O `morphe-up.sh` ainda não rodou contra hardware.** Os passos que dependem de Quartus,
-cabo JTAG e placa — 1, 2, 3, 5, 6 e 7 — só podem ser verificados na estação do
-laboratório. Até lá, a contagem de 3 passos é uma expectativa, não uma medição.
+Continua pendente: instalar o `C/autostart/` em alguma placa — está escrito e nunca foi
+executado —, e os dois itens de turma listados na seção acima.

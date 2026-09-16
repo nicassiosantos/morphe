@@ -676,7 +676,16 @@ acao_up() {
     verificar || exit 1
 
     printf '\n%sPlataforma pronta.%s  placa %s, porta %s\n' "$NEG" "$FIM" "$ALVO" "$PORTA"
-    printf 'Abra o cliente:  cd Python && ./.venv/bin/python morphe_app.py\n'
+    # O interpretador tem de ser o que o achar_python devolveu, nao um
+    # ".venv/bin/python" fixo: numa instalacao de turma (/opt/morphe) o venv
+    # nao existe e quem roda e o python3 do sistema. Mandar o usuario para um
+    # caminho que nao existe desfaz a promessa de "um comando".
+    local py_cliente; py_cliente="$(achar_python || true)"
+    if [[ -n "$py_cliente" ]]; then
+        printf 'Abra o cliente:  cd %s/Python && %s morphe_app.py\n' "$RAIZ" "$py_cliente"
+    else
+        aviso "nenhum Python encontrado para o cliente"
+    fi
     printf 'Ao terminar:     ./morphe-up.sh --down\n'
 }
 
