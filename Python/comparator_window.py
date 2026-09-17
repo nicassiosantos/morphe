@@ -124,6 +124,11 @@ class ComparatorWindow(tk.Toplevel):
         self.bundle: Optional[dict] = None
         self.bundle_type: Optional[str] = None
         self.metrics: Optional[dict] = None
+        # Segunda referência, só no IIR: a mesma cascata em float64. O
+        # erro contra ela é o custo do ponto fixo, que o zero da
+        # comparação bit a bit esconde por construção.
+        self.metrics_dbl: Optional[dict] = None
+        self._y_double = None
         self.var_fft_mode = tk.StringVar(value="magnitude")
         self._popouts: dict = {}
         # Entradas do bundle: x[n] sempre existe; h[n] existe em conv/FIR
@@ -291,31 +296,66 @@ class ComparatorWindow(tk.Toplevel):
         mbox.pack(fill="x", pady=(10, 0))
         mbox.columnconfigure(0, minsize=130)
         mbox.columnconfigure(1, weight=1)
+        self._mbox = mbox
 
         self.var_m_n   = tk.StringVar(value="—")
         self.var_m_max = tk.StringVar(value="—")
         self.var_m_rms = tk.StringVar(value="—")
         self.var_m_snr = tk.StringVar(value="—")
         self.var_m_rel = tk.StringVar(value="—")
+        # Linhas da segunda referência (só IIR): criadas sempre, exibidas
+        # por _update_metrics_ui conforme o tipo do bundle.
+        self.var_m2_max = tk.StringVar(value="—")
+        self.var_m2_snr = tk.StringVar(value="—")
 
         rows = [
-            ("Amostras (N)",     self.var_m_n),
-            ("Erro abs. max",    self.var_m_max),
-            ("Erro RMS",         self.var_m_rms),
-            ("SNR (dB)",         self.var_m_snr),
-            ("Erro rel. max",    self.var_m_rel),
+            ("Amostras (N)",     self.var_m_n,   False),
+            ("Erro abs. max",    self.var_m_max, False),
+            ("Erro RMS",         self.var_m_rms, False),
+            ("SNR (dB)",         self.var_m_snr, False),
+            ("Erro rel. max",    self.var_m_rel, False),
+            ("Erro abs. max",    self.var_m2_max, True),
+            ("SNR (dB)",         self.var_m2_snr, True),
         ]
-        for i, (label, var) in enumerate(rows):
-            ttk.Label(mbox, text=label,
-                      style="Card.TLabel").grid(
-                row=i, column=0, sticky="w", pady=2)
-            tk.Label(
+        # Linha 5 fica para o cabeçalho da segunda referência, então as
+        # duas últimas descem uma posição.
+        _LINHA_TITULO2 = 5
+        self._linhas_ref2 = []
+        for i, (label, var, so_iir) in enumerate(rows):
+            linha = i + 1 if so_iir else i
+            lab = ttk.Label(mbox, text=label, style="Card.TLabel")
+            lab.grid(row=linha, column=0, sticky="w", pady=2)
+            val = tk.Label(
                 mbox, textvariable=var,
                 background=theme.COLORS["card_bg"],
                 foreground=theme.COLORS["text"],
                 font=("TkDefaultFont", 9, "bold"),
                 anchor="w",
-            ).grid(row=i, column=1, sticky="w", padx=(8, 0), pady=2)
+            )
+            val.grid(row=linha, column=1, sticky="w", padx=(8, 0), pady=2)
+            if so_iir:
+                self._linhas_ref2.append((lab, val))
+
+        # Cabeçalho que separa as duas referências. Sem ele as duas
+        # linhas de baixo pareceriam mais do mesmo, e elas respondem a
+        # uma pergunta diferente.
+        self._titulo_ref2 = ttk.Label(
+            mbox, text="contra a cascata em float64:", style="Card.TLabel")
+        self._titulo_ref2.grid(row=_LINHA_TITULO2, column=0, columnspan=2,
+                               sticky="w", pady=(10, 2))
+        self._esconde_ref2()
+
+    def _esconde_ref2(self):
+        self._titulo_ref2.grid_remove()
+        for lab, val in self._linhas_ref2:
+            lab.grid_remove()
+            val.grid_remove()
+
+    def _mostra_ref2(self):
+        self._titulo_ref2.grid()
+        for lab, val in self._linhas_ref2:
+            lab.grid()
+            val.grid()
 
     def _build_plot_area(self, parent):
         # O cabeçalho (nomes dos plots + ícones ⛶) é reconstruído conforme o
@@ -470,6 +510,10 @@ class ComparatorWindow(tk.Toplevel):
     def _recompute_and_redraw(self):
         if self.bundle is None or self.bundle_type is None:
             return
+        # Só o IIR tem segunda referência; zerar aqui evita que a métrica
+        # de um bundle IIR sobreviva à troca por um bundle de outro tipo.
+        self.metrics_dbl = None
+        self._y_double = None
         try:
             if self.bundle_type == _BUNDLE_CONV:
                 self._compute_conv()
@@ -591,6 +635,15 @@ class ComparatorWindow(tk.Toplevel):
 
         self.metrics = dsp.compute_error_metrics(y_fpga_cmp, y_python)
 
+        # Segunda referência: a MESMA cascata, com os MESMOS coeficientes
+        # já quantizados, só que em float64. O erro contra ela é o preço
+        # da aritmética em ponto fixo -- exatamente o que o zero da
+        # comparação acima não pode mostrar, porque ali o modelo e o
+        # hardware fazem a mesma conta de propósito.
+        y_double = np.asarray(iir.filtra_sos_double(x, sos))[:n_compare]
+        self._y_double = y_double
+        self.metrics_dbl = dsp.compute_error_metrics(y_fpga_cmp, y_double)
+
         self._x_input  = x
         self._n_input  = sec_x["n"]
         self._h_input  = h
@@ -710,13 +763,14 @@ class ComparatorWindow(tk.Toplevel):
         self.var_m_max.set(fmt_g(m["max_abs_error"]))
         self.var_m_rms.set(fmt_g(m["rms_error"]))
 
-        snr = m["snr_db"]
-        if snr == float("inf"):
-            self.var_m_snr.set("∞ (FPGA == NumPy)")
-        elif snr == float("-inf"):
-            self.var_m_snr.set("−∞ (referência ~zero)")
-        else:
-            self.var_m_snr.set(f"{snr:.2f} dB")
+        def fmt_snr(valor, ref: str) -> str:
+            if valor == float("inf"):
+                return f"∞ (FPGA == {ref})"
+            if valor == float("-inf"):
+                return "−∞ (referência ~zero)"
+            return f"{valor:.2f} dB"
+
+        self.var_m_snr.set(fmt_snr(m["snr_db"], self._nome_ref()))
 
         rel = m["max_rel_error"]
         ridx = m["max_rel_index"]
@@ -724,6 +778,18 @@ class ComparatorWindow(tk.Toplevel):
             self.var_m_rel.set("n/a")
         else:
             self.var_m_rel.set(f"{rel:.4g}  (em k={ridx})")
+
+        # O título do quadro nomeia a referência, que muda com o tipo do
+        # bundle -- dizer "NumPy" num bundle de IIR seria mentira.
+        self._mbox.configure(text=f" Métricas (FPGA × {self._nome_ref()}) ")
+
+        if self.metrics_dbl is None:
+            self._esconde_ref2()
+        else:
+            md = self.metrics_dbl
+            self.var_m2_max.set(fmt_g(md["max_abs_error"]))
+            self.var_m2_snr.set(fmt_snr(md["snr_db"], "cascata float64"))
+            self._mostra_ref2()
 
     def _redraw_plots(self):
         # Subplot: entrada x[n]
@@ -944,7 +1010,7 @@ class ComparatorWindow(tk.Toplevel):
 
         snr = m["snr_db"]
         if snr == float("inf"):
-            snr_str = "infinito (FPGA idêntica a NumPy)"
+            snr_str = f"infinito (FPGA idêntica a {self._nome_ref()})"
         elif snr == float("-inf"):
             snr_str = "-inf (referência praticamente zero)"
         else:
@@ -969,7 +1035,7 @@ class ComparatorWindow(tk.Toplevel):
             f.write(f"# fs_entrada: {x_sec.get('fs', 1.0)}\n")
             f.write(f"# n_amostras_entrada: {len(x_sec['data'])}\n")
             f.write("\n")
-            f.write("## METRICAS (FPGA vs NumPy)\n")
+            f.write(f"## METRICAS (FPGA vs {self._nome_ref()})\n")
             f.write(f"n_amostras_comparadas:  {m['n']}\n")
             f.write(f"erro_abs_max:           {m['max_abs_error']:.10g}\n")
             f.write(f"erro_rms:               {m['rms_error']:.10g}\n")
@@ -978,6 +1044,36 @@ class ComparatorWindow(tk.Toplevel):
             f.write(f"norma_referencia:       {m['norm_ref']:.10g}\n")
             f.write(f"norma_diferenca:        {m['norm_diff']:.10g}\n")
             f.write("\n")
+
+            md = self.metrics_dbl
+            if md is not None:
+                snr2 = md["snr_db"]
+                if snr2 == float("inf"):
+                    snr2_str = "inf (identicos)"
+                elif snr2 == float("-inf"):
+                    snr2_str = "-inf (referência praticamente zero)"
+                else:
+                    snr2_str = f"{snr2:.4f} dB"
+                f.write("## METRICAS (FPGA vs cascata em float64)\n")
+                f.write("# a mesma cascata, os mesmos coeficientes Q15.16,\n")
+                f.write("# so que em double: e o custo da aritmetica em\n")
+                f.write("# ponto fixo, que a comparacao bit a bit acima\n")
+                f.write("# nao mede por construcao.\n")
+                f.write(f"erro_abs_max:           {md['max_abs_error']:.10g}\n")
+                f.write(f"erro_rms:               {md['rms_error']:.10g}\n")
+                f.write(f"snr_db:                 {snr2_str}\n")
+                f.write(f"norma_referencia:       {md['norm_ref']:.10g}\n")
+                f.write(f"norma_diferenca:        {md['norm_diff']:.10g}\n")
+                f.write("\n")
+                f.write("## ARRAYS (n  fpga  modelo_q15_16  erro  float64)\n")
+                for i in range(len(self._n_output)):
+                    f.write(f"{int(self._n_output[i])}\t"
+                            f"{float(self._y_fpga[i]):.8e}\t"
+                            f"{float(self._y_python[i]):.8e}\t"
+                            f"{float(self._error[i]):.8e}\t"
+                            f"{float(self._y_double[i]):.8e}\n")
+                return
+
             f.write("## ARRAYS (n  fpga  numpy  erro)\n")
             for i in range(len(self._n_output)):
                 f.write(f"{int(self._n_output[i])}\t"

@@ -66,18 +66,9 @@ def q(v):
 
 
 def cascata_double(x, sos):
-    y = np.asarray(x, dtype=np.float64)
-    for b0, b1, b2, a0, a1, a2 in sos:
-        out = np.empty_like(y)
-        x1 = x2 = y1 = y2 = 0.0
-        for k in range(len(y)):
-            xn = y[k]
-            yn = (b0 * xn + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0
-            x2, x1 = x1, xn
-            y2, y1 = y1, yn
-            out[k] = yn
-        y = out
-    return y
+    """Mora no iir_design desde 17/09/2026, para o comparador da
+    interface usar a MESMA referencia que este script."""
+    return iir.filtra_sos_double(x, sos)
 
 
 def direta_double(x, b, a):

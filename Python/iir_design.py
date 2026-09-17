@@ -710,6 +710,41 @@ def filtra_sos_fixo(x: np.ndarray, sos: np.ndarray, frac_bits: int,
     return np.array(y, dtype=np.float64) / escala
 
 
+def filtra_sos_double(x: np.ndarray, sos: np.ndarray) -> np.ndarray:
+    """A MESMA cascata, em float64 -- a segunda referencia.
+
+    O filtra_sos_fixo responde "o hardware esta correto?", porque e a
+    especificacao do RTL e o erro esperado contra ele e exatamente zero.
+    Esta funcao responde a outra pergunta, que aquele zero esconde:
+    "quanto custou o ponto fixo?". A diferenca entre as duas e o erro de
+    quantizacao da ARITMETICA -- arredondamento por amostra, saturacao e
+    estados truncados --, realimentado ao longo da cascata.
+
+    Mesma estrutura (Forma Direta I) e mesmos coeficientes: so a conta
+    muda de inteiro para double. Se os coeficientes ja vierem
+    quantizados, o que isto NAO mede e o custo de quantizar coeficiente
+    -- para isso a referencia teria de ser o sos de projeto, antes do
+    Q15.16, que o bundle nao carrega.
+
+    float64 nao e a verdade absoluta num filtro realimentado: medido em
+    15/09/2026, duas implementacoes em double do mesmo filtro de ordem 13
+    diferiram entre si em 3,1e-2, mais do que a FPGA diferiu da cascata
+    (1,7e-3). A forma da fatoracao pesa mais que o numero de bits.
+    """
+    y = np.asarray(x, dtype=np.float64).copy()
+    for b0, b1, b2, a0, a1, a2 in np.asarray(sos, dtype=np.float64):
+        out = np.empty_like(y)
+        x1 = x2 = y1 = y2 = 0.0
+        for k in range(len(y)):
+            xn = y[k]
+            yn = (b0 * xn + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0
+            x2, x1 = x1, xn
+            y2, y1 = y1, yn
+            out[k] = yn
+        y = out
+    return y
+
+
 def teste_ciclo_limite(sos: np.ndarray, frac_bits: int,
                        total_bits: int = 32,
                        n_excitacao: int = 64,
