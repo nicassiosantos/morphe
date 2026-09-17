@@ -26,9 +26,10 @@ from __future__ import annotations
 import os
 import socket
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import morphe_theme as theme
 from morphe_protocol import (
@@ -59,6 +60,31 @@ def ler_placa_lembrada() -> Optional[str]:
         return ip or None
     except OSError:
         return None
+
+
+def _caminho_placas_conhecidas() -> str:
+    """<raiz>/.morphe-estado/placas — todas as placas já preparadas."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(raiz, ".morphe-estado", "placas")
+
+
+def ler_placas_conhecidas() -> List[str]:
+    """Todas as placas preparadas nesta estação, sem repetir.
+
+    O morphe-up.sh acumula uma por linha. A placa "lembrada" entra
+    também: num clone que só rodou antes desta lista existir, ela é a
+    única que há.
+    """
+    ips: List[str] = []
+    try:
+        with open(_caminho_placas_conhecidas(), encoding="utf-8") as f:
+            ips = [l.strip() for l in f if l.strip()]
+    except OSError:
+        pass
+    lembrada = ler_placa_lembrada()
+    if lembrada and lembrada not in ips:
+        ips.append(lembrada)
+    return ips
 
 
 def gravar_placa_lembrada(ip: str) -> None:
@@ -197,8 +223,20 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._cancel_event = threading.Event()
         self._success_handled = False
 
+        conhecidas = ler_placas_conhecidas()
+
         def run():
-            if lembrada:
+            # Com mais de uma placa preparada nesta estação, escolher sozinho
+            # a menos ocupada: o servidor atende um cliente por vez, então o
+            # tempo do handshake é uma medida direta de fila. O aluno não
+            # precisa saber que existem duas placas, nem qual é a dele.
+            if len(conhecidas) > 1:
+                livre = self._escolher_placa_livre(conhecidas, porta)
+                if livre is not None:
+                    srv, quantas = livre
+                    self.after(0, self._on_search_success, srv, quantas)
+                    return
+            elif lembrada:
                 srv = self._sondar(lembrada, porta)
                 if srv is not None:
                     self.after(0, self._on_search_success, srv)
@@ -218,6 +256,43 @@ class TcpConfigPanel(ttk.LabelFrame):
 
         self._search_thread = threading.Thread(target=run, daemon=True)
         self._search_thread.start()
+
+    @classmethod
+    def _escolher_placa_livre(cls, ips: List[str], porta: int
+                              ) -> Optional[Tuple[ServerInfo, int]]:
+        """Sonda todas em paralelo e devolve a que respondeu mais rápido.
+
+        Por que o tempo do OP_PING mede ocupação: o servidor da placa é um
+        laço accept/atende/fecha sem thread nenhuma, então um cliente no
+        meio de uma convolução de ~200 ms segura o próximo na fila do
+        listen(). Uma placa livre responde em milissegundos; uma ocupada
+        responde depois de terminar o que está fazendo.
+
+        Não é alocação de verdade — dois alunos que abram o cliente no
+        mesmo instante ainda podem cair na mesma placa. Isso é a v1.4. O
+        que isto resolve é o caso comum, e sem nenhum serviço novo.
+
+        Devolve (placa escolhida, quantas responderam) ou None.
+        """
+        import concurrent.futures as cf
+
+        def sondar_cronometrado(ip: str) -> Optional[Tuple[float, ServerInfo]]:
+            t0 = time.monotonic()
+            srv = cls._sondar(ip, porta)
+            if srv is None:
+                return None
+            return (time.monotonic() - t0, srv)
+
+        respostas: List[Tuple[float, ServerInfo]] = []
+        with cf.ThreadPoolExecutor(max_workers=max(2, len(ips))) as pool:
+            for r in pool.map(sondar_cronometrado, ips):
+                if r is not None:
+                    respostas.append(r)
+
+        if not respostas:
+            return None
+        respostas.sort(key=lambda r: r[0])
+        return (respostas[0][1], len(respostas))
 
     @staticmethod
     def _sondar(host: str, porta: int) -> Optional[ServerInfo]:
@@ -380,17 +455,22 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._search_thread = threading.Thread(target=run, daemon=True)
         self._search_thread.start()
 
-    def _on_search_success(self, srv: ServerInfo):
+    def _on_search_success(self, srv: ServerInfo, entre: int = 1):
         if self._success_handled:
             return
         self._success_handled = True
         self.var_host.set(srv.ip)
         self.var_port.set(str(srv.port))
-        gravar_placa_lembrada(srv.ip)
+        # Escolha automática entre várias placas NÃO reescreve a placa
+        # lembrada: ela é do morphe-up.sh, e sobrescrevê-la faria os
+        # clientes se empurrarem de uma placa para a outra.
+        if entre <= 1:
+            gravar_placa_lembrada(srv.ip)
         self._set_busy(False)
+        sufixo = f" — a mais livre entre {entre} placas" if entre > 1 else ""
         self.var_status.set(
             f"Conectado a {srv.ip} — {srv.hostname} "
-            f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max})"
+            f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max}){sufixo}"
         )
         self.lbl_status.configure(foreground=theme.COLORS["ok_fg"])
 
