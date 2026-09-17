@@ -171,6 +171,26 @@ que tem scipy, e o aluno não esbarra num ambiente onde não pode instalar nada.
 O clone na home continua sendo onde se compila e se desenvolve. `/opt/morphe` é a
 **instalação de turma**, atualizada com uma cópia quando algo mudar.
 
+### Atualizar a instalacao de turma
+
+O `cp -a` copiou o `.git` junto, entao `/opt/morphe` **e um clone**, e atualizar e um
+`git pull` — sem `sudo`, porque o dono e o `coordenador`:
+
+```bash
+cd /opt/morphe && git pull
+```
+
+**Confira o branch antes.** Em 17/09/2026 o `git pull` la dizia `Already up to date` e
+nao aplicava nada: o diretorio estava no branch que o clone de origem tinha, e nao na
+principal. Duas preparacoes rodaram com codigo velho antes de alguem notar.
+
+```bash
+git -C /opt/morphe branch -vv
+```
+
+Se houver arquivos copiados a mao por cima, o `git pull` recusa; descarte-os primeiro com
+`git -C /opt/morphe checkout -- .`.
+
 ### A rotina, depois disso
 
 Coordenador, uma vez por dia de aula — **de dentro de `/opt/morphe`**:

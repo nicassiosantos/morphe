@@ -88,6 +88,47 @@ coeficientes já quantizados, em float64. Medido no `iir_lowpass.mrph` de 1024 a
 não mede o custo de quantizar coeficiente: para isso a referência teria de ser o `sos` de
 projeto, que o bundle não carrega.
 
+### Tarde: a segunda placa entra em servico, e a v1.4 comeca
+
+**A placa 2 nasceu.** Cartao gravado a partir de `de1soc_sd_20260903.img` com
+`dd bs=4M count=1600` — a imagem tem 29,76 GiB e o cartao 29,1 GiB, mas so os primeiros
+6,25 GiB carregam dados, entao copiar ate o ultimo setor usado resolve o tamanho e corta
+o tempo para um quinto. Procedimento inteiro em `docs/NOVA-PLACA.md`.
+
+**O conflito de MAC era real, e foi medido:** as duas placas mostravam
+`12:34:56:78:90:12`. O `.link` do systemd **nao funciona** nesta imagem — quem configura
+a rede e o ifupdown. O que resolveu foi `pre-up ip link set dev eth0 address ...` no
+`/etc/network/interfaces`. A placa 2 subiu com `02:00:00:6D:70:02` e o DHCP deu
+**172.16.230.52**, endereco diferente do da placa 1 — prova de que a troca surtiu efeito.
+Os aliases de fabrica `192.168.1.123` e `192.168.0.123` sairam junto: vinham identicos
+nas duas e colidiriam por IP tambem.
+
+**`instala-autostart.sh` estreou**, pelo caminho do init.d, depois de meses escrito e
+nunca executado. A placa 2 fechou **4/4** (conv1d 0,00 em 213,6 ms; FFT plana em 21,0 ms).
+
+**Uma armadilha que quase passou por boa:** o `git pull` em `/opt/morphe` dizia
+`Already up to date` e nao aplicava nada, porque o diretorio estava em outro branch — o
+`cp -a` da instalacao copiou o `.git` junto, com o branch que o clone de origem tinha.
+Duas preparacoes rodaram com o codigo velho antes de alguem notar. O sintoma que
+denunciou foi o `pgrep` mostrando `.morphe-estado/tether.pid`, o arquivo unico que o
+commit novo ja tinha substituido.
+
+**`7744287` — um tether por cabo JTAG.** Preparar a placa 2 derrubava o tether da 1, e
+sem tether o bitstream inteiro para em 1 h. Nao era limite de hardware: sao dois cabos,
+dois `quartus_pgm`, dois tethers independentes; o estado do script e que era um arquivo
+so. Agora e `.morphe-estado/tethers/<cabo>.pid`. **Validado na estacao com as duas placas
+ligadas**: preparar a segunda imprimiu "1 tether(s) de outras placas seguem vivos,
+intocados", o `--status` listou os dois (PGID 13875 no `DE-SoC [1-2]`, 14011 no
+`[1-3]`) e o `pgrep` confirmou dois processos. As duas placas responderam 4/4.
+
+**`030d348` — o cliente escolhe a placa sozinho.** Le a lista
+`.morphe-estado/placas`, sonda todas em paralelo com um `OP_PING` e fica com a que
+responder mais rapido. O tempo do handshake mede ocupacao porque o servidor e um laco
+`accept`/atende/fecha sem thread (`morphe_server.c:1091`): placa livre responde em
+milissegundos, ocupada responde quando termina os ~200 ms da operacao em curso. Nao e
+alocacao — dois alunos que abram no mesmo instante ainda podem cair na mesma placa —,
+mas o aluno deixou de precisar saber que existem duas placas, que era o pedido.
+
 **Branch `estagio/v1.2-ifft` apagada**, local e no remoto, depois de confirmado que não
 tinha um único commit fora da principal.
 
