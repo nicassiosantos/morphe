@@ -17,9 +17,12 @@
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
-#   ./morphe-up.sh --status             # o que esta no ar agora
-#   ./morphe-up.sh --down               # encerra o tether da licenca
+#   ./morphe-up.sh --status             # o que esta no ar agora, placa a placa
+#   ./morphe-up.sh --down               # encerra os tethers de TODAS as placas
 #   ./morphe-up.sh --down --stop-server # e tambem para o servidor da placa
+#
+# Com mais de uma placa na estacao: o tether e por CABO JTAG, entao preparar uma
+# placa NAO derruba a outra. O --cable diz qual, e o --status lista as duas.
 #
 # Roda da raiz do repositorio ou de qualquer lugar: ele se localiza sozinho.
 
@@ -27,9 +30,12 @@ set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ESTADO="$RAIZ/.morphe-estado"
-PID_TETHER="$ESTADO/tether.pid"
-LOG_TETHER="$ESTADO/tether.log"
-CONF_PLACA="$ESTADO/placa"
+# Um tether por CABO JTAG, nao um por estacao. Com duas placas, preparar uma
+# derrubava o tether da outra: o estado era um arquivo so. A chave e o nome do
+# cabo, que e quem o quartus_pgm segura de fato.
+DIR_TETHERS="$ESTADO/tethers"
+CONF_PLACA="$ESTADO/placa"        # a ultima preparada -- e o que o cliente le
+CONF_PLACAS="$ESTADO/placas"      # todas as ja preparadas, uma por linha
 
 SOF="$RAIZ/Quartus/output_files/soc_system_time_limited.sof"
 PORTA_PADRAO=5000
@@ -98,7 +104,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-mkdir -p "$ESTADO"
+mkdir -p "$ESTADO" "$DIR_TETHERS"
 
 # ---------------------------------------------------------------------------
 # Python do cliente
@@ -214,22 +220,81 @@ achar_cabo() {
 # ("sleep infinity |"), em sessao propria (setsid), e o PGID fica guardado para
 # o --down. Um deploy.sh que programasse e retornasse mataria a FFT em 1 h.
 
-tether_vivo() {
-    [[ -f "$PID_TETHER" ]] || return 1
-    local pgid; pgid="$(cat "$PID_TETHER" 2>/dev/null || true)"
+
+# "DE-SoC [1-3]" vira "DE-SoC_1-3_": nome de arquivo, sem colchete nem espaco.
+chave_cabo() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+
+pid_tether_de() { printf '%s/%s.pid' "$DIR_TETHERS" "$(chave_cabo "$1")"; }
+log_tether_de() { printf '%s/%s.log' "$DIR_TETHERS" "$(chave_cabo "$1")"; }
+
+# O nome do cabo com os colchetes, guardado ao lado do PID: a chave serve para
+# nomear arquivo, mas quem le a tela quer ver "DE-SoC [1-2]".
+nome_do_cabo() {
+    local arq="${1%.pid}.cabo"
+    [[ -f "$arq" ]] && cat "$arq" || basename "${1%.pid}"
+}
+
+_pgid_vivo() {
+    local arq="$1" pgid
+    [[ -f "$arq" ]] || return 1
+    pgid="$(cat "$arq" 2>/dev/null || true)"
     [[ -n "$pgid" ]] || return 1
     kill -0 "-$pgid" 2>/dev/null
 }
 
-derrubar_tether() {
-    if tether_vivo; then
-        local pgid; pgid="$(cat "$PID_TETHER")"
+# Ecoa "<cabo> <pgid>" de cada tether vivo, um por linha. E a base do --status.
+tethers_vivos() {
+    local arq
+    for arq in "$DIR_TETHERS"/*.pid; do
+        [[ -e "$arq" ]] || continue
+        _pgid_vivo "$arq" || continue
+        printf '%s %s\n' "$(nome_do_cabo "$arq")" "$(cat "$arq")"
+    done
+}
+
+# Sem argumento: existe ALGUM tether vivo? Com o nome de um cabo: aquele.
+tether_vivo() {
+    if [[ -n "${1:-}" ]]; then
+        _pgid_vivo "$(pid_tether_de "$1")"
+    else
+        [[ -n "$(tethers_vivos)" ]]
+    fi
+}
+
+_derrubar_arquivo() {
+    local arq="$1"
+    if _pgid_vivo "$arq"; then
+        local pgid; pgid="$(cat "$arq")"
         kill -TERM "-$pgid" 2>/dev/null || true
         sleep 1
         kill -KILL "-$pgid" 2>/dev/null || true
-        ok "tether encerrado (a FFT passa a ter 1 h de vida)"
+        ok "tether encerrado em $(nome_do_cabo "$arq") (a FFT dessa placa passa a ter 1 h)"
     fi
-    rm -f "$PID_TETHER"
+    rm -f "$arq" "${arq%.pid}.cabo"
+}
+
+# Sem argumento derruba TODOS -- e o que o --down quer. Com o nome de um cabo,
+# so o daquele cabo, para nao matar a placa do colega ao preparar a sua.
+derrubar_tether() {
+    if [[ -n "${1:-}" ]]; then
+        _derrubar_arquivo "$(pid_tether_de "$1")"
+        return 0
+    fi
+    local arq
+    for arq in "$DIR_TETHERS"/*.pid; do
+        [[ -e "$arq" ]] || continue
+        _derrubar_arquivo "$arq"
+    done
+}
+
+# O IP mais recente manda no cliente; a lista guarda todas as placas ja
+# preparadas, que e o que uma escolha automatica vai precisar ler.
+lembrar_placa() {
+    local ip="$1"
+    printf '%s' "$ip" > "$CONF_PLACA"
+    local atuais=""
+    [[ -f "$CONF_PLACAS" ]] && atuais="$(grep -v -x -F "$ip" "$CONF_PLACAS" || true)"
+    { [[ -n "$atuais" ]] && printf '%s\n' "$atuais"; printf '%s\n' "$ip"; } > "$CONF_PLACAS"
 }
 
 programar_fpga() {
@@ -241,13 +306,24 @@ programar_fpga() {
         "se o Quartus esta em outro lugar, exporte QUARTUS_ROOTDIR e rode de novo."
     ok "quartus em ${QUARTUS_ROOTDIR:-$(dirname "$(command -v quartus_pgm)")}"
 
-    if tether_vivo; then
-        aviso "ja existe um tether vivo; reprogramando e substituindo"
-        derrubar_tether
-    fi
-
+    # O cabo primeiro: e ele que diz QUAL tether substituir. Antes isto vinha
+    # antes de saber o cabo, e por isso derrubava o tether de qualquer placa.
     achar_cabo
     ok "cabo JTAG: $CABO"
+
+    local pid_t log_t
+    pid_t="$(pid_tether_de "$CABO")"
+    log_t="$(log_tether_de "$CABO")"
+
+    if tether_vivo "$CABO"; then
+        aviso "ja existe um tether NESTE cabo; reprogramando e substituindo"
+        derrubar_tether "$CABO"
+    fi
+
+    local outros; outros="$(tethers_vivos | wc -l)"
+    if (( outros > 0 )); then
+        ok "$outros tether(s) de outras placas seguem vivos, intocados"
+    fi
 
     command -v setsid >/dev/null 2>&1 || morrer "preciso do setsid (util-linux)." \
         "sem ele nao da para manter o tether da licenca vivo em segundo plano."
@@ -255,20 +331,21 @@ programar_fpga() {
     # O @2 e a posicao da FPGA na cadeia JTAG; a posicao 1 e o HPS.
     # Sem ele a programacao falha.
     passo "programando a FPGA"
-    : > "$LOG_TETHER"
-    rm -f "$PID_TETHER"
+    : > "$log_t"
+    rm -f "$pid_t"
+    printf '%s' "$CABO" > "${pid_t%.pid}.cabo"
     # O proprio processo grava o PGID: sob setsid ele e lider de sessao, entao
     # seu $$ e o PGID do grupo inteiro (o bash, o sleep e o quartus_pgm). Ler o
     # PGID aqui fora, do PID devolvido por $!, nao serve -- o setsid pode ter
     # forkado e esse PID ja ter morrido.
-    setsid bash -c "echo \$\$ > '$PID_TETHER'; sleep infinity | quartus_pgm -m jtag -c '$CABO' -o 'p;$SOF@2' >> '$LOG_TETHER' 2>&1" &
+    setsid bash -c "echo \$\$ > '$pid_t'; sleep infinity | quartus_pgm -m jtag -c '$CABO' -o 'p;$SOF@2' >> '$log_t' 2>&1" &
 
     local limite=60
     while (( limite-- > 0 )); do
-        if grep -q "Configuration succeeded" "$LOG_TETHER" 2>/dev/null; then
+        if grep -q "Configuration succeeded" "$log_t" 2>/dev/null; then
             ok "Configuration succeeded"
-            if tether_vivo; then
-                ok "tether da licenca vivo em segundo plano (PGID $(cat "$PID_TETHER"))"
+            if tether_vivo "$CABO"; then
+                ok "tether da licenca vivo em segundo plano (PGID $(cat "$pid_t"))"
             else
                 aviso "o tether nao ficou vivo -- a FFT tem 1 h a partir de agora"
             fi
@@ -278,19 +355,19 @@ programar_fpga() {
         # linha. Um 'grep -i error' solto casa com "0 errors" e aborta uma
         # programacao que deu certo. O tr desfaz o \r da barra de progresso,
         # que senao deixaria o "Error" no meio da linha e fora do ^.
-        if tr '\r' '\n' < "$LOG_TETHER" 2>/dev/null | grep -qE "^Error"; then
+        if tr '\r' '\n' < "$log_t" 2>/dev/null | grep -qE "^Error"; then
             erro "o quartus_pgm falhou:"
-            tr '\r' '\n' < "$LOG_TETHER" | sed 's/^/       /' >&2
-            derrubar_tether
+            tr '\r' '\n' < "$log_t" | sed 's/^/       /' >&2
+            derrubar_tether "$CABO"
             morrer "programacao da FPGA falhou." \
                    "se for 'Application SLD HUB CLIENT ... is using the target device'," \
                    "feche o Signal Tap ou outro Quartus aberto e tente de novo."
         fi
         sleep 1
     done
-    derrubar_tether
+    derrubar_tether "$CABO"
     morrer "tempo esgotado esperando 'Configuration succeeded'." \
-           "veja o log em $LOG_TETHER"
+           "veja o log em $log_t"
 }
 
 # ---------------------------------------------------------------------------
@@ -402,7 +479,7 @@ verificar_alcance() {
         "     -- assim voce nao reprograma a FPGA nem reinicia a licenca" >&2
     if tether_vivo; then
         printf '       %s\n' \
-            "o tether continua vivo (PGID $(cat "$PID_TETHER")): a FFT nao esta" \
+            "o tether continua vivo: a FFT nao esta" \
             "perdendo tempo enquanto voce resolve a rede." >&2
     fi
     exit 1
@@ -496,7 +573,7 @@ verificar() {
     local diario="$ESTADO/falha-$(date +%Y%m%d_%H%M%S).log"
     {
         printf 'placa %s porta %s\n' "$ALVO" "$PORTA"
-        printf 'tether: %s\n' "$(tether_vivo && cat "$PID_TETHER" || echo ausente)"
+        printf 'tethers vivos:\n%s\n' "$(tethers_vivos || echo '  nenhum')"
         printf -- '--- morphe_server.log (ultimas 40 linhas) ---\n'
         ssh_placa "tail -n 40 $DIR_REMOTO/morphe_server.log 2>/dev/null" 2>/dev/null || true
     } > "$diario"
@@ -519,9 +596,18 @@ verificar() {
 
 acao_status() {
     if tether_vivo; then
-        ok "tether da licenca vivo (PGID $(cat "$PID_TETHER")) -- FFT sem limite de tempo"
+        local linha
+        while IFS= read -r linha; do
+            [[ -n "$linha" ]] || continue
+            ok "tether vivo em ${linha% *} (PGID ${linha##* }) -- FFT sem limite de tempo"
+        done <<< "$(tethers_vivos)"
     else
         aviso "tether ausente -- se a FPGA foi programada ha mais de 1 h, a FFT devolve zeros"
+    fi
+
+    if [[ -f "$CONF_PLACAS" ]]; then
+        local n; n="$(grep -c . "$CONF_PLACAS" || true)"
+        (( n > 1 )) && printf '    placas conhecidas: %s\n' "$(tr '\n' ' ' < "$CONF_PLACAS")"
     fi
     if [[ -f "$CONF_PLACA" ]]; then
         local ip; ip="$(cat "$CONF_PLACA")"
@@ -578,7 +664,7 @@ acao_setup_ssh() {
 
     if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$ALVO" true 2>/dev/null; then
         ok "pronto: $USUARIO_PLACA@$ALVO entra sem senha"
-        printf '%s' "$ALVO" > "$CONF_PLACA"
+        lembrar_placa "$ALVO"
         return 0
     fi
 
@@ -661,7 +747,7 @@ acao_up() {
     fi
     ok "placa: $ALVO"
     verificar_alcance
-    printf '%s' "$ALVO" > "$CONF_PLACA"
+    lembrar_placa "$ALVO"
 
     if (( FORCA_DEPLOY )); then
         enviar_servidor
