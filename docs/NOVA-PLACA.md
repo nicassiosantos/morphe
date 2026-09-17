@@ -45,6 +45,36 @@ Então o passo que importa neste documento é o **2**. O resto é cópia.
 
 ### 2.1 Clonar o cartão que já funciona
 
+> **Se já existir uma imagem pronta na estação, pule a leitura do cartão.** Em
+> 17/09/2026 havia `~/Documentos/de1soc_sd_20260903.img` (03/09), e com ela a placa em
+> serviço nem precisa ser desligada. Vá direto para "Gravar no cartão novo", mas leia
+> antes a armadilha de tamanho logo abaixo.
+
+#### A armadilha de tamanho
+
+A imagem tem o tamanho do cartão de origem, não o dos dados. A de 03/09 tem **29,76
+GiB** e o cartão novo comprado para a placa 2 tinha **29,1 GiB** — um `dd` direto
+falharia com `No space left on device` **depois de meia hora gravando**, e um cartão
+truncado assim não dá erro na hora: dá placa que não sobe.
+
+Olhe a tabela de partições da imagem antes:
+
+```bash
+fdisk -l ~/Documentos/de1soc_sd_20260903.img
+```
+
+Na imagem de 03/09, a última partição termina no setor **13.096.959** — ou seja, só os
+primeiros **~6,25 GiB** têm dados, e os outros 23 GiB são zeros. Copiar só essa parte
+resolve o tamanho **e** corta o tempo de gravação para um quinto:
+
+```
+último setor usado × 512 ÷ 4 MiB = quantos blocos de 4M copiar
+13.096.960 × 512 ÷ 4.194.304 = 1.599  →  use count=1600, com folga
+```
+
+Ajuste o `count` à sua imagem; o `1600` vale para a de 03/09.
+
+
 Desligue a placa em serviço e ponha o cartão dela no leitor da estação. **Identifique o
 dispositivo antes de qualquer coisa** — errar aqui apaga o disco da estação:
 
@@ -80,15 +110,30 @@ lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
 sudo umount /dev/sdY*
 ```
 
-Grave. **Este comando apaga o cartão de destino inteiro**, e não pergunta nada:
+Grave. **Este comando apaga o cartão de destino inteiro**, e não pergunta nada. O
+`count` vem da conta da armadilha de tamanho, acima:
 
 ```bash
-sudo dd if=$HOME/morphe-de1soc.img of=/dev/sdY bs=4M status=progress conv=fsync
+sudo dd if=$HOME/morphe-de1soc.img of=/dev/sdY bs=4M count=1600 status=progress conv=fsync
 ```
 
 ```bash
 sync
 ```
+
+Faça o kernel reler a tabela de partições — sem isso o `/dev/sdY2` do passo seguinte
+ainda não existe:
+
+```bash
+sudo partprobe /dev/sdY
+```
+
+```bash
+lsblk /dev/sdY
+```
+
+Tem que aparecer **três** partições. Se aparecer só uma, o `partprobe` não pegou: tire e
+ponha o cartão.
 
 O cartão novo fica com o tamanho de partições do molde. Se ele for maior, o espaço extra
 fica sem uso — irrelevante para a plataforma, que não guarda nada grande na placa.
@@ -116,6 +161,10 @@ ls /mnt/cartao/etc/systemd/system 2>/dev/null || ls /mnt/cartao/etc/init.d
 ```
 
 **Se for systemd**, um arquivo `.link` resolve, e ele age antes de a interface subir:
+
+```bash
+sudo mkdir -p /mnt/cartao/etc/systemd/network
+```
 
 ```bash
 sudo tee /mnt/cartao/etc/systemd/network/10-eth0-mac.link > /dev/null <<'FIM'
