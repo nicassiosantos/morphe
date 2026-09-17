@@ -219,8 +219,18 @@ fw_printenv ethaddr 2>/dev/null; cat /proc/cmdline; ip link show eth0
 
 ## Passo 3 — SSH na placa nova
 
-A imagem de fábrica não deixa o root entrar por SSH. São três ajustes, pelo console
-serial, como já foi feito na primeira placa (`INSTALACAO.md`):
+> **Cartão clonado de uma placa que já funciona pula este passo inteiro.** Conferido em
+> 17/09/2026 na imagem de 03/09: ela já traz `PermitRootLogin yes` e `AllowUsers labpds
+> root` no `sshd_config`, e a senha do root vem junto — é a mesma da placa de origem.
+> Confira antes de mexer, com a rootfs montada:
+>
+> ```bash
+> sudo grep -E 'PermitRootLogin|AllowUsers' /mnt/cartao/etc/ssh/sshd_config
+> ```
+
+Só para cartão gravado com imagem de fábrica: ela não deixa o root entrar por SSH. São
+três ajustes, pelo console serial, como já foi feito na primeira placa
+(`INSTALACAO.md`):
 
 1. `passwd` — definir a senha do root;
 2. `PermitRootLogin yes` no `/etc/ssh/sshd_config`;
@@ -280,8 +290,17 @@ saber exatamente onde está o limite hoje:
 - **Nada impede duas pessoas de usarem a MESMA placa** achando que cada uma tem a sua. O
   resultado sai certo — as requisições são atômicas —, mas o tempo de resposta dobra e
   ninguém sabe por quê.
-- **Preparar é global.** O `morphe-up.sh` de qualquer pessoa reprograma a FPGA e derruba
-  o tether de quem estiver usando.
+- **Preparar é global, e com duas placas isso vira um problema concreto.** O estado do
+  `morphe-up.sh` é um só por raiz: `.morphe-estado/tether.pid` e `.morphe-estado/placa`.
+  Preparar a placa 2 **derruba o tether da placa 1** ("já existe um tether vivo;
+  reprogramando e substituindo") e sobrescreve o IP que o cliente lê para abrir já
+  conectado. Na prática, hoje, a estação sustenta uma placa de cada vez — não por limite
+  de hardware, mas porque o estado não tem como guardar duas.
+  O que **já** está pronto para duas é a escolha do cabo: com mais de um cabo JTAG o
+  script se recusa a adivinhar e pede `--cable` (`morphe-up.sh:195`).
+- **O cliente escolhe a placa pelo arquivo, não pela disponibilidade.** Enquanto
+  `.morphe-estado/placa` guardar um endereço só, o aluno vai para a placa que o último
+  `morphe-up.sh` gravou, mesmo que ela esteja ocupada e a outra livre.
 - **A busca automática do cliente cobre três `/24` numa rede `/16`** (`INSTALACAO.md`
   5.2). Com mais placas, a chance de uma cair fora da varredura cresce.
 
