@@ -140,65 +140,65 @@ fica sem uso — irrelevante para a plataforma, que não guarda nada grande na p
 
 ### 2.2 Trocar o MAC (o passo que não pode ser pulado)
 
-O MAC pode vir do u-boot (`ethaddr`), da device tree ou de configuração dentro da
-rootfs, e isso varia com a imagem gravada. **Não dependa de descobrir de onde ele vem:**
-sobrescreva no boot, dentro da rootfs, que é o único lugar que controlamos com certeza.
+**Medido em 17/09/2026, nas duas placas:** ambas mostram `12:34:56:78:90:12`. O conflito
+não era hipótese.
 
-Monte a partição raiz do cartão novo (é a `ext3`/`ext4`, a maior):
+Nesta imagem quem configura a rede é o **ifupdown**, não o systemd-networkd — o
+`/etc/network/interfaces` traz `iface eth0 inet dhcp` mais dois aliases estáticos. Um
+arquivo `.link` em `/etc/systemd/network/` foi tentado primeiro e **não teve efeito
+nenhum**: a placa subiu com o MAC de fábrica. O que funciona é o `pre-up`, que o próprio
+ifupdown executa antes de levantar a interface.
 
-```bash
-lsblk -f /dev/sdY
-```
-
-```bash
-sudo mkdir -p /mnt/cartao && sudo mount /dev/sdY2 /mnt/cartao
-```
-
-Descubra qual init a imagem usa:
+O driver aceita trocar o endereço em tempo de execução — vale confirmar antes de
+persistir, porque é instantâneo:
 
 ```bash
-ls /mnt/cartao/etc/systemd/system 2>/dev/null || ls /mnt/cartao/etc/init.d
-```
-
-**Se for systemd**, um arquivo `.link` resolve, e ele age antes de a interface subir:
-
-```bash
-sudo mkdir -p /mnt/cartao/etc/systemd/network
+ip link set dev eth0 down
 ```
 
 ```bash
-sudo tee /mnt/cartao/etc/systemd/network/10-eth0-mac.link > /dev/null <<'FIM'
-[Match]
-OriginalName=eth0
-
-[Link]
-MACAddress=02:00:00:6D:70:02
-NamePolicy=keep kernel
-FIM
+ip link set dev eth0 address 02:00:00:6D:70:02
 ```
-
-**Se for init.d com `/etc/network/interfaces`**, acrescente um `pre-up` na entrada da
-`eth0` — abra o arquivo e insira a linha indentada logo abaixo de `iface eth0 ...`:
 
 ```bash
-sudo nano /mnt/cartao/etc/network/interfaces
+ip link set dev eth0 up
 ```
-
-```
-    pre-up ip link set dev eth0 address 02:00:00:6D:70:02
-```
-
-Aproveite que a rootfs está montada e dê um hostname próprio à placa, para os dois
-consoles seriais não se confundirem:
 
 ```bash
-echo "de1soc-02" | sudo tee /mnt/cartao/etc/hostname
+ip link show eth0
 ```
 
-Desmonte antes de tirar o cartão:
+Para persistir, com a placa ligada e o console serial aberto (ou com a rootfs do cartão
+montada, trocando o caminho). Guarde o original:
 
 ```bash
-sudo umount /mnt/cartao && sync
+cp /etc/network/interfaces /etc/network/interfaces.bak
+```
+
+```bash
+printf 'auto lo\niface lo inet loopback\n\nallow-hotplug eth0\niface eth0 inet dhcp\n        pre-up ip link set dev eth0 address 02:00:00:6D:70:02\n' > /etc/network/interfaces
+```
+
+```bash
+cat /etc/network/interfaces
+```
+
+**Os aliases `192.168.1.123` e `192.168.0.123` saem de propósito.** Eles são de fábrica e
+vêm **idênticos em toda placa**, então duas na mesma rede colidem também por IP, não só
+por MAC. Não servem para nada aqui — o laboratório é `172.16/16` por DHCP. Se precisar
+deles de volta, estão no `.bak`.
+
+Limpe o `.link` que não funcionou, para não confundir quem vier depois:
+
+```bash
+rm -f /etc/systemd/network/10-eth0-mac.link
+```
+
+Dê também um hostname próprio, para os consoles seriais não se confundirem (este funciona
+pelo cartão montado, e foi conferido em 17/09):
+
+```bash
+echo de1soc-02 > /etc/hostname
 ```
 
 ### 2.3 Conferir na primeira vez que a placa nova ligar
