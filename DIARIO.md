@@ -16,6 +16,83 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 17/09/2026 — O aluno prepara a placa sozinho; e o tether segura o bitstream inteiro
+
+**Duas medições derrubaram duas crenças anteriores.**
+
+**1. O tether sobrevive ao logout — faltava uma linha.** Em 16/09 ficou registrado que
+o tether morria ao encerrar a sessão do coordenador. Hoje, depois de
+`sudo loginctl enable-linger coordenador`, o logout foi feito de verdade e o
+`pgrep -af quartus_pgm` da conta do aluno ainda mostrava o **PID 5123 — o tether do
+próprio `setsid` do `morphe-up.sh`**. Ou seja: o `setsid` nunca foi o problema; o
+`logind` é que destruía o escopo do usuário inteiro no logout, e o `linger` impede isso.
+O `systemd-run` que se cogitou é desnecessário, e a linha 264 do `morphe-up.sh` fica como
+está. A regra "trocar de usuário, nunca encerrar sessão" morreu.
+
+**2. Sem tether para a lógica INTEIRA, não só a FFT.** Depois de desligar a estação (o
+que mata o tether — `linger` não sobrevive a um boot), da conta do aluno: a placa
+respondia ao `ping` em 1 ms, mas a **convolução dava timeout** e a FFT voltava errada.
+Timeout, e não "conexão recusada", é o servidor vivo esperando um `done` que a lógica
+parada nunca emite. Um `./morphe-up.sh` devolveu os 4/4. O `.sof` chama-se
+`soc_system_time_limited` porque é o bitstream que é time-limited, não o IP da FFT
+sozinho. O `INSTALACAO.md` afirmava que "convolução e FIR não são afetados" — corrigido
+hoje, no texto da seção 4.3 e na tabela de sintomas.
+
+**O coordenador saiu do caminho crítico.** A premissa de que "programar a FPGA exige
+Quartus, logo é sempre do coordenador" não se sustentava: a regra udev do USB-Blaster já
+era `MODE="0666"` e o `achar_quartus` do `morphe-up.sh` já procurava em
+`/opt/intelFPGA_lite`. O Quartus só estava no lugar errado — dentro de uma home `0750`.
+Copiado para `/opt/intelFPGA_lite` (16 GB) com `a+rX`, e o `morphe-up.sh` devolvido ao
+grupo. **Validado**: da conta `alunopds`, depois de um desligamento completo da estação e
+sem o coordenador entrar, `./morphe-up.sh` achou o Quartus em `/opt`, achou o cabo
+`DE-SoC [1-2]`, reprogramou, levantou o tether, reiniciou o servidor e fechou **4/4** —
+conv1d com erro 0,00 em 214,0 ms e FFT plana em 21,4 ms. Uma vez por conta é preciso
+`./morphe-up.sh --setup-ssh --board <ip>`, porque a chave da placa é por conta.
+
+O preço, registrado porque é real: o `morphe-up.sh` de um aluno reprograma a FPGA e
+derruba o tether dos outros. A regra de bolso vira "rodar para começar a aula ou para
+consertar uma placa parada, não durante". Se virar problema na prática, a resposta é a
+v1.4, não trancar o script.
+
+**Um serviço systemd no boot foi considerado e descartado**, por decisão do estagiário:
+ele rodaria ao ligar a estação supondo a placa ligada e na rede, e falharia calado quando
+não estivesse. Fica o comando explícito, que uma vez executado não precisa ser repetido —
+os outros computadores só abrem o app.
+
+**Fluxo do aluno validado de ponta a ponta**, os seis itens que faltavam de ontem: app
+abrindo já conectado (sem digitar IP), convolução, FFT de 1024, IFFT, filtro IIR e
+projeto de um **elíptico** (que exercita o scipy do sistema), com bundle salvo na home
+dele. `/opt/morphe` continuou só-leitura para o aluno o tempo todo.
+
+**O app do coordenador voltou a abrir.** `numpy 2.2.6` instalado por `pip --user`
+sombreava o do sistema e quebrava o scipy com `AttributeError: _ARRAY_API not found`;
+`python3 -m pip uninstall -y numpy` devolveu o **1.21.5** de
+`/usr/lib/python3/dist-packages`. A conta do aluno tem a mesma armadilha com o
+`matplotlib` do `--user`, hoje só um aviso (`Unable to import Axes3D`), ainda não limpa.
+
+**Endurecimento parcial, e por que parcial.** `chmod g-x` no `morphe-up.sh` deixou o modo
+`-rwxrw----`: o aluno não executava direto, mas ainda lia e **escrevia** o script —
+`bash morphe-up.sh` contornava, e pior, ele podia editar o que o coordenador roda com
+sudo. Ficou sem efeito de qualquer forma: com o Quartus em `/opt`, o script foi devolvido
+ao grupo de propósito.
+
+**`18531bf` — o comparador mostra as duas referências no bundle IIR.** Veio de uma
+pergunta: "por que o erro do IIR é sempre zero?". Porque a referência é o
+`filtra_sos_fixo`, que **é a especificação do RTL** — mesma aritmética inteira, mesmo
+arredondamento — e num filtro realimentado só serve comparação bit a bit: um LSB de
+divergência numa amostra diverge para sempre. Esse zero, porém, esconde a outra pergunta.
+`filtra_sos_double()` subiu para o `iir_design.py` (era local do
+`compara_professor_fpga.py`, que agora delega) e roda a mesma cascata, com os mesmos
+coeficientes já quantizados, em float64. Medido no `iir_lowpass.mrph` de 1024 amostras:
+**0 contra o modelo Q15.16 e 1,45e-05 — 0,95 LSB, 103 dB — contra o float64**. A segunda
+não mede o custo de quantizar coeficiente: para isso a referência teria de ser o `sos` de
+projeto, que o bundle não carrega.
+
+**Branch `estagio/v1.2-ifft` apagada**, local e no remoto, depois de confirmado que não
+tinha um único commit fora da principal.
+
+---
+
 ## 16/09/2026 — A plataforma sai da conta do coordenador; o tether não sobrevive ao logout
 
 **Instalação de turma em `/opt/morphe`, validada.** Até hoje a plataforma só tinha sido

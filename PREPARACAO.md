@@ -138,8 +138,10 @@ nem o cliente. Em compensação, o resto estava verde: `ping` na placa responde,
 aluno não precisa de venv nenhum. (O `.venv` do coordenador, esse sim, não tem scipy, e
 a aproximação elíptica não roda nele.)
 
-A divisão do trabalho decorre disso e não é negociável: **programar a FPGA exige
-Quartus, logo é sempre do coordenador.** Ao aluno sobra o cliente — que é um passo só.
+A divisão do trabalho decorria disso: programar a FPGA exige Quartus, logo seria sempre
+do coordenador. **Em 17/09/2026 isso deixou de ser verdade**, e de propósito — ver
+"Tirando o coordenador do caminho crítico", adiante. O Quartus saiu da home e foi para
+`/opt/intelFPGA_lite`, e o aluno prepara a placa sozinho.
 
 ### A instalação, uma vez
 
@@ -190,19 +192,73 @@ cliente e não acha placa nenhuma — o sintoma parece ser de rede, e não é.
 
 ### O tether da licença, com duas contas
 
-O `quartus_pgm` que segura a licença de avaliação da FFT vive na **sessão do
-coordenador**. Duas consequências práticas:
+O `quartus_pgm` que fica aberto depois de programar é o tether da licença de avaliação.
+Duas coisas sobre ele foram **medidas em 17/09/2026** e contrariam o que se supunha:
 
-- Ele precisa **trocar de usuário**, não fazer logout. Se a sessão morrer, o tether cai e
-  a FFT passa a devolver zeros depois de uma hora. A convolução, o FIR e o IIR continuam
-  funcionando — só a FFT e a IFFT usam IP licenciada.
-- Da conta do aluno dá para diagnosticar isso sem pedir ajuda:
+- **Ele segura o bitstream INTEIRO, não só a FFT.** Sem tether, passada ~1 h, a lógica
+  na FPGA para: a convolução passa a dar **timeout** (o servidor continua no ar,
+  esperando um `done` que não vem) e a FFT volta errada. O `.sof` chama-se
+  `soc_system_time_limited` por isso. A versão anterior deste documento dizia que
+  "convolução e FIR não são afetados"; era engano.
+- **Ele sobrevive ao logout, desde que a estação tenha `linger`.** O que o matava não
+  era fraqueza do `setsid`, era o `logind` destruindo o escopo do usuário ao encerrar a
+  sessão. Uma linha, uma vez por estação:
+
+```bash
+sudo loginctl enable-linger coordenador
+```
+
+Diagnóstico, de qualquer conta, sem pedir ajuda a ninguém:
 
 ```bash
 pgrep -af quartus_pgm
 ```
 
-Se não imprimir nada, o tether caiu: FFT zerada é consequência, não defeito do aluno.
+Não imprimiu nada? O tether caiu, e **qualquer** operação errada a partir daí é
+consequência disso, não defeito de quem está usando. A correção é sempre a mesma:
+`cd /opt/morphe && ./morphe-up.sh`.
+
+O `linger` **não** sobrevive a desligar a estação: depois de cada boot, alguém roda o
+`morphe-up.sh` uma vez. "Alguém", agora, inclui o aluno.
+
+### Tirando o coordenador do caminho crítico
+
+Deixar a aula dependente de uma sessão aberta numa conta específica não se sustenta. O
+bloqueio nunca foi técnico de verdade — a regra udev do USB-Blaster já é `MODE="0666"`
+(qualquer conta enxerga o cabo) e o `achar_quartus` do `morphe-up.sh` já procurava em
+`/opt/intelFPGA_lite`. O Quartus só estava no lugar errado: dentro de uma home `0750`.
+
+Uma vez, como coordenador (são 16 GB, então confira o disco antes):
+
+```bash
+sudo cp -a ~/intelFPGA_lite /opt/intelFPGA_lite
+```
+
+```bash
+sudo chmod -R a+rX /opt/intelFPGA_lite
+```
+
+Uma vez, na conta do aluno — cada conta precisa da sua chave para a placa:
+
+```bash
+cd /opt/morphe && ./morphe-up.sh --setup-ssh --board <ip da placa>
+```
+
+A partir daí o aluno roda `cd /opt/morphe && ./morphe-up.sh` e prepara tudo sozinho.
+**Validado em 17/09/2026**: da conta `alunopds`, com o Quartus de `/opt`, o script achou
+o cabo, reprogramou, levantou o tether, reiniciou o servidor e fechou 4/4 — depois de um
+desligamento completo da estação, sem o coordenador entrar.
+
+Isso tem um preço, e ele é real: **o `morphe-up.sh` de um aluno reprograma a FPGA e
+derruba o tether dos outros.** Numa turma, isso interrompe quem estiver no meio de um
+exercício. A regra de bolso: rodar o script é para **começar a aula ou consertar uma
+placa parada**, não durante. Se isso virar problema na prática, o caminho é a v1.4 (o
+serviço que gerencia as placas), não trancar o script de novo.
+
+Um serviço systemd no boot foi considerado e **descartado** em 17/09: ele rodaria ao
+ligar a estação supondo que a placa já está ligada e na rede, e falharia calado quando
+não estivesse. Preferiu-se o comando explícito — que, uma vez executado, não precisa ser
+repetido: os outros computadores só abrem o app.
 
 ### O que já foi verificado, e o que falta
 
@@ -210,13 +266,18 @@ Verificado em 16/09/2026, da conta `alunopds`: permissões da home (é o bloquei
 até a placa, dependências do Python no interpretador do sistema, e que o tether continua
 vivo e visível depois da troca de usuário.
 
+Verificado em 17/09/2026, da conta `alunopds`: o **fluxo completo do aluno** a partir de
+`/opt/morphe` — app abrindo já conectado, convolução, FFT, IFFT, filtro IIR, projeto de
+um **elíptico** (que exercita o scipy do sistema) e bundle salvo na home dele; o tether
+sobrevivendo ao **logout** com `linger`; e a **preparação da placa pelo próprio aluno**
+depois de um desligamento da estação.
+
 Falta verificar, na próxima ida:
 
-1. O fluxo do aluno de ponta a ponta a partir de `/opt/morphe` — abrir já conectado, uma
-   convolução, uma FFT, e **salvar um bundle na home dele** (o repositório é só-leitura
-   para o aluno, de propósito).
-2. Se o tether sobrevive a um **logout** do coordenador, e não só à troca de usuário. É o
-   que decide se a sessão dele precisa ficar aberta durante toda a aula.
+1. Se o `C/autostart/` na placa dispensa o passo do servidor — está escrito e nunca foi
+   instalado.
+2. O comportamento com **duas placas** e dois alunos preparando ao mesmo tempo. É o que
+   define o tamanho da v1.4.
 
 ## Estado desta versão
 
