@@ -240,8 +240,15 @@ _pgid_vivo() {
     [[ -f "$arq" ]] || return 1
     pgid="$(cat "$arq" 2>/dev/null || true)"
     [[ -n "$pgid" ]] || return 1
-    kill -0 "-$pgid" 2>/dev/null
+    # pgrep, e nao 'kill -0': o tether pode ser de OUTRA conta (o coordenador
+    # preparou, o aluno veio depois), e 'kill -0' num processo alheio falha
+    # com EPERM -- igualzinho a um processo morto. O script achava o cabo
+    # livre, subia um segundo quartus_pgm e o Quartus recusava o cabo ocupado.
+    pgrep -g "$pgid" >/dev/null 2>&1
 }
+
+# Dono do grupo de processos, para a mensagem de quem derruba o que nao e seu.
+_dono_pgid() { ps -o user= -g "$1" 2>/dev/null | head -1; }
 
 # Ecoa "<cabo> <pgid>" de cada tether vivo, um por linha. E a base do --status.
 tethers_vivos() {
@@ -269,6 +276,9 @@ _derrubar_arquivo() {
         kill -TERM "-$pgid" 2>/dev/null || true
         sleep 1
         kill -KILL "-$pgid" 2>/dev/null || true
+        if _pgid_vivo "$arq"; then
+            morrer "o tether de $(nome_do_cabo "$arq") pertence a conta '$(_dono_pgid "$pgid")' e esta conta nao pode encerra-lo."                    "ou essa conta roda ./morphe-up.sh --down (ou --cable so do outro cabo),"                    "ou, se a placa dela ja esta preparada, use-a como esta: o cliente a acha sozinho."
+        fi
         ok "tether encerrado em $(nome_do_cabo "$arq") (a FFT dessa placa passa a ter 1 h)"
     fi
     rm -f "$arq" "${arq%.pid}.cabo"
