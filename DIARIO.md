@@ -92,6 +92,24 @@ novo. Ficaram, de propósito: o getty na serial (`/etc/init/ttyS0.conf`) e a lin
 `source /opt/ros/hydro/setup.bash` comentada no `/root/.bashrc` (herança da imagem; não
 era a causa, mas não faz falta).
 
+**Tarde: o aluno sozinho, com duas placas.** Coordenador com `--down` e logout de
+verdade; da conta `alunopds`: `--setup-ssh` nas duas placas, `morphe-up.sh` em cada uma
+com o seu cabo (`DE-SoC [1-3]` = `.52`, `DE-SoC [1-2]` = `.24`), o tether da primeira
+intocado pela segunda, **4/4 nas duas**, cliente aberto. O objetivo de operar a
+plataforma só da conta do aluno está cumprido, agora com duas placas. Do coordenador,
+em seguida: o cliente abre; e `morphe-up.sh` contra o cabo do aluno para com "o tether
+de DE-SoC [1-3] pertence a conta 'alunopds'" sem reprogramar (`44459a9` — antes, o
+`kill -0` num processo alheio dava EPERM, o script achava o cabo livre e o Quartus
+recusaria o cabo). Não anotado: qual IP cada cliente escolheu; o teste de "cair na
+placa parada" com uma convolução em andamento fica para amanhã.
+
+**Miúdos do dia:** `1dc7082` o `--setup-ssh` escreve o bloco `Host <ip>` no
+`~/.ssh/config` (ssh e scp avulsos sem senha, medido nas duas contas); `61e3a4d` o
+`distribui_ganho()` mede a seção pelo maior `|b|` — o passa-alta 3800/3700 de ordem 13
+sai de `recusar` para `ok`, com `|H|` idêntica; o cliente do coordenador quebrou de novo
+por um `pip --user` (matplotlib 3.10 exigindo numpy ≥ 1.23), limpo com `pip uninstall`,
+e o caso virou seção do PREPARACAO.md.
+
 **Ferramentas que valeram o dia, para a próxima vez:** `screen -L -Logfile` para gravar
 a serial; o U-Boot como bancada de teste de rede (`setenv autoload no; dhcp`); o IPv6
 link-local (`fe80::` + MAC) como endereço fixo da placa que dispensa DHCP;

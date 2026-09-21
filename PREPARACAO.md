@@ -292,12 +292,39 @@ um **elíptico** (que exercita o scipy do sistema) e bundle salvo na home dele; 
 sobrevivendo ao **logout** com `linger`; e a **preparação da placa pelo próprio aluno**
 depois de um desligamento da estação.
 
-Falta verificar, na próxima ida:
+Verificado em 21/09/2026, da conta `alunopds`, **com duas placas e o coordenador
+deslogado**: `--setup-ssh` nas duas (a senha da placa uma vez cada), `morphe-up.sh` em
+cada uma com o seu `--cable`, o tether da primeira sobrevivendo à preparação da segunda,
+4/4 nas duas, e o cliente abrindo. É a resposta aos dois itens que faltavam:
 
-1. Se o `C/autostart/` na placa dispensa o passo do servidor — está escrito e nunca foi
-   instalado.
-2. O comportamento com **duas placas** e dois alunos preparando ao mesmo tempo. É o que
-   define o tamanho da v1.4.
+1. O autostart (`C/autostart/`) está instalado nas duas placas e **sobrevive ao reboot**
+   — desde que o servidor seja o de 21/09 ou posterior (ver `docs/NOVA-PLACA.md`,
+   seção 2.4: o anterior travava o HPS contra o bitstream de fábrica). Uma placa
+   recém-ligada responde ao ping com `fpga_preparada=0`, recusa operações com uma
+   mensagem que manda rodar o `morphe-up.sh`, e o cliente não a escolhe.
+2. Duas contas e duas placas: o `morphe-up.sh` de uma conta **não** derruba o tether
+   da outra por engano. Se tentar reprogramar um cabo cujo tether é de outra conta, para
+   com "o tether de DE-SoC [1-x] pertence a conta 'alunopds'" e diz o que fazer
+   (medido em 21/09: coordenador contra o tether do aluno). Os cabos, nesta estação:
+   `DE-SoC [1-2]` é a placa `172.16.230.24`, `DE-SoC [1-3]` é a `172.16.230.52`.
+
+### O `pip --user` é a armadilha recorrente do cliente
+
+Duas vezes (17/09 e 21/09) o cliente quebrou numa conta por um pacote instalado com
+`pip install --user` em `~/.local`: primeiro um numpy 2.2.6, depois um matplotlib 3.10
+que exige numpy ≥ 1.23. O `python3` do sistema (numpy 1.21.5, matplotlib 3.5.1, scipy)
+roda tudo que a plataforma precisa. Se o app não abrir com `ImportError` de versão:
+
+```bash
+python3 -m pip uninstall -y matplotlib numpy
+```
+
+```bash
+python3 -c "import matplotlib, numpy; print(matplotlib.__version__, matplotlib.__file__, numpy.__version__)"
+```
+
+Tem que apontar para `/usr/lib/python3/dist-packages`. O aviso `Unable to import
+Axes3D` na abertura do app é o mesmo problema em forma benigna, e some com a limpeza.
 
 ## Estado desta versão
 
