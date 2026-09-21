@@ -678,6 +678,7 @@ acao_setup_ssh() {
 
     if ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$ALVO" true 2>/dev/null; then
         ok "pronto: $USUARIO_PLACA@$ALVO entra sem senha"
+        escrever_bloco_ssh_config "$ALVO"
         lembrar_placa "$ALVO"
         return 0
     fi
@@ -693,6 +694,39 @@ acao_setup_ssh() {
            "     e o usuario listado em AllowUsers, se a diretiva existir" \
            "  3. o home do usuario gravavel por grupo, que o StrictModes recusa" \
            "depois de mexer, reinicie com /etc/init.d/ssh restart"
+}
+
+# O morphe-up.sh entra sem senha porque passa a chave e o +ssh-rsa em cada
+# chamada; um 'ssh root@placa' ou 'scp' digitado a mao nao passa nada disso e
+# volta a pedir senha -- o OpenSSH 8.9 da estacao nem oferece a chave RSA por
+# padrao. Este bloco no ~/.ssh/config da conta faz o ssh avulso usar o mesmo
+# caminho. Um bloco por placa, entre marcas, para o --setup-ssh de novo (IP
+# novo do DHCP, ou chave nova) substituir o antigo em vez de acumular.
+escrever_bloco_ssh_config() {
+    local ip="$1" cfg="$HOME/.ssh/config" tmp
+    local ini="# >>> morphe $ip (escrito por morphe-up.sh --setup-ssh)"
+    local fim="# <<< morphe $ip"
+    tmp="$(mktemp)"
+    if [[ -f "$cfg" ]]; then
+        awk -v ini="$ini" -v fim="$fim" \
+            '$0 == ini {pula=1} !pula {print} $0 == fim {pula=0}' "$cfg" > "$tmp"
+    fi
+    {
+        # Uma linha em branco antes, se o arquivo nao terminar com uma.
+        [[ -s "$tmp" ]] && [[ -n "$(tail -c1 "$tmp")" ]] && printf '\n'
+        printf '%s\n' "$ini"
+        printf 'Host %s\n' "$ip"
+        printf '    User %s\n' "$USUARIO_PLACA"
+        printf '    IdentityFile %s\n' "$CHAVE_MORPHE"
+        printf '    IdentitiesOnly yes\n'
+        if ssh -G -o PubkeyAcceptedKeyTypes=+ssh-rsa localhost >/dev/null 2>&1; then
+            printf '    PubkeyAcceptedKeyTypes +ssh-rsa\n'
+        fi
+        printf '    StrictHostKeyChecking accept-new\n'
+        printf '%s\n' "$fim"
+    } >> "$tmp"
+    mv "$tmp" "$cfg" && chmod 600 "$cfg"
+    ok "bloco 'Host $ip' escrito em $cfg: ssh e scp avulsos entram sem senha"
 }
 
 # Existe servico de boot instalado nesta placa? Muda o que o --down deve fazer.
