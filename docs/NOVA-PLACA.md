@@ -3,11 +3,11 @@
 Procedimento para pôr uma segunda (terceira, quarta…) placa em serviço, do cartão SD
 vazio até o cliente achá-la na rede.
 
-**Estado deste documento (17/09/2026):** os passos 1, 4, 5 e 6 são rotina já executada
-na placa `172.16.230.24`. Os passos 2 e 3 — clonar o cartão e trocar o MAC — **nunca
-foram executados**; estão escritos a partir do que se mediu na placa em serviço e das
-pendências conhecidas, e o que for confirmado na primeira placa nova volta para cá com o
-número medido. Quem rodar primeiro, corrija este arquivo.
+**Estado deste documento (21/09/2026):** todos os passos foram executados na placa 2
+(`172.16.230.52`, hostname `de1soc-02`), e ela volta do reboot com MAC próprio e servidor
+no ar. O caminho descrito aqui é o que sobrou depois de dois que não funcionaram (o `.link`
+do systemd e o `pre-up` do ifupdown) e de um que derrubava a placa no boot (o autostart com
+um servidor que tocava a FPGA de fábrica). O que custou o dia 21/09 está na seção 2.4.
 
 ---
 
@@ -143,62 +143,60 @@ fica sem uso — irrelevante para a plataforma, que não guarda nada grande na p
 **Medido em 17/09/2026, nas duas placas:** ambas mostram `12:34:56:78:90:12`. O conflito
 não era hipótese.
 
-Nesta imagem quem configura a rede é o **ifupdown**, não o systemd-networkd — o
-`/etc/network/interfaces` traz `iface eth0 inet dhcp` mais dois aliases estáticos. Um
-arquivo `.link` em `/etc/systemd/network/` foi tentado primeiro e **não teve efeito
-nenhum**: a placa subiu com o MAC de fábrica. O que funciona é o `pre-up`, que o próprio
-ifupdown executa antes de levantar a interface.
+O MAC vem do **U-Boot**: a variável `ethaddr` do ambiente dele, gravada no cartão, é o que
+o kernel recebe. É lá que se troca — uma vez, pelo console serial, e vale para sempre
+naquele cartão. Dois caminhos pelo Linux foram tentados antes e não servem: um `.link` em
+`/etc/systemd/network/` (esta imagem usa ifupdown, não systemd-networkd — efeito nenhum) e
+um `pre-up ip link set address` no `/etc/network/interfaces` (funciona, mas deixa o U-Boot
+e o Linux discordando sobre o MAC, e não foi ele que resolveu a placa 2).
 
-O driver aceita trocar o endereço em tempo de execução — vale confirmar antes de
-persistir, porque é instantâneo:
-
-```bash
-ip link set dev eth0 down
-```
+Com o cartão novo na placa nova, console serial aberto **antes** de ligar:
 
 ```bash
-ip link set dev eth0 address 02:00:00:6D:70:02
+sudo screen /dev/ttyUSB0 115200
 ```
+
+Ligue a placa e, quando aparecer `Hit any key to stop autoboot:`, aperte Enter. No prompt
+`SOCFPGA_CYCLONE5 #`, escolha o MAC — `02:00:00:6D:70:NN`, com `NN` o número da placa
+(o `02` marca endereço local, sem colidir com fabricante nenhum):
+
+```
+setenv ethaddr 02:00:00:6d:70:02
+```
+
+```
+saveenv
+```
+
+Tem que responder `Writing to MMC(0)... done`. Aí `boot` segue o boot normal. O teste de
+que a rede aceita a placa com esse MAC pode ser feito ali mesmo, sem Linux: `setenv
+autoload no` e `dhcp` — em 2 s vem `DHCP client bound to address 172.16.x.y`.
+
+O `/etc/network/interfaces` do clone é este (com a rootfs do cartão montada em
+`/mnt/cartao`, ou já pela placa):
 
 ```bash
-ip link set dev eth0 up
+printf 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n' > /mnt/cartao/etc/network/interfaces
 ```
 
-```bash
-ip link show eth0
-```
-
-Para persistir, com a placa ligada e o console serial aberto (ou com a rootfs do cartão
-montada, trocando o caminho). Guarde o original:
-
-```bash
-cp /etc/network/interfaces /etc/network/interfaces.bak
-```
-
-```bash
-printf 'auto lo\niface lo inet loopback\n\nallow-hotplug eth0\niface eth0 inet dhcp\n        pre-up ip link set dev eth0 address 02:00:00:6D:70:02\n' > /etc/network/interfaces
-```
-
-```bash
-cat /etc/network/interfaces
-```
+**`auto eth0`, nunca `allow-hotplug eth0`.** Esta imagem é Ubuntu 12.04 com upstart, e o
+job que levanta as interfaces no boot roda `ifup --allow auto`: uma interface
+`allow-hotplug` **nunca sobe** sozinha. Foi a primeira das causas de a placa 2 não voltar
+do reboot em 17/09.
 
 **Os aliases `192.168.1.123` e `192.168.0.123` saem de propósito.** Eles são de fábrica e
 vêm **idênticos em toda placa**, então duas na mesma rede colidem também por IP, não só
-por MAC. Não servem para nada aqui — o laboratório é `172.16/16` por DHCP. Se precisar
-deles de volta, estão no `.bak`.
+por MAC. Não servem para nada aqui — o laboratório é `172.16/16` por DHCP.
 
-Limpe o `.link` que não funcionou, para não confundir quem vier depois:
+Dê também um hostname próprio, **nos dois arquivos** (sem a linha no `hosts`, tudo que
+resolve o próprio nome espera timeout):
 
 ```bash
-rm -f /etc/systemd/network/10-eth0-mac.link
+echo de1soc-02 > /mnt/cartao/etc/hostname
 ```
 
-Dê também um hostname próprio, para os consoles seriais não se confundirem (este funciona
-pelo cartão montado, e foi conferido em 17/09):
-
 ```bash
-echo de1soc-02 > /etc/hostname
+sed -i 's/^127.0.1.1.*/127.0.1.1\tde1soc-02/' /mnt/cartao/etc/hosts
 ```
 
 ### 2.3 Conferir na primeira vez que a placa nova ligar
@@ -210,12 +208,36 @@ por SSH depois que ela pegar IP:
 ip link show eth0
 ```
 
-O `link/ether` tem que ser o MAC novo. **Se não for**, o MAC está vindo de um lugar que
-o override não alcançou — colete o diagnóstico e traga para cá:
+O `link/ether` tem que ser o MAC novo. **Se não for**, o `saveenv` não pegou: volte ao
+prompt do U-Boot e confira com `printenv ethaddr`.
 
-```bash
-fw_printenv ethaddr 2>/dev/null; cat /proc/cmdline; ip link show eth0
-```
+### 2.4 O que o clone traz da placa de origem e precisa sair
+
+Medido em 21/09/2026, na placa 2. Tudo com a rootfs montada em `/mnt/cartao`:
+
+- **As concessões DHCP da placa de origem.** O `dhclient` da placa nova começa pedindo o
+  IP antigo da outra placa (`Trying recorded lease 172.16.103.226`):
+
+  ```bash
+  sudo rm -f /mnt/cartao/var/lib/dhcp/dhclient*.leases
+  ```
+
+- **O console serial não tem shell.** O autologin do root desta imagem roda no `tty1`
+  (`/etc/init/openvt.conf`), um terminal virtual que a placa não tem; na serial só sai o
+  eco, e o que se digita não chega a ninguém. Um getty resolve, e sobe 3 s depois do
+  kernel mesmo que o resto do boot trave:
+
+  ```bash
+  printf 'start on filesystem\nstop on runlevel [!2345]\nrespawn\nexec /sbin/getty -L 115200 ttyS0 vt102\n' | sudo tee /mnt/cartao/etc/init/ttyS0.conf
+  ```
+
+- **O servidor do Morphe só pode ir para o autostart se for de 21/09/2026 ou posterior.**
+  No boot o U-Boot carrega o `soc_system.rbf` de fábrica, em que os PIOs do Morphe não
+  existem; o servidor antigo escrevia neles ao subir e **travava o barramento do HPS** —
+  a placa some da rede, o login na serial congela, e nada disso aparece em log nenhum. O
+  servidor atual só toca a FPGA depois que o `morphe-up.sh` grava
+  `/var/run/morphe-fpga-preparada` (tmpfs, some no reboot). Ver
+  `C/autostart/instala-autostart.sh`.
 
 ## Passo 3 — SSH na placa nova
 
@@ -261,8 +283,8 @@ scp -r /opt/morphe/C/autostart root@<ip>:morphe/
 ssh root@<ip> 'cd morphe/autostart && sh instala-autostart.sh'
 ```
 
-O script detecta systemd ou init.d sozinho. **Escrito e nunca executado** — esta é a
-primeira oportunidade de validá-lo.
+O script detecta systemd ou init.d sozinho. Validado na placa 2 em 21/09/2026: sobrevive
+ao reboot **desde que o servidor seja o de 21/09 ou posterior** (seção 2.4).
 
 ## Passo 6 — pôr em serviço
 

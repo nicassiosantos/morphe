@@ -84,6 +84,7 @@ PORTA="$PORTA_PADRAO"
 CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
+FPGA_PROGRAMADA=0   # vira 1 quando o quartus_pgm confirmar, nesta execucao
 PARAR_SERVIDOR=0
 ACAO=up
 
@@ -344,6 +345,7 @@ programar_fpga() {
     while (( limite-- > 0 )); do
         if grep -q "Configuration succeeded" "$log_t" 2>/dev/null; then
             ok "Configuration succeeded"
+            FPGA_PROGRAMADA=1
             if tether_vivo "$CABO"; then
                 ok "tether da licenca vivo em segundo plano (PGID $(cat "$pid_t"))"
             else
@@ -518,10 +520,22 @@ enviar_servidor() {
 }
 
 reiniciar_servidor() {
-    # Sempre DEPOIS de programar a FPGA. Um servidor que subiu antes da
-    # programacao responde aos testes 1 e 2 do ping e da FPGA_TIMEOUT nos
-    # testes 3 e 4 -- o sintoma mais confuso da plataforma.
+    # Sempre DEPOIS de programar a FPGA, e e aqui que a placa fica sabendo
+    # disso: a marca /var/run/morphe-fpga-preparada. Sem ela o servidor recusa
+    # toda operacao com FPGA_NAO_PREPARADA em vez de tocar a FPGA -- porque
+    # uma placa recem-ligada carrega o bitstream de fabrica, em que os PIOs
+    # do Morphe nao existem, e um acesso a eles trava o barramento do HPS
+    # inteiro (placa 2, 21/09/2026: sumiu da rede a cada boot por causa do
+    # autostart). A marca vive em tmpfs e some no reboot, junto com o
+    # bitstream. So e criada se ESTA execucao programou a FPGA; com
+    # --skip-fpga vale a que ja estiver la, se estiver.
     passo "(re)iniciando o servidor"
+
+    if (( FPGA_PROGRAMADA )); then
+        ssh_placa "if [ \"\$(id -u)\" = 0 ]; then SU=; else SU=sudo; fi; \$SU touch /var/run/morphe-fpga-preparada" \
+            && ok "placa marcada como preparada (/var/run/morphe-fpga-preparada)" \
+            || aviso "nao consegui gravar a marca de FPGA preparada; as operacoes serao recusadas"
+    fi
 
     # pkill/pgrep -x casam o NOME do processo; -f casaria a linha de comando
     # inteira -- inclusive a do proprio shell remoto, que carrega a string

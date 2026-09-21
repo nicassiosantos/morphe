@@ -238,7 +238,7 @@ class TcpConfigPanel(ttk.LabelFrame):
                     return
             elif lembrada:
                 srv = self._sondar(lembrada, porta)
-                if srv is not None:
+                if srv is not None and srv.preparada:
                     self.after(0, self._on_search_success, srv)
                     return
             try:
@@ -249,6 +249,7 @@ class TcpConfigPanel(ttk.LabelFrame):
                 )
             except Exception:
                 achados = []
+            achados = [a for a in achados if a.preparada]
             if achados:
                 self.after(0, self._on_search_success, achados[0])
             else:
@@ -289,6 +290,9 @@ class TcpConfigPanel(ttk.LabelFrame):
                 if r is not None:
                     respostas.append(r)
 
+        # Uma placa recém-ligada responde ao PING mas ainda tem o bitstream
+        # de fábrica; escolhê-la travaria o HPS dela na primeira operação.
+        respostas = [r for r in respostas if r[1].preparada]
         if not respostas:
             return None
         respostas.sort(key=lambda r: r[0])
@@ -308,8 +312,8 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._set_busy(False)
         if lembrada:
             self.var_status.set(
-                f"A placa {lembrada} não respondeu e nenhuma outra foi "
-                "encontrada. Rode ./morphe-up.sh ou informe o host."
+                f"A placa {lembrada} não respondeu ou ainda não foi preparada, "
+                "e nenhuma outra foi encontrada. Rode ./morphe-up.sh ou informe o host."
             )
         else:
             self.var_status.set(

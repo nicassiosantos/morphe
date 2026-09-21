@@ -505,6 +505,17 @@ class ServerInfo:
     def version(self) -> str:
         return self.info.get("version", "?")
 
+    @property
+    def preparada(self) -> bool:
+        """True se o morphe-up.sh já programou o bitstream do Morphe nesta placa.
+
+        Uma placa recém-ligada responde ao PING (o servidor sobe no boot) mas
+        ainda carrega o bitstream de fábrica, e qualquer operação nela
+        travaria o barramento do HPS. Servidores anteriores a 21/09/2026 não
+        mandam o campo; para eles assume-se preparada, como sempre foi.
+        """
+        return self.info.get("fpga_preparada", "1") != "0"
+
 
 def get_local_ip() -> str | None:
     """Descobre o IP da interface ativa abrindo um socket UDP "fantasma".

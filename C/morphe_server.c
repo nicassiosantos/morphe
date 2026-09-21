@@ -24,6 +24,7 @@
 #include <dirent.h>
 
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -122,6 +123,13 @@ _Static_assert(MORPHE_FFT_N * 8 <= TX_BUF_MAX,
  * Globais — ponteiros mapeados e fd de /dev/mem
  * ======================================================================= */
 static int    g_fd_mem    = -1;
+
+/* Marca de "FPGA preparada". Quem a cria e o morphe-up.sh, por SSH, depois
+ * que o quartus_pgm confirmou a programacao do bitstream do Morphe. Fica em
+ * /var/run (tmpfs): some sozinha no reboot -- que e exatamente quando o
+ * U-Boot devolve a FPGA ao soc_system.rbf de fabrica. */
+#define MORPHE_MARCA_FPGA "/var/run/morphe-fpga-preparada"
+static int    g_pios_zerados = 0;
 static void  *g_fpga_virt = NULL;   
 static void  *g_lw_virt   = NULL;   
 
@@ -287,13 +295,43 @@ static int fpga_init(void) {
     g_pio_iir_error   = (volatile uint32_t *)((char *)g_lw_virt + IIR_ERROR_BASE);
     g_pio_iir_nsecoes = (volatile uint32_t *)((char *)g_lw_virt + IIR_NSECOES_BASE);
 
-    *g_pio_fft_start  = 0;
-    *g_pio_conv_start = 0;
-    *g_pio_fir_start  = 0;
-    *g_pio_iir_start  = 0;
-
+    /* Nenhum acesso a FPGA aqui. Ate 21/09/2026 este ponto zerava os quatro
+     * PIOs de start, e foi isso que derrubou a placa 2 no boot: com o
+     * autostart, o servidor sobe 6 s depois do kernel, quando a FPGA ainda
+     * carrega o soc_system.rbf de fabrica (o U-Boot o le do cartao), em que
+     * esses enderecos nao existem. No Cyclone V, acesso a endereco sem escravo
+     * na ponte HPS->FPGA trava o barramento L3 inteiro, sem timeout: a placa
+     * some da rede e ate o login na serial congela. O zeramento ficou para
+     * fpga_preparada(), que so o faz depois da marca do morphe-up.sh. */
     LOG("FPGA mapeada. FFT_ONCHIP=%p (%u KiB)", g_fpga_virt, MORPHE_ONCHIP_MMAP_SPAN / 1024U);
     return 0;
+}
+
+/* 1 se o morphe-up.sh ja programou o bitstream do Morphe nesta placa (marca
+ * presente); 0 se a FPGA ainda esta com o de fabrica. Na primeira vez que a
+ * marca aparece, zera os PIOs de start -- o que fpga_init() fazia antes. */
+static int fpga_preparada(void) {
+    struct stat st;
+    if (stat(MORPHE_MARCA_FPGA, &st) != 0) return 0;
+    if (!g_pios_zerados) {
+        *g_pio_fft_start  = 0;
+        *g_pio_conv_start = 0;
+        *g_pio_fir_start  = 0;
+        *g_pio_iir_start  = 0;
+        g_pios_zerados = 1;
+        LOG("marca %s presente: FPGA preparada, PIOs de start zerados", MORPHE_MARCA_FPGA);
+    }
+    return 1;
+}
+
+static int send_error(int sock, uint16_t opcode, uint16_t status, const char *msg);
+
+static int recusar_sem_fpga(int sock, uint16_t op, const char *nome) {
+    char msg[128];
+    snprintf(msg, sizeof msg,
+             "%s: FPGA nao preparada -- rode ./morphe-up.sh nesta placa", nome);
+    LOG("  -> %s (marca %s ausente)", msg, MORPHE_MARCA_FPGA);
+    return send_error(sock, op, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
 }
 
 static void fpga_shutdown(void) {
@@ -588,6 +626,8 @@ static void save_debug_bundle_fft(const char *prefix, uint32_t n_x,
 static int handle_conv(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     LOG("CONV request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
 
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_CONV, "CONV");
+
     if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_N_MAX || n_h > MORPHE_CONV_N_MAX) {
         char msg[96];
         snprintf(msg, sizeof msg, "CONV: n_x e n_h devem estar em [1, %d]", MORPHE_CONV_N_MAX);
@@ -649,6 +689,8 @@ static int handle_conv(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
 
 static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
     LOG("FIR request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
+
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_FIR, "FIR");
 
     if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_N_MAX || n_h > MORPHE_CONV_N_MAX) {
         char msg[96];
@@ -734,6 +776,8 @@ static void log_tempos(const char *op, const struct timespec *t0,
 
 static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
     LOG("IIR request: dtype=%u, n_x=%u, n_secoes=%u", dtype, n_x, n_sec);
+
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_IIR, "IIR");
 
     if (n_x == 0 || n_x > MORPHE_IIR_N_MAX) {
         char msg[96];
@@ -882,6 +926,8 @@ static void pack_complex_be(uint8_t *tx, uint32_t n,
 static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
     LOG("FFT request: dtype=%u, n_x=%u", dtype, n_x);
 
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_FFT, "FFT");
+
     if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_DTYPE, "FFT: use int32 (Q15.8)");
     if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_FFT, MORPHE_STATUS_BAD_SIZE, "FFT: N invalido");
 
@@ -938,6 +984,8 @@ static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
  * satura em +-32768 e um X[k] pode ser ate N vezes maior que x[n]. */
 static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
     LOG("IFFT request: dtype=%u, n_x=%u", dtype, n_x);
+
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_IFFT, "IFFT");
 
     if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_DTYPE, "IFFT: use int32 (Q15.8)");
     if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_SIZE, "IFFT: N invalido");
@@ -998,10 +1046,10 @@ static int handle_ping(int sock) {
     int body_len = snprintf(body, sizeof body,
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
         "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
-        "iir_n_max=%d\niir_secoes_max=%d\nuptime_s=%ld\n",
+        "iir_n_max=%d\niir_secoes_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS, 
         MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
-        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX, uptime_s);
+        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX, uptime_s, fpga_preparada());
 
     uint8_t hdr[MORPHE_HEADER_SIZE];
     build_resp_header(hdr, MORPHE_OP_PING, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, (uint32_t) body_len);

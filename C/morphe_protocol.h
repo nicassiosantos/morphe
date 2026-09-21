@@ -68,6 +68,9 @@
 #define MORPHE_STATUS_BAD_SIZE        5U
 #define MORPHE_STATUS_FPGA_TIMEOUT    6U
 #define MORPHE_STATUS_INTERNAL_ERROR  7U
+/* A FPGA ainda esta com o bitstream de fabrica (placa recem-ligada); o
+ * morphe-up.sh ainda nao programou o do Morphe nesta placa. */
+#define MORPHE_STATUS_FPGA_NAO_PREPARADA 8U
 
 #define MORPHE_HEADER_SIZE 20
 

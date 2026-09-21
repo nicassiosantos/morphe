@@ -12,9 +12,14 @@
 # Detecta systemd ou init.d sozinho; o Linux das DE1-SoC do laboratorio varia
 # conforme a imagem gravada no cartao.
 #
-# Nao e preciso ter a FPGA programada para o servidor subir. Sem bitstream ele
-# responde ao ping e da FPGA_TIMEOUT nas operacoes, que e exatamente o que o
-# morphe-up.sh conserta ao programar a FPGA e reiniciar o servidor.
+# Nao e preciso ter a FPGA programada para o servidor subir. No boot a FPGA
+# carrega o bitstream de fabrica do cartao, e o servidor NAO PODE toca-la
+# nesse estado: os PIOs do Morphe nao existem la, e um acesso a eles trava o
+# barramento do HPS inteiro -- foi assim que a placa 2 sumiu da rede a cada
+# boot em 17-21/09/2026. Por isso o servidor so acessa a FPGA depois que o
+# morphe-up.sh, ao programar por JTAG, grava /var/run/morphe-fpga-preparada;
+# ate la responde ao ping (com fpga_preparada=0) e recusa as operacoes com
+# FPGA_NAO_PREPARADA. Servidor anterior a 21/09/2026 NAO pode ir no autostart.
 
 set -eu
 

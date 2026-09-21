@@ -16,6 +16,77 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 21/09/2026 — Primeiro dia oficial: por que a placa 2 não voltava do reboot
+
+**Resultado do dia:** a placa 2 (`172.16.230.52`, `de1soc-02`) volta do reboot com MAC
+próprio (`02:00:00:6d:70:02`), responde ao ping e ao SSH, e o console serial tem shell.
+Foram **quatro** defeitos empilhados, e o que derrubava a placa era o último — um bug do
+próprio Morphe, presente também na placa 1, que **não pode ser reiniciada** até receber
+o servidor corrigido.
+
+**1. `allow-hotplug eth0` nunca sobe nesta imagem.** O `printf` do `NOVA-PLACA.md`
+reescrevia o `interfaces` com `allow-hotplug`; a imagem é Ubuntu 12.04 com upstart, cujo
+`network-interface.conf` roda `ifup --allow auto`. Medido pelo `syslog` do cartão: depois
+do reboot de 17/09 13:30 não há uma linha de `dhclient` — a eth0 não era levantada.
+Corrigido para `auto eth0`.
+
+**2. O console serial não tinha shell.** O `login:` nunca apareceu porque o autologin do
+root roda no `tty1` (`/etc/init/openvt.conf`), inexistente na placa; a serial só
+mostrava o eco. Confirmado que o sentido estação→placa funciona parando o U-Boot com
+Enter. Getty em `/etc/init/ttyS0.conf` (`start on filesystem`, para subir mesmo que o
+resto trave).
+
+**3. MAC no lugar certo: o `ethaddr` do U-Boot.** `printenv` mostrou
+`ethaddr=12:34:56:78:90:12` — o kernel recebia o MAC de fábrica e o `pre-up` trocava
+depois. `setenv ethaddr 02:00:00:6d:70:02` + `saveenv` (`Writing to MMC(0)... done`).
+Teste sem Linux, no próprio U-Boot: `dhcp` → `DHCP client bound to address
+172.16.230.52` em 2 s, com o MAC novo. **Isso provou que hardware, cabo, switch e DHCP
+aceitavam a placa** — e que o problema estava dentro do Linux.
+
+**4. O servidor no autostart travava o HPS.** Com `init=/bin/bash` (sem upstart) o mesmo
+kernel respondia ao ping IPv6 (`fe80::ff:fe6d:7002`) e o `ip -s link` contava RX. Com o
+boot normal, o `dhclient` mandava `DHCPDISCOVER` por 5 min sem resposta, o `login`
+congelava depois da senha e o diagnóstico no `rc.local` nunca imprimia. Diferença: o
+`S20morphe-server`. O `fpga_init()` do servidor zerava quatro PIOs pela ponte lightweight
+ao subir — e no boot a FPGA carrega o `soc_system.rbf` de fábrica, em que esses
+endereços não existem. No Cyclone V, acesso a endereço sem escravo na ponte HPS→FPGA
+trava o barramento L3, sem timeout, e leva junto a Ethernet e o que mais tocar memória
+mapeada. Confirmação: renomeando `S20morphe-server` → `K20`, a placa voltou do reboot
+com ping, SSH, diag impresso e `login` funcionando.
+
+Em 17/09 o autostart foi instalado com o bitstream do Morphe já programado, então o caso
+"servidor + FPGA de fábrica" nunca tinha acontecido. A placa 1 tem o mesmo autostart.
+
+**Correção (versionada hoje, ainda não implantada nas placas):**
+
+- `C/morphe_server.c`: `fpga_init()` não toca mais a FPGA. Os PIOs são zerados em
+  `fpga_preparada()`, na primeira operação depois que existe
+  `/var/run/morphe-fpga-preparada`. Sem a marca, toda operação devolve o status novo
+  `MORPHE_STATUS_FPGA_NAO_PREPARADA` (8) com a mensagem "rode ./morphe-up.sh nesta
+  placa"; o `OP_PING` passa a informar `fpga_preparada=0|1`.
+- `morphe-up.sh`: depois de `Configuration succeeded`, grava a marca na placa por SSH,
+  antes de (re)iniciar o servidor. A marca vive em tmpfs — some no reboot, junto com o
+  bitstream. Com `--skip-fpga`, vale a que já estiver lá.
+- Cliente: `ServerInfo.preparada`; a escolha automática de placa e a autoconexão ignoram
+  placas de fábrica; a janela de descoberta ganhou a coluna FPGA.
+- `docs/NOVA-PLACA.md` reescrito no passo 2 (MAC pelo U-Boot, `auto eth0`, hostname nos
+  dois arquivos) e com a seção 2.4 (leases herdadas, getty, servidor mínimo para o
+  autostart).
+
+**Limpezas feitas na placa 2 durante o diagnóstico, a desfazer:** `/etc/morphe-diag.sh`
+chamado do `/etc/rc.local`; `S20morphe-server` renomeado para `K20` (voltar a `S20` só
+depois de implantar o servidor novo). O `/root/.bashrc` teve a linha
+`source /opt/ros/hydro/setup.bash` comentada (herança da imagem; não era a causa, mas não
+faz falta).
+
+**Ferramentas que valeram o dia, para a próxima vez:** `screen -L -Logfile` para gravar
+a serial; o U-Boot como bancada de teste de rede (`setenv autoload no; dhcp`); o IPv6
+link-local (`fe80::` + MAC) como endereço fixo da placa que dispensa DHCP;
+`init=/bin/bash` para separar kernel de init; e o `syslog` do cartão montado na estação
+como registro do que cada boot fez.
+
+---
+
 ## 17/09/2026 — O aluno prepara a placa sozinho; e o tether segura o bitstream inteiro
 
 **Duas medições derrubaram duas crenças anteriores.**
