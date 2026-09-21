@@ -590,15 +590,21 @@ def distribui_ganho(sos: np.ndarray) -> np.ndarray:
     s = sos.shape[0]
     if s < 2:
         return sos
-    # ganho de cada secao em DC (ou o que houver), para redistribuir
-    g = np.array([np.sum(sec[:3]) for sec in sos])
+    # O "tamanho" de cada secao e o maior |b|, nao a soma dos b. A soma e
+    # H(z) em z = 1, e num passa-alta os zeros estao exatamente em z = +1:
+    # b0 + b1 + b2 = 0 em toda secao, a guarda de produto nulo disparava e a
+    # funcao devolvia o sos intocado -- medido em 16/09/2026 nos passa-altas
+    # 3800/3700 (ordem 13), 3900/3800 e 3950/3900: b0 chegava ao quantizador
+    # como zero e a mensagem de erro mandava "distribuir o ganho", que era o
+    # que acabara de falhar em silencio. O maior |b| e o que decide se a
+    # secao sobrevive ao Q15.16, e nunca e zero numa secao que faz algo.
+    g = np.array([np.max(np.abs(sec[:3])) for sec in sos])
     g_total = float(np.prod(g))
     if not np.isfinite(g_total) or g_total == 0.0:
         return sos
-    alvo = np.sign(g_total) * abs(g_total) ** (1.0 / s)
+    alvo = g_total ** (1.0 / s)
     for i in range(s):
-        if g[i] != 0.0:
-            sos[i, :3] *= alvo / g[i]
+        sos[i, :3] *= alvo / g[i]
     return sos
 
 
