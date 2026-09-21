@@ -57,7 +57,20 @@ com ping, SSH, diag impresso e `login` funcionando.
 Em 17/09 o autostart foi instalado com o bitstream do Morphe já programado, então o caso
 "servidor + FPGA de fábrica" nunca tinha acontecido. A placa 1 tem o mesmo autostart.
 
-**Correção (versionada hoje, ainda não implantada nas placas):**
+**Validação da correção, à tarde, nas duas placas** (`138ca3e`, de `/opt/morphe`):
+
+| passo | placa 2 (`.52`) | placa 1 (`.24`) |
+|---|---|---|
+| `morphe-up.sh --deploy` (servidor novo, marca, testes) | 4/4 | 4/4 |
+| `reboot` com o autostart ligado | volta; servidor no ar; sem marca | volta; servidor no ar; sem marca |
+| `morphe_ping` na placa recém-ligada, sem `morphe-up.sh` | — | [1] [2] passam; [3] `CONV: FPGA nao preparada -- rode ./morphe-up.sh nesta placa` |
+| `morphe-up.sh` depois do reboot | marca criada, 4/4 | marca criada, 4/4 |
+
+Os dois cabos JTAG ao mesmo tempo (`DE-SoC [1-2]` = placa 1, `DE-SoC [1-3]` = placa 2),
+cada `morphe-up.sh` com o seu `--cable`, e o tether de uma sobreviveu à preparação da
+outra. O item "autostart sobrevive ao reboot", pendente desde 14/09, está fechado nas duas.
+
+**Correção (versionada em `138ca3e`, implantada e validada acima):**
 
 - `C/morphe_server.c`: `fpga_init()` não toca mais a FPGA. Os PIOs são zerados em
   `fpga_preparada()`, na primeira operação depois que existe
@@ -73,11 +86,11 @@ Em 17/09 o autostart foi instalado com o bitstream do Morphe já programado, ent
   dois arquivos) e com a seção 2.4 (leases herdadas, getty, servidor mínimo para o
   autostart).
 
-**Limpezas feitas na placa 2 durante o diagnóstico, a desfazer:** `/etc/morphe-diag.sh`
-chamado do `/etc/rc.local`; `S20morphe-server` renomeado para `K20` (voltar a `S20` só
-depois de implantar o servidor novo). O `/root/.bashrc` teve a linha
-`source /opt/ros/hydro/setup.bash` comentada (herança da imagem; não era a causa, mas não
-faz falta).
+**Limpezas feitas na placa 2 durante o diagnóstico, já desfeitas:** o `/etc/morphe-diag.sh`
+saiu do `/etc/rc.local` e o `S20morphe-server` voltou nas duas placas depois do servidor
+novo. Ficaram, de propósito: o getty na serial (`/etc/init/ttyS0.conf`) e a linha
+`source /opt/ros/hydro/setup.bash` comentada no `/root/.bashrc` (herança da imagem; não
+era a causa, mas não faz falta).
 
 **Ferramentas que valeram o dia, para a próxima vez:** `screen -L -Logfile` para gravar
 a serial; o U-Boot como bancada de teste de rede (`setenv autoload no; dhcp`); o IPv6

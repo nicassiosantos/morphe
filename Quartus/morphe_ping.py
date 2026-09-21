@@ -157,8 +157,13 @@ def test_3_conv_impulse(host: str, port: int) -> bool:
         resp = client.request(req)
         dt_ms = (time.monotonic() - t0) * 1000
         if not resp.ok:
-            fail(f"servidor retornou erro: {resp.payload.decode('utf-8', 'replace')}",
-                 "pode ser limite de tamanho ou timeout da FPGA")
+            msg = resp.payload.decode('utf-8', 'replace')
+            if "nao preparada" in msg:
+                dica = ("a placa foi ligada mas ninguem programou o bitstream do Morphe "
+                        "nela: ./morphe-up.sh --board <ip> resolve")
+            else:
+                dica = "pode ser limite de tamanho ou timeout da FPGA"
+            fail(f"servidor retornou erro: {msg}", dica)
             return False
         y_q = np.frombuffer(resp.payload, dtype=">i4", count=resp.n_out)
         y = dsp.q1516_to_float(y_q)
