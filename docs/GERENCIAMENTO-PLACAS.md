@@ -36,11 +36,20 @@ nem thread. Não há fila interna, nem prioridade, nem identificação de quem p
 Consequência direta: **duas pessoas na mesma placa não tomam erro — elas esperam.** A
 segunda requisição fica no `listen` até a primeira terminar, e a latência de cada uma
 soma. Medido em 21/09: convolução de 1024 pontos ≈ **214 ms**, FFT de 1024 ≈ **21 ms**.
-Dois clientes disputando a mesma placa veem ~2× isso; dez veem ~10×.
+Dois clientes disputando a mesma placa veem ~2× isso; seis veem ~5×, conferido em 22/09
+(tabela adiante).
 
-**A partir da 5ª conexão simultânea a fila estoura** e o sistema operacional da placa
-recusa a conexão. No cliente isso aparece como "a placa não respondeu" — não como
-"ocupada", que é o que seria honesto. É o limite duro de hoje.
+**Onde está o limite, medido em 22/09/2026** (`testa_concorrencia.py --modo mesma`):
+com **6 clientes simultâneos** na placa 2 não houve uma falha sequer — a latência
+mediana foi 604 ms contra 119 ms de placa vazia (**5,1×**), e a pior 1,29 s, que é
+exatamente 6 × 215 ms. O `listen(4)` do Linux guarda `backlog + 1 = 5` conexões
+esperando, e a sexta é a que está sendo atendida: 6 cabe justo.
+
+O limite começa no **7º cliente simultâneo**, e vale corrigir uma expectativa: no Linux
+o excesso **não** vira `ECONNREFUSED`. Com `tcp_abort_on_overflow = 0` (o padrão) o
+kernel descarta o SYN calado e o cliente retransmite cerca de um segundo depois — o
+sintoma é um pico de latência, não um erro. Só com a fila cheia por tempo demais o
+cliente desiste por timeout. **Ainda não medido**: falta rodar com 8 ou 10 clientes.
 
 ### 2. O cliente abre uma conexão **por operação**
 
@@ -155,12 +164,37 @@ Como ler a saída:
 | o que aparece | o que significa |
 |---|---|
 | `mediana X ms contra Y ms sozinho -- k.k x` | a fila está serializando, como previsto; `k` perto do número de clientes por placa é o esperado |
-| falhas do tipo `recusada` | a fila do `listen(4)` estourou: mais de 4 conexões esperando na mesma placa |
+| falhas do tipo `recusada` | ninguém esperava: no Linux a fila cheia descarta o SYN em silêncio, não recusa. Se aparecer, o servidor caiu |
 | falhas do tipo `timeout` | a fila andou mais devagar que o timeout do cliente (10 s no app) |
 | falhas do tipo `servidor` | o servidor respondeu com erro — leia a mensagem; `FPGA nao preparada` é a comum |
 | falhas do tipo **`valor`** | **grave**: resposta que não corresponde ao pedido. Não deveria acontecer nunca; anote e investigue |
 
 `--csv saida.csv` grava uma linha por requisição, para juntar as duas máquinas depois.
+
+---
+
+## O que foi medido em 22/09/2026
+
+Duas placas preparadas, estação do laboratório (`alunopds`) e um notebook Windows na
+mesma rede, N = 1024 em todas as operações (convolução ≈ 215 ms, FFT ≈ 21 ms de placa
+vazia).
+
+| cenário | resultado |
+|---|---|
+| 4 clientes de uma máquina, **uma** placa | 32/32 ok, mediana 471 ms contra 120 ms sozinho (**3,9×**) |
+| 6 clientes de uma máquina, **uma** placa | 24/24 ok, mediana 604 ms (**5,1×**), pior 1,29 s, **nenhuma recusa** |
+| 3 clientes em **cada** máquina, as duas placas, ao mesmo tempo | **90/90 ok**, ~16 req/s somando as duas; cada placa atendeu ~45 requisições vindas das duas máquinas |
+| dois clientes gráficos, um por máquina | cada um escolheu uma placa **diferente** |
+
+O que isso diz: **a infraestrutura aguenta seis clientes simultâneos de duas máquinas
+sem perder nem trocar uma resposta** — as 90 requisições do teste conjunto foram
+conferidas uma a uma, não só cronometradas. O preço é latência, e ela é previsível: ~k
+vezes a de placa vazia, com k clientes na mesma placa.
+
+Uma assimetria vale registro: na rodada conjunta, a estação viu a placa `.52` em 605 ms
+e a `.24` em 101 ms, enquanto o notebook viu 394 ms e 313 ms. Não é preferência de
+máquina — é a fila de cada placa em cada instante, e nenhuma das duas máquinas sabe da
+existência da outra. É exatamente o que a falta de alocação produz.
 
 ---
 
@@ -171,7 +205,7 @@ Como ler a saída:
 | O autoconnect escolhe ora uma placa, ora outra | duas placas ociosas empatam na sonda | nada; é o comportamento esperado hoje |
 | Dois clientes caíram na mesma placa | não há alocação, só a sonda de ocupação | fechar e reabrir um deles, ou informar o host à mão |
 | Tudo ficou ~2× mais lento | outra pessoa está na mesma placa | é a fila; veja a outra placa |
-| "A placa não respondeu", mas ela está no ar | fila do `listen(4)` cheia, ou a sonda expirou com a placa ocupada | tentar de novo; se repetir com 4+ clientes, é o limite conhecido |
+| "A placa não respondeu", mas ela está no ar | a sonda expirou: placa ocupada, ou o primeiro pacote depois de a estação ligar (visto uma vez em 22/09, não reproduzido) | tentar de novo — o `testa_concorrencia.py` já faz duas tentativas |
 | Operação recusada com "FPGA nao preparada" | a placa foi ligada e ninguém programou o bitstream | `./morphe-up.sh --board <ip>` |
 | O notebook só enxerga uma placa | a descoberta para na primeira e o `.morphe-estado` dele está vazio | escrever `.morphe-estado/placas` com os dois IPs |
 | "o tether de DE-SoC [1-x] pertence a conta ..." | o tether é de outra conta logada | usar a placa como está, ou pedir àquela conta um `--down` |
@@ -185,8 +219,9 @@ Como ler a saída:
    dobra e ninguém sabe por quê. Uma reserva (concessão com prazo, renovada pelo cliente)
    resolveria, e exige estado no servidor.
 2. **Concorrência no servidor.** Um `fork` por conexão, ou uma fila explícita com
-   resposta "ocupada, você é o 2º", acabaria com a recusa silenciosa da 5ª conexão. Hoje
-   o cliente não tem como distinguir "placa ocupada" de "placa fora do ar".
+   resposta "ocupada, você é o 2º", tiraria o limite do backlog e, mais importante,
+   diria ao cliente o que está acontecendo: hoje ele não distingue "placa ocupada" de
+   "placa fora do ar" — nos dois casos a sonda simplesmente demora.
 3. **Descoberta sem varredura.** O servidor não responde a broadcast UDP
    (`morphe_protocol.py:559` explica o paliativo). Uma placa num /24 nunca visto continua
    invisível, e o notebook precisa ser informado à mão.

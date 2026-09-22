@@ -8,10 +8,13 @@ sem thread nem fork) e o `listen()` tem fila 4. O cliente abre e fecha uma
 conexao **por operacao**. Disso decorre tudo que este teste mede:
 
   * dois clientes na MESMA placa nao tomam erro -- esperam na fila, e a
-    latencia de cada um cresce com a fila;
-  * a partir da 5a conexao simultanea a fila estoura e o sistema operacional
-    da placa **recusa** a conexao (ECONNREFUSED), que o cliente ve como
-    "placa nao respondeu";
+    latencia de cada um cresce com a fila. Medido em 22/09/2026 na placa 2:
+    6 clientes simultaneos deram 5,1x a latencia de placa vazia, com zero
+    falhas -- `listen(4)` no Linux guarda backlog+1 = 5 esperando, e o 6o e
+    justamente o que esta sendo atendido;
+  * o limite comeca no 7o cliente simultaneo, e no Linux ele NAO aparece como
+    ECONNREFUSED: o kernel descarta o SYN calado e o cliente retransmite ~1 s
+    depois. O sintoma e um pico de latencia, nao um erro -- ainda nao medido;
   * com duas placas, dividir os clientes entre elas e o que devolve a
     latencia de placa vazia.
 
@@ -33,7 +36,7 @@ etiqueta, para ver as duas maquinas disputando as mesmas placas:
 
 Outros usos:
 
-    python3 testa_concorrencia.py --modo mesma --clientes 6   # estoura a fila
+    python3 testa_concorrencia.py --modo mesma --clientes 8   # mede a fila
     python3 testa_concorrencia.py --modo dividir --clientes 4 # uma placa cada
     python3 testa_concorrencia.py --modo escolher --clientes 4  # como o app
     python3 testa_concorrencia.py --placas 172.16.230.24,172.16.230.52
@@ -176,11 +179,22 @@ def placas_preparadas(placas: list[str], porta: int) -> list[str]:
     Uma placa recem-ligada responde ao PING e recusa as operacoes."""
     prontas = []
     for ip in placas:
-        try:
-            resp = TcpClient(ip, porta, timeout=3.0).request(build_ping_request())
-            info = decode_ping_response(resp)
-        except Exception as e:
-            print(f"  - {ip}: nao respondeu ao PING ({e})")
+        # Duas tentativas, a segunda com folga: em 22/09/2026 uma placa que
+        # estava no ar perdeu o primeiro PING de 3 s (estacao recem-ligada) e
+        # ficou de fora do teste inteiro, o que so se percebeu depois.
+        info = None
+        for tentativa, tempo in enumerate((3.0, 8.0), start=1):
+            try:
+                resp = TcpClient(ip, porta, timeout=tempo).request(build_ping_request())
+                info = decode_ping_response(resp)
+                if tentativa > 1:
+                    print(f"  ! {ip}: respondeu so na 2a tentativa "
+                          f"(a primeira estourou em 3 s)")
+                break
+            except Exception as e:
+                erro = e
+        if info is None:
+            print(f"  - {ip}: nao respondeu ao PING em 2 tentativas ({erro})")
             continue
         if info.get("fpga_preparada", "1") == "0":
             print(f"  - {ip}: no ar, mas a FPGA nao esta preparada "
@@ -318,7 +332,8 @@ def main() -> int:
                           args.porta, args.n, args.timeout, args.etiqueta)
             d = resume(f"{ip} sozinho", res)
             imprime(d)
-            base[ip] = d.get("mediana")
+            convs = [r.ms for r in res if r.ok and r.op == "conv"]
+            base[ip] = statistics.median(convs) if convs else None
 
     # ---- fase 2: todos juntos -------------------------------------------
     print(f"\n[2] concorrente -- {args.clientes} requisicoes ao mesmo tempo")
@@ -366,18 +381,25 @@ def main() -> int:
     else:
         print("  nenhuma falha, e toda resposta conferiu com o esperado.")
 
+    # So as convolucoes entram na razao: comparar a mediana de uma mistura de
+    # conv (~215 ms) com a de outra mistura, com proporcao diferente de fft
+    # (~21 ms), da numero sem significado -- e foi o que a primeira versao
+    # imprimiu ("0.3x") quando calhou de cair uma fft de cada lado.
     for ip in placas:
         b = base.get(ip)
-        so_dela = [r.ms for r in res if r.placa == ip and r.ok]
-        if b and so_dela:
-            razao = statistics.median(so_dela) / b
+        convs = [r.ms for r in res if r.placa == ip and r.ok and r.op == "conv"]
+        if b and convs:
+            razao = statistics.median(convs) / b
             por_placa = args.clientes / len(placas) if args.modo != "mesma" else args.clientes
-            print(f"  {ip}: mediana {statistics.median(so_dela):.1f} ms contra "
+            print(f"  {ip}: conv mediana {statistics.median(convs):.1f} ms contra "
                   f"{b:.1f} ms sozinho -- {razao:.1f}x, com ~{por_placa:.1f} "
-                  f"cliente(s) por placa")
+                  f"cliente(s) por placa desta maquina")
     print("  A fila serializa: com k clientes na mesma placa, espere ~k vezes a "
           "latencia de placa vazia. Nao e defeito -- e o servidor de um cliente "
           "por vez. Ver docs/GERENCIAMENTO-PLACAS.md.")
+    print("  Se outra maquina estiver testando ao mesmo tempo, os clientes dela "
+          "entram na mesma fila e nao aparecem nesta conta: some os clientes "
+          "das duas antes de comparar.")
 
     if args.csv:
         with open(args.csv, "w", newline="", encoding="utf-8") as f:
