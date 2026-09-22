@@ -73,6 +73,32 @@ varredura para na primeira placa que acha. Basta escrever a lista uma vez —
 mesmo com `--skip-fpga` ele reinicia o servidor da placa e derrubaria quem estivesse no
 meio de uma operação.
 
+**O projetista de FIR por especificação rodou na placa, pela primeira vez.** Estava
+escrito e conferido contra o MATLAB do Prof. Sanca desde 10/09, mas só em bancada —
+nenhum coeficiente projetado por ele tinha ido ao hardware. Caso: passa-baixa
+`fp = 50 Hz`, `df = 10 Hz`, `dp = 0,1 dB`, `ds = 50 dB` a `fs = 200 Hz`, que o projetista
+resolve com **Hamming e 67 taps**; entrada de 1024 amostras com duas senoides de
+amplitude 1, uma em 20 Hz (passa) e outra em 80 Hz (deve morrer). Bundle em
+`Python/fir_projetista.mrph`.
+
+| grandeza | float64 no PC | FPGA |
+|---|---|---|
+| amplitude em 20 Hz | 0,99992 | **0,99996** |
+| amplitude em 80 Hz | 0,000684 | **0,000709** |
+| rejeição 80 Hz / 20 Hz | 63,3 dB | **63,0 dB** |
+
+Erro máximo contra a convolução em float64, nas 1090 amostras úteis: **2,4 × 10⁻⁴**,
+que dá **71 dB** de relação sinal-ruído de quantização — compatível com o passo do
+Q15.16 acumulado ao longo de 67 produtos. As 957 amostras além de `nx + nh − 1` vieram
+**exatamente zero**, como devem vir. O filtro cumpre a especificação pedida: −0,02 dB em
+50 Hz (limite da banda passante, contra 0,1 dB pedidos) e −51,4 dB em 60 Hz (início da
+banda de rejeição, contra 50 dB pedidos).
+
+**Um detalhe que valia a pena verificar:** no modo por especificação o projetista **não**
+normaliza por `sum(h)`, por decisão de projeto — e mesmo assim o ganho veio unitário
+(`sum(h) = 0,99977`, `max|h| = 0,55`), sem chegar perto de saturar o Q15.16. O risco
+existe para outros gabaritos, não para este.
+
 ---
 
 ## 21/09/2026 — Primeiro dia oficial: por que a placa 2 não voltava do reboot
