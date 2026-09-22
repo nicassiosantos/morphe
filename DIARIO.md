@@ -99,6 +99,49 @@ normaliza por `sum(h)`, por decisão de projeto — e mesmo assim o ganho veio u
 (`sum(h) = 0,99977`, `max|h| = 0,55`), sem chegar perto de saturar o Q15.16. O risco
 existe para outros gabaritos, não para este.
 
+**A fila da placa, medida até o fim.** Faltava saber onde o `listen(4)` quebra. Modo
+`mesma`, uma placa, N = 1024:
+
+| clientes | ok | mediana | p95 | pior |
+|---|---|---|---|---|
+| 6 | 24/24 | 604 ms | — | 1,29 s |
+| 8 | **64/64** | 517 ms | 1,29 s | **6,39 s** |
+| 10 | **80/80** | 519 ms | **4,56 s** | **7,07 s** |
+
+**Nenhuma falha em nenhum dos dois, e nenhuma recusa.** O excesso aparece como cauda de
+latência, não como erro: de 8 para 10 clientes a mediana não se move (517 → 519 ms) e o
+p95 triplica (1,29 → 4,56 s). É a assinatura do SYN descartado em silêncio com
+retransmissão do TCP, exatamente como a leitura do código previa.
+
+**O número que importa para a v1.4:** a vazão travou em **~8 req/s por placa** nos três
+cenários — 7,8 com 8 clientes, 8,4 com 10, 8,3 com 2. Não é coincidência: a mistura é
+metade convolução (217 ms) e metade FFT (22 ms), média 120 ms, que dá 8,3 req/s. **A
+partir de 8 clientes a placa está saturada**, e cliente a mais só acrescenta espera.
+Duas placas dão ~16 req/s para a turma inteira.
+
+**Um defeito do próprio teste, achado ao usá-lo e ainda não corrigido.** No modo
+`dividir`, `testa_concorrencia.py:228` escolhe a operação com `(c + r) % len(ops)` e
+`:348` escolhe a placa com `(c + r) % len(placas)` — o mesmo índice. Com duas operações e
+duas placas a correlação é perfeita: uma placa recebe só convoluções e a outra só FFTs,
+o que produziu medianas de 1267 ms contra 22,7 ms e não mede balanceamento nenhum. Os
+resultados de 8 e 10 clientes acima **não** são afetados: modo `mesma`, uma placa só.
+
+**Decisão do supervisor: a interface está boa.** O Prof. Antonio deu a interface por
+aprovada, o que na prática encerra os tópicos 1.3 (biblioteca) e 1.6 (interface
+reformulada) do plano. A frente de trabalho passa a ser: deixar a aplicação **e** o
+Quartus utilizáveis em todos os computadores do laboratório; levantar o que a placa tem
+de ADC e de codec; e escrever o manual do sistema em LaTeX, no Overleaf, com figuras
+vetorizadas.
+
+**Levantamento de hardware, primeira volta, feita no repositório.** A DE1-SoC tem o
+**LTC2308, 8 canais de 12 bits**, e o IP `adcltc2308_controller` está no projeto — mas a
+instância está **comentada** em `ghrd_top.v:571-591`, e o `LEDR` que recebia `CH0` hoje
+mostra estado de depuração da FFT e do FIR. Mesmo quando ativa, só `CH0` era ligado. O
+**codec de áudio** aparece apenas como declaração de porta (`ghrd_top.v:45-50`, mais o
+I2C de controle em `:81-82`): está roteado ao FPGA e o Morphe não o toca. Ou seja, ler do
+ADC pelo caminho do Morphe não existe hoje — não há opcode, nem SRAM de captura, nem nada
+no servidor.
+
 ---
 
 ## 21/09/2026 — Primeiro dia oficial: por que a placa 2 não voltava do reboot
