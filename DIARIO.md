@@ -16,6 +16,65 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 22/09/2026 — A infraestrutura de requisições, documentada e medida
+
+**O que se queria saber:** o que acontece quando duas pessoas, em máquinas diferentes,
+pedem coisas às placas ao mesmo tempo. Até hoje isso era conjectura apoiada na leitura
+do código.
+
+**Escrito:** `docs/GERENCIAMENTO-PLACAS.md`, que descreve as peças que existem hoje
+entre o cliente e a placa — servidor de um cliente por vez (`accept` → atende → `close`,
+`listen(4)`), uma conexão TCP por operação, descoberta por lista local e varredura que
+para na primeira placa, escolha pela sonda de ocupação (`OP_PING`), marca de FPGA
+preparada, tether por cabo JTAG — com o que decorre de cada uma, uma tabela
+sintoma → causa e o que falta (a v1.4). E `Python/testa_concorrencia.py`, que dispara N
+requisições simultâneas e **confere cada resposta**: convolução com impulso tem que
+devolver a própria entrada, FFT de impulso tem que dar espectro plano. Uma resposta
+trocada entre conexões concorrentes apareceria como erro de valor, não como lentidão.
+
+**Medido**, com as duas placas preparadas, a estação (`alunopds`) e um notebook Windows
+na mesma rede, N = 1024 (convolução ≈ 215 ms, FFT ≈ 21 ms de placa vazia):
+
+| cenário | resultado |
+|---|---|
+| 4 clientes de uma máquina, uma placa | 32/32 ok, mediana 471 ms contra 120 ms sozinho (3,9×) |
+| 6 clientes de uma máquina, uma placa | 24/24 ok, mediana 604 ms (5,1×), pior 1,29 s, **nenhuma recusa** |
+| 3 clientes em cada máquina, as duas placas, ao mesmo tempo | **90/90 ok**, ~16 req/s somados |
+| dois clientes gráficos, um por máquina | cada um escolheu uma placa **diferente** |
+
+**A infraestrutura aguenta seis clientes simultâneos de duas máquinas sem perder nem
+trocar uma resposta.** O preço é latência previsível: ~k vezes a de placa vazia, com k
+clientes na mesma placa.
+
+**Uma expectativa corrigida pela medição.** O documento dizia que a 5ª conexão
+simultânea seria recusada, por causa do `listen(srv, 4)`. Não é o que acontece: o Linux
+guarda `backlog + 1 = 5` conexões esperando e a sexta é a que está sendo atendida — por
+isso 6 clientes couberam justo, sem uma falha. E, mesmo estourando, o excesso **não**
+vira `ECONNREFUSED`: com `tcp_abort_on_overflow = 0` o kernel descarta o SYN em silêncio
+e o cliente retransmite ~1 s depois. O sintoma seria um pico de latência, não um erro.
+Falta medir com 8 a 10 clientes.
+
+**Assimetria que vale registro:** na rodada conjunta a estação viu a placa `.52` em
+605 ms e a `.24` em 101 ms, enquanto o notebook viu 394 ms e 313 ms. Não é preferência
+de máquina — é a fila de cada placa em cada instante, e nenhuma das duas máquinas sabe
+da existência da outra. É exatamente o que a falta de alocação produz, e é o argumento
+concreto para a v1.4.
+
+**Dois defeitos do próprio teste, achados ao usá-lo e corrigidos** (`4e81045`): a sonda
+descartava do teste inteiro uma placa que perdesse um único `OP_PING` de 3 s — aconteceu
+com a placa 2 logo depois de a estação ligar, e o primeiro teste do dia rodou sem ela
+sem avisar; agora são duas tentativas. E a razão contra a linha de base comparava
+medianas de misturas diferentes de convolução e FFT, o que chegou a imprimir "0,3×";
+agora só as convoluções entram na conta.
+
+**Preparar o notebook para enxergar as duas placas:** o `.morphe-estado` é por clone, e a
+varredura para na primeira placa que acha. Basta escrever a lista uma vez —
+`.morphe-estado/placas` com um IP por linha. Não serve usar o `morphe-up.sh` para isso:
+mesmo com `--skip-fpga` ele reinicia o servidor da placa e derrubaria quem estivesse no
+meio de uma operação.
+
+---
+
 ## 21/09/2026 — Primeiro dia oficial: por que a placa 2 não voltava do reboot
 
 **Resultado do dia:** a placa 2 (`172.16.230.52`, `de1soc-02`) volta do reboot com MAC
