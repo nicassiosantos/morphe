@@ -38,3 +38,7 @@ Quartus/vetores_*.hex
 # 'git add -A' distraido os arraste para dentro.
 C/fix_*.py
 Python/ifft_bundle.mrph
+
+# saidas do testa_concorrencia.py, que ficam na raiz do clone
+*-junto.csv
+*-sozinho.csv
