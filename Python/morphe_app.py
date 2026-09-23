@@ -17,7 +17,9 @@ from signal_generator_window import SignalGeneratorWindow
 from conv_window import ConvolutionWindow
 from fft_window import FFTWindow
 from ifft_window import IFFTWindow
-from espectrograma_window import EspectrogramaWindow
+# ESPECTROGRAMA (desligado em 23/09/2026; a janela esta pronta e validada na
+# placa -- para reativar, descomentar esta linha, o botao e o callback abaixo):
+# from espectrograma_window import EspectrogramaWindow
 from fir_window import FIRWindow
 from iir_window import IIRWindow
 from comparator_window import ComparatorWindow
@@ -89,7 +91,8 @@ class MorpheMainWindow(tk.Tk):
             ("Convolução  (2 sinais → FPGA)",  self._open_conv),
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
             ("IFFT  (espectro de arquivo → FPGA)", self._open_ifft),
-            ("Espectrograma  (sinal longo → FFTs na FPGA)", self._open_espectrograma),
+            # ESPECTROGRAMA (desligado):
+            # ("Espectrograma  (sinal longo → FFTs na FPGA)", self._open_espectrograma),
             ("Filtro FIR  (FPGA)",             self._open_fir),
             ("Filtro IIR  (FPGA)",             self._open_iir),
         ]
@@ -132,8 +135,9 @@ class MorpheMainWindow(tk.Tk):
     def _open_ifft(self):
         IFFTWindow(self)
 
-    def _open_espectrograma(self):
-        EspectrogramaWindow(self)
+    # ESPECTROGRAMA (desligado):
+    # def _open_espectrograma(self):
+    #     EspectrogramaWindow(self)
 
     def _open_fir(self):
         FIRWindow(self)

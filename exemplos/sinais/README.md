@@ -55,7 +55,11 @@ aquecimento do que cabe no bloco: a janela recusa com a explicação.
 1. **Abrir espectro…** → `espectro_8192.npy`
 2. **Calcular IFFT na FPGA** → 8 IFFTs de 1024 na placa; SNR contra o NumPy ~92 dB
 
-## Espectrograma
+## Espectrograma (desligado no aplicativo)
+
+A janela existe (`Python/espectrograma_window.py`) mas está **fora do menu** desde
+23/09/2026. Para reativar, descomente as três linhas marcadas `ESPECTROGRAMA` em
+`Python/morphe_app.py`. Com ela ligada:
 
 1. **Sinal x[n]** → Tipo **Arquivo** → `varredura_8k.wav` → **Gerar**
 2. **Calcular espectrograma na FPGA** → 31 quadros de 1024 (janela de Hann, 50 % de

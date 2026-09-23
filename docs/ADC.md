@@ -65,7 +65,7 @@ numa compilação só, que também tira do projeto os dois arquivos listados e s
 
 | etapa | o que é | estado |
 |---|---|---|
-| 0 | sinal de arquivo (`.csv`, `.txt`, `.npy`, `.wav`) e processamento por blocos em todas as janelas — convolução e FIR por overlap-add, FFT e IFFT longas em quatro passos, IIR com aquecimento (`Python/blocos.py`, `Python/sinal_arquivo.py`) | **feita e validada na placa em 23/09**, com uma janela própria de espectrograma |
+| 0 | sinal de arquivo (`.csv`, `.txt`, `.npy`, `.wav`) e processamento por blocos em todas as janelas — convolução e FIR por overlap-add, FFT e IFFT longas em quatro passos, IIR com aquecimento (`Python/blocos.py`, `Python/sinal_arquivo.py`) | **feita e validada na placa em 23/09**; a janela de espectrograma existe mas está fora do menu (comentada no `morphe_app.py`) |
 | 1 | ADC como voltímetro: reativar o controlador, levar `CH0`…`CH7` ao processador, uma operação no protocolo | guardada |
 | 2 | captura a `fs` fixa: controlador próprio + memória de captura no FPGA, operação de captura, janela "Aquisição" que salva em arquivo e alimenta as outras janelas | guardada |
 | 3 | codec de áudio WM8731 (entrada e saída de áudio) | opcional |

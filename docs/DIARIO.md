@@ -190,6 +190,9 @@ Com `exemplos/sinais/varredura_8k.wav` (varredura de 100 Hz a 3,5 kHz + tom de 1
 na segunda metade), na placa `.24`: 31 quadros a 50 %, 60 a 75 %, 16 sem
 sobreposição — **92,9 dB** contra o NumPy e o pico de **todos** os quadros no mesmo
 bin da referência. A imagem mostra a rampa e a linha de 1 kHz surgindo em t = 1 s.
+**Tirada do menu no mesmo dia, a pedido:** as três linhas do `morphe_app.py` ficam
+comentadas (marca `ESPECTROGRAMA`) e o arquivo da janela continua no repositório,
+para ligar de novo se for usado.
 
 **Como o ADC funciona, lido do código** — registrado em `docs/ADC.md`. O controlador do
 University Program converte sem parar e entrega o último valor de cada canal, e foi
