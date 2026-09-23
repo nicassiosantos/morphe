@@ -1,7 +1,7 @@
 # Sinais de teste: arquivo e processamento por blocos
 
-Arquivos para testar o tipo **Arquivo** do painel de sinal e a convolução de sinais
-maiores que o hardware (1024 amostras), que a janela divide em blocos. Gerados por
+Arquivos para testar a entrada por arquivo e o processamento de sinais maiores que o
+hardware (1024 amostras) em todas as janelas. Gerados por
 `Python/ferramentas/gera_sinais_exemplo.py`.
 
 | arquivo | o que é |
@@ -10,28 +10,56 @@ maiores que o hardware (1024 amostras), que a janela divide em blocos. Gerados p
 | `duas_senoides_8k.csv` | o mesmo sinal em texto, colunas `t` e `x`, 3000 amostras |
 | `passa_baixa_1k.csv` | h[n]: passa-baixa de 67 coeficientes, corte em 1 kHz |
 | `impulso_atrasado.txt` | h[n] = δ[n − 2000]: 2001 amostras, também maior que o hardware |
+| `espectro_8192.npy` | X[k]: a FFT de 8192 pontos do `.wav`, complexa |
 
-## Como testar
+Todos os casos abaixo foram conferidos contra a placa `172.16.230.24` em 23/09/2026,
+pelas próprias janelas.
 
-No aplicativo, abra **Convolução**:
+## Convolução
 
-1. Em **Sinal x[n]**: Tipo → **Arquivo** → **Escolher arquivo…** → `duas_senoides_8k.wav` → **Gerar**.
-2. Em **Sinal h[n]**: Tipo → **Arquivo** → `passa_baixa_1k.csv` → **Gerar**.
-3. **Convoluir na FPGA.**
+1. **Sinal x[n]** → Tipo **Arquivo** → **Escolher arquivo…** → `duas_senoides_8k.wav` → **Gerar**
+2. **Sinal h[n]** → Tipo **Arquivo** → `passa_baixa_1k.csv` → **Gerar**
+3. **Convoluir na FPGA** → "Bloco k de 8"; y[n] com 8066 amostras, **só o tom de 300 Hz**
 
-## O que tem de aparecer
+Com h[n] = `impulso_atrasado.txt`, y[n] é o próprio x deslocado 2000 amostras.
 
-| x[n] | h[n] | blocos | y[n] |
-|---|---|---|---|
-| `duas_senoides_8k.wav` | `passa_baixa_1k.csv` | 8 ("Bloco k de 8") | 8066 amostras; **só o tom de 300 Hz**, amplitude ~0,50 — a oscilação rápida do de 3 kHz some |
-| `duas_senoides_8k.csv` | `passa_baixa_1k.csv` | 3 | 3066 amostras, o mesmo efeito |
-| `duas_senoides_8k.wav` | `impulso_atrasado.txt` | até 16 (os blocos de h só com zeros não vão à placa) | 10000 amostras: **o próprio x, deslocado 2000 amostras** |
+## Filtro FIR
 
-Conferido contra a placa `172.16.230.24` em 23/09/2026: os dois primeiros casos com
-relação sinal-erro de ~59 dB contra `np.convolve`; o terceiro idêntico.
+1. **Carregar x[n] de arquivo…** (embaixo do construtor de superposição) → `duas_senoides_8k.wav`
+2. **Carregar…** em Coeficientes → `passa_baixa_1k.csv`
+3. **Aplicar FIR (FPGA)** → 8 blocos, 8066 amostras, o tom de 3 kHz some
 
-Para ver o espectro antes e depois, salve o bundle e abra no **Comparador**, ou use o
-teste automático:
+**↻ Atualizar x[n]** volta para a superposição de senoides.
+
+## Filtro IIR
+
+1. **Carregar x[n] de arquivo…** → `duas_senoides_8k.wav`
+2. **Projetar filtro IIR…** → um passa-baixa Butterworth com corte em 1 kHz e fs = 8000 Hz
+3. **Aplicar IIR (FPGA)** → a barra de status diz se a placa bateu **bit a bit** com o
+   modelo, quantos blocos, o aquecimento e a distância dos blocos para o filtro rodando
+   sem parar, em LSB (Butterworth de ordem 4: 9 blocos, aquecimento 80, **0 LSB**)
+
+Filtros com polos muito perto do círculo unitário (corte muito baixo) precisam de mais
+aquecimento do que cabe no bloco: a janela recusa com a explicação.
+
+## FFT
+
+1. **Sinal x[n]** → Tipo **Arquivo** → `duas_senoides_8k.wav` → **Gerar**
+2. **Calcular FFT na FPGA** → FFT de **8192 pontos** em quatro passos (8 FFTs de 1024 na
+   placa); picos em 300 Hz e 3 kHz
+3. **IFFT na FPGA (voltar ao tempo)** → o sinal de volta, erro ~5 × 10⁻⁵
+
+## IFFT
+
+1. **Abrir espectro…** → `espectro_8192.npy`
+2. **Calcular IFFT na FPGA** → 8 IFFTs de 1024 na placa; SNR contra o NumPy ~92 dB
+
+## Gerador de sinais
+
+Tipo **Arquivo** → qualquer um dos arquivos acima → **Gerar**. Sinais longos aparecem
+como linha, e podem ser salvos em `.mrph`.
+
+## Teste automático
 
 ```bash
 cd Python && python3 ferramentas/testa_blocos.py --placa 172.16.230.24

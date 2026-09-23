@@ -23,6 +23,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import dsp_core as dsp
 import morphe_theme as theme
+import blocos
+from sinal_arquivo import TIPOS_DIALOGO, carregar_sinal
 from morphe_protocol import (build_fir_request, decode_fir_response,
                               DTYPE_CODES)
 from popout_helper import open_or_focus, refresh_all
@@ -244,9 +246,15 @@ class ComponentRow(ttk.Frame):
 # ======================================================================
 
 class SuperpositionBuilder(ttk.LabelFrame):
-    """Painel que monta x[n] = soma de componentes senoidais."""
+    """Painel que monta x[n] = soma de componentes senoidais -- ou que o
+    carrega de um arquivo (.csv, .txt, .npy, .wav).
 
-    def __init__(self, parent, on_signal_changed):
+    Com `aceita_longo`, N pode passar de MAX_N: a janela processa por blocos
+    (blocos.py) e o limite so e informado. Sinais ate MAX_N continuam
+    completados com zeros ate MAX_N, como sempre.
+    """
+
+    def __init__(self, parent, on_signal_changed, aceita_longo: bool = False):
         super().__init__(
             parent, text=" Sinal de entrada x[n] (superposição) ",
             style="Card.TLabelframe",
@@ -254,16 +262,21 @@ class SuperpositionBuilder(ttk.LabelFrame):
         )
         self._on_signal_changed = on_signal_changed
         self._rows: List[ComponentRow] = []
+        self._aceita_longo = aceita_longo
+        #: sinal lido de arquivo; None = modo superposicao
+        self._arquivo: Optional[dsp.Signal] = None
 
         # Linha de parâmetros globais (N + fs)
         params = ttk.Frame(self, style="Card.TFrame")
         params.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(params, text=f"N (max {MAX_N}):",
+        rotulo_N = (f"N ({MAX_N} por bloco):" if aceita_longo
+                    else f"N (max {MAX_N}):")
+        ttk.Label(params, text=rotulo_N,
                   style="Card.TLabel").pack(side="left")
         self.var_N = tk.StringVar(value="64")
-        ttk.Entry(params, textvariable=self.var_N, width=6).pack(
-            side="left", padx=(4, 14))
+        self._entry_N = ttk.Entry(params, textvariable=self.var_N, width=6)
+        self._entry_N.pack(side="left", padx=(4, 14))
 
         ttk.Label(params, text="fs (Hz):",
                   style="Card.TLabel").pack(side="left")
@@ -341,8 +354,36 @@ class SuperpositionBuilder(ttk.LabelFrame):
             bg=_BTN_UPDATE_BG, command=self._on_update_click).pack(
             side="right")
 
+        # Alternativa a superposicao: x[n] de um arquivo. "Atualizar x[n]"
+        # volta para a superposicao.
+        ttk.Button(self, text="Carregar x[n] de arquivo…",
+                   style="Secondary.TButton",
+                   command=self._on_arquivo_click).pack(fill="x", pady=(8, 0))
+
         self._add_row()
         self._update_expression_display()
+
+    def _on_arquivo_click(self):
+        caminho = filedialog.askopenfilename(
+            title="Carregar x[n] de arquivo", filetypes=TIPOS_DIALOGO)
+        if not caminho:
+            return
+        try:
+            sig = carregar_sinal(caminho)
+            if not self._aceita_longo and sig.x.size > MAX_N:
+                raise ValueError(f"o arquivo tem {sig.x.size} amostras; "
+                                 f"esta janela aceita até {MAX_N}")
+        except Exception as e:
+            messagebox.showerror("Erro ao carregar x[n]", str(e))
+            return
+        self._arquivo = sig
+        self.var_N.set(str(sig.x.size))
+        self._entry_N.configure(state="disabled")
+        # fs do arquivo, a menos que o filtro ja tenha travado a sua.
+        if sig.fs != 1.0 and not self.var_fs_lock.get():
+            self.var_fs.set(f"{sig.fs:g}")
+        self._update_expression_display()
+        self._on_signal_changed(*self.compute_signal())
 
     def _add_row(self):
         if len(self._rows) >= MAX_COMPONENTS:
@@ -374,6 +415,9 @@ class SuperpositionBuilder(ttk.LabelFrame):
         self._update_expression_display()
 
     def _on_update_click(self):
+        # Volta ao modo superposicao, se estava em arquivo.
+        self._arquivo = None
+        self._entry_N.configure(state="normal")
         try:
             sig = self.compute_signal()
         except ValueError as e:
@@ -384,6 +428,8 @@ class SuperpositionBuilder(ttk.LabelFrame):
         self._on_signal_changed(n_arr, x)
 
     def _build_text_expression(self) -> str:
+        if self._arquivo is not None:
+            return "x[n] = arquivo " + self._arquivo.description
         try:
             _, fs = self.read_globals()
         except ValueError:
@@ -420,11 +466,14 @@ class SuperpositionBuilder(ttk.LabelFrame):
         self.var_expression.set(self._build_text_expression())
 
     def read_globals(self) -> tuple[int, float]:
-        try:
-            N = int(self.var_N.get())
-        except ValueError:
-            raise ValueError("N deve ser inteiro")
-        if N <= 0 or N > MAX_N:
+        if self._arquivo is not None:
+            N = int(self._arquivo.x.size)
+        else:
+            try:
+                N = int(self.var_N.get())
+            except ValueError:
+                raise ValueError("N deve ser inteiro")
+        if N <= 0 or (N > MAX_N and not self._aceita_longo):
             raise ValueError(f"N deve estar em [1, {MAX_N}]")
         try:
             fs = float(self.var_fs.get())
@@ -445,26 +494,33 @@ class SuperpositionBuilder(ttk.LabelFrame):
 
     def compute_signal(self) -> tuple[np.ndarray, np.ndarray]:
         N, fs = self.read_globals()
-        if not self._rows:
-            raise ValueError("Adicione ao menos um componente.")
+        if self._arquivo is not None:
+            x_useful = np.asarray(self._arquivo.x, dtype=np.float64)
+        else:
+            if not self._rows:
+                raise ValueError("Adicione ao menos um componente.")
+            n_useful = np.arange(N, dtype=np.float64)
+            x_useful = np.zeros(N, dtype=np.float64)
+            for row in self._rows:
+                comp = row.read()
+                t_arg = 2 * np.pi * comp["f"] * n_useful / fs + comp["phi"]
+                if comp["type"] == "sin":
+                    x_useful += comp["A"] * np.sin(t_arg)
+                else:
+                    x_useful += comp["A"] * np.cos(t_arg)
 
-        n_useful = np.arange(N, dtype=np.float64)
-        x_useful = np.zeros(N, dtype=np.float64)
-        for row in self._rows:
-            comp = row.read()
-            t_arg = 2 * np.pi * comp["f"] * n_useful / fs + comp["phi"]
-            if comp["type"] == "sin":
-                x_useful += comp["A"] * np.sin(t_arg)
-            else:
-                x_useful += comp["A"] * np.cos(t_arg)
-
-        x = np.zeros(MAX_N, dtype=np.float64)
+        # Ate MAX_N, completa com zeros ate MAX_N, como sempre; acima, o
+        # sinal vai inteiro e a janela processa por blocos.
+        total = max(MAX_N, N)
+        x = np.zeros(total, dtype=np.float64)
         x[:N] = x_useful
-        n_arr = np.arange(MAX_N, dtype=np.int64)
+        n_arr = np.arange(total, dtype=np.int64)
         return n_arr, x
 
     def describe(self) -> str:
         N, fs = self.read_globals()
+        if self._arquivo is not None:
+            return f"x[n] de arquivo: {self._arquivo.description}"
         parts = []
         for i, row in enumerate(self._rows, start=1):
             try:
@@ -475,7 +531,8 @@ class SuperpositionBuilder(ttk.LabelFrame):
                 )
             except ValueError:
                 parts.append(f"#{i}=(invalido)")
-        return (f"x[n] N={N} (+{MAX_N-N} zeros, total {MAX_N}) "
+        zeros = max(0, MAX_N - N)
+        return (f"x[n] N={N} (+{zeros} zeros, total {N + zeros}) "
                 f"fs={fs}: " + " + ".join(parts))
 
 
@@ -500,7 +557,7 @@ class CoefficientsLoader(ttk.LabelFrame):
         btns = ttk.Frame(self, style="Card.TFrame")
         btns.pack(fill="x", pady=(0, 6))
         ttk.Button(
-            btns, text="Carregar (.txt)…",
+            btns, text="Carregar…",
             style="Secondary.TButton",
             command=self._on_load_click,
         ).pack(side="left", fill="x", expand=True, padx=(0, 4))
@@ -531,15 +588,21 @@ class CoefficientsLoader(ttk.LabelFrame):
     def _on_load_click(self):
         path = filedialog.askopenfilename(
             title="Carregar coeficientes do filtro FIR",
-            filetypes=[("Texto", "*.txt"),
+            filetypes=[("Coeficientes", "*.txt *.coef *.csv *.npy"),
+                       ("Texto", "*.txt"),
                        ("Coeficientes Morphe", "*.coef"),
+                       ("CSV / NumPy", "*.csv *.npy"),
                        ("Todos", "*.*")],
         )
         if not path:
             return
         try:
-            coefs, desc = parse_coefficients_file(path)
-        except CoefficientsParseError as e:
+            if path.lower().endswith((".txt", ".coef")):
+                coefs, desc = parse_coefficients_file(path)
+            else:
+                sig = carregar_sinal(path)
+                coefs, desc = sig.x, sig.description
+        except (CoefficientsParseError, ValueError) as e:
             messagebox.showerror("Erro ao carregar coeficientes", str(e))
             return
         self.set_coefficients(coefs, desc, source=path, fs=None)
@@ -549,13 +612,8 @@ class CoefficientsLoader(ttk.LabelFrame):
                           fs: Optional[float] = None) -> bool:
         coefs = np.asarray(coefs, dtype=np.float64)
 
-        if len(coefs) > MAX_N:
-            messagebox.showerror(
-                "Filtro grande demais",
-                f"O filtro tem {len(coefs)} taps, mas o hardware só "
-                f"comporta até {MAX_N}. Reduza o número de coeficientes."
-            )
-            return False
+        # Acima de MAX_N taps o filtro e aplicado por blocos (overlap-add),
+        # dividindo tambem h[n]: nao ha mais limite de tamanho.
 
         warn = dsp.q1516_range_warning(coefs)
         if warn:
@@ -568,22 +626,24 @@ class CoefficientsLoader(ttk.LabelFrame):
                 return False
 
         n_taps = len(coefs)
-        h_padded = np.zeros(MAX_N, dtype=np.float64)
+        h_padded = np.zeros(max(MAX_N, n_taps), dtype=np.float64)
         h_padded[:n_taps] = coefs
 
         self.coefs = h_padded
         self.n_taps = n_taps
         self.description = description or ""
-        self.path = source if source.endswith(".txt") else None
+        self.path = source if os.path.isfile(source) else None
 
-        if source.endswith(".txt"):
+        if self.path:
             label = os.path.basename(source)
         elif source:
             label = source
         else:
             label = "(definido)"
-        info = (f"{label}\n"
-                f"Taps: {n_taps} (zero-padded para {MAX_N})    "
+        taps = (f"Taps: {n_taps} (zero-padded para {MAX_N})"
+                if n_taps <= MAX_N else
+                f"Taps: {n_taps} (acima de {MAX_N}: aplicado por blocos)")
+        info = (f"{label}\n{taps}    "
                 f"Max |h|: {float(np.max(np.abs(coefs))):.4g}")
         if self.description:
             info += f"\nDescrição: {self.description}"
@@ -643,6 +703,8 @@ class FIRWindow(tk.Toplevel):
         hw_text = (
             f"• Tamanho do buffer x[n] e h[n]: {MAX_N} amostras "
             "(zero-padded até esse tamanho)\n"
+            f"• Acima de {MAX_N} (sinal ou filtro): aplicado por blocos, "
+            "overlap-add — várias requisições, o mesmo resultado\n"
             f"• Saída y[n]: até N+M−1 = {2*MAX_N - 1} amostras\n"
             "• Formato Q15.16 (1 sinal + 15 inteiros + 16 fracionários)\n"
             "• Faixa aproximada: [−32768, +32768)\n"
@@ -654,7 +716,7 @@ class FIRWindow(tk.Toplevel):
 
         # ── Construtor de x[n] (superposição) ──
         self.builder = SuperpositionBuilder(
-            parent, on_signal_changed=self._on_x_updated)
+            parent, on_signal_changed=self._on_x_updated, aceita_longo=True)
         self.builder.pack(fill="x", pady=(6, 0))
 
         # ── Loader de coeficientes h[n] ──
@@ -821,7 +883,8 @@ class FIRWindow(tk.Toplevel):
                 pass
 
         msg = (f"Coeficientes carregados: {self.h_n_taps} taps "
-               f"(padded para {MAX_N})")
+               + (f"(padded para {MAX_N})" if self.h_n_taps <= MAX_N
+                  else f"(acima de {MAX_N}: por blocos)"))
         if descr:
             msg += f" — {descr}"
         if fs is not None:
@@ -849,8 +912,12 @@ class FIRWindow(tk.Toplevel):
                                  "Verifique host/porta na janela principal.")
             return
 
-        x = self.x_input
-        h = self.h_coefs
+        if self.x_n_useful > MAX_N or self.h_n_taps > MAX_N:
+            self._on_run_blocos(client)
+            return
+
+        x = self.x_input[:MAX_N]
+        h = self.h_coefs[:MAX_N]
         x_q = dsp.float_to_q1516(x)
         h_q = dsp.float_to_q1516(h)
         dtype_code = DTYPE_CODES["int32"]
@@ -870,9 +937,38 @@ class FIRWindow(tk.Toplevel):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_run_done(self, y: np.ndarray):
+    def _on_run_blocos(self, client):
+        """Sinal ou filtro acima de MAX_N: overlap-add pela operacao FIR,
+        dividindo x e h em pedacos de ate MAX_N. A saida tem N + M - 1
+        amostras, a convolucao linear inteira."""
+        x = self.x_input[:self.x_n_useful]
+        h = self.h_coefs[:self.h_n_taps]
+        n_req = blocos.n_requisicoes_conv(x.size, h.size)
+        self.btn_run.configure(state="disabled")
+        self.status.set(f"N={x.size}, M={h.size}: {n_req} blocos (overlap-add), "
+                        "enviando à FPGA...")
+
+        def progresso(feitos, total):
+            self.after(0, lambda: self.status.set(
+                f"Bloco {feitos} de {total} na FPGA..."))
+
+        def worker():
+            try:
+                y = blocos.conv_por_blocos(x, h, blocos.FirPlaca(client),
+                                           progresso=progresso)
+                self.after(0, lambda: self._on_run_done(y, n_req))
+            except Exception as e:
+                self.after(0, lambda err=e: self._on_run_error(err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_run_done(self, y: np.ndarray, n_blocos: int = 1):
         self.y_output = y
-        self.status.set(f"FIR concluído: {len(y)} amostras na saída.")
+        if n_blocos > 1:
+            self.status.set(f"FIR concluído: {len(y)} amostras na saída, "
+                            f"{n_blocos} blocos por overlap-add.")
+        else:
+            self.status.set(f"FIR concluído: {len(y)} amostras na saída.")
         self._update_run_button()
         self._redraw_plots()
 

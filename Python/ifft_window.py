@@ -16,6 +16,10 @@ Serve para tres coisas que a outra nao faz:
 O que o hardware faz e o mesmo nos dois caminhos: OP_IFFT, bit `inverse`
 ligado no IP, espectro normalizado para a faixa do Q15.8 na ida e escala
 desfeita na volta.
+
+O espectro vem de um .mrph, de um .npy complexo ou de texto com colunas real
+e imaginaria. Com mais de 1024 bins (multiplo de 1024), a IFFT e feita em
+quatro passos (blocos.ifft_longa): M IFFTs de 1024 na placa, ligadas no PC.
 """
 from __future__ import annotations
 
@@ -32,10 +36,11 @@ matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import blocos
 import dsp_core as dsp
 import morphe_config as cfg
 import morphe_theme as theme
-from morphe_protocol import build_ifft_request, decode_ifft_response
+from sinal_arquivo import TIPOS_ESPECTRO, carregar_espectro
 from plot_toolbar import PlotToolbar
 from popout_helper import open_or_focus, refresh_all
 
@@ -143,11 +148,13 @@ class IFFTWindow(tk.Toplevel):
         arq.pack(fill="x")
         ttk.Label(arq,
                   text="Um .mrph com seção complexa — o X[k] salvo pela "
-                       "tela da FFT serve direto.",
+                       "tela da FFT serve direto —, um .npy complexo ou um "
+                       ".csv com colunas real e imaginária. Até 1024 bins, "
+                       "ou múltiplos de 1024 (por blocos).",
                   style="SectionHint.TLabel",
                   wraplength=300, justify="left").pack(anchor="w",
                                                        pady=(0, 8))
-        ttk.Button(arq, text="Abrir arquivo .mrph…",
+        ttk.Button(arq, text="Abrir espectro…",
                    style="Primary.TButton",
                    command=self._on_abrir).pack(fill="x")
 
@@ -253,9 +260,22 @@ class IFFTWindow(tk.Toplevel):
     # ------------------------------------------------------------------
     def _on_abrir(self):
         path = filedialog.askopenfilename(
-            title="Abrir bundle .mrph com o espectro",
-            filetypes=[("Morphe bundle", "*.mrph"), ("Todos", "*.*")])
+            title="Abrir espectro X[k]", filetypes=TIPOS_ESPECTRO)
         if not path:
+            return
+        if not path.lower().endswith(".mrph"):
+            try:
+                X = carregar_espectro(path)
+            except Exception as e:
+                messagebox.showerror("Erro ao abrir", str(e))
+                return
+            self._bundle = None
+            self.origem = path
+            self.var_arquivo.set(os.path.basename(path))
+            self.cbo_secao.configure(values=[], state="disabled")
+            self.var_secao.set("")
+            self._define_espectro(X, fs=1.0, n_uteis=None,
+                                  rotulo=os.path.basename(path))
             return
         try:
             bundle = dsp.parse_mrph_bundle(path)
@@ -286,35 +306,41 @@ class IFFTWindow(tk.Toplevel):
     def _on_secao_change(self):
         sec = dsp.section_by_name(self._bundle, self.var_secao.get())
         X = np.asarray(sec["data"], dtype=np.complex128)
+        # Quantas amostras do resultado sao sinal e quantas sao padding: se
+        # o bundle guardou o x[n] original, da para marcar no grafico.
+        try:
+            n_uteis = int(len(dsp.section_by_name(self._bundle, "x")["data"]))
+        except KeyError:
+            n_uteis = None
+        self._define_espectro(X, float(sec.get("fs") or 1.0), n_uteis,
+                              "'%s'" % self.var_secao.get())
 
-        if len(X) != cfg.FFT_N:
+    def _define_espectro(self, X: np.ndarray, fs: float,
+                         n_uteis: Optional[int], rotulo: str):
+        if len(X) % cfg.FFT_N:
             messagebox.showerror(
                 "Tamanho incompatível",
-                "O hardware faz IFFT de exatamente %d pontos, e esta seção "
-                "tem %d.\n\nUm espectro não pode ser preenchido com zeros "
-                "como um sinal no tempo: isso mudaria o sinal que ele "
-                "representa." % (cfg.FFT_N, len(X)))
+                "O hardware faz IFFT de %d pontos, e por blocos de múltiplos "
+                "de %d; este espectro tem %d.\n\nUm espectro não pode ser "
+                "preenchido com zeros como um sinal no tempo: isso mudaria o "
+                "sinal que ele representa." % (cfg.FFT_N, cfg.FFT_N, len(X)))
             self.btn_ifft.configure(state="disabled")
             return
 
         self.X = X
-        self.fs = float(sec.get("fs") or 1.0)
+        self.fs = fs
         self.x_hw = None
         self.x_ref = None
-        self.n_uteis = None
-        # Quantas amostras do resultado sao sinal e quantas sao padding: se
-        # o bundle guardou o x[n] original, da para marcar no grafico.
-        try:
-            self.n_uteis = int(len(dsp.section_by_name(self._bundle,
-                                                       "x")["data"]))
-        except KeyError:
-            self.n_uteis = None
+        self.n_uteis = n_uteis
 
         self.btn_ifft.configure(state="normal")
         self.btn_salvar.configure(state="disabled")
         self.var_metricas.set("(rode a IFFT)")
-        self.status.set("Espectro '%s' carregado: %d bins."
-                        % (self.var_secao.get(), len(X)))
+        extra = ("" if len(X) == cfg.FFT_N else
+                 " — IFFT em quatro passos: %d IFFTs de %d na FPGA"
+                 % (len(X) // cfg.FFT_N, cfg.FFT_N))
+        self.status.set("Espectro %s carregado: %d bins%s."
+                        % (rotulo, len(X), extra))
         self._redraw()
 
     # ------------------------------------------------------------------
@@ -332,11 +358,18 @@ class IFFTWindow(tk.Toplevel):
         self.btn_ifft.configure(state="disabled")
         self.status.set("Mandando o espectro à FPGA (inverse=1)...")
 
+        def progresso(feitos, total):
+            if total > 1:
+                self.after(0, lambda: self.status.set(
+                    "IFFT %d de %d na FPGA..." % (feitos, total)))
+
+        placa = blocos.IfftPlaca(client, normalizar)
+
         def worker():
             try:
-                req, escala = build_ifft_request(X, normalizar=normalizar)
-                resp = client.request(req)
-                x_hw = decode_ifft_response(resp, escala)
+                x_hw = blocos.ifft_longa(X, placa, progresso=progresso)
+                # A escala e a do ultimo bloco; com um bloco so, a de sempre.
+                escala = placa.ultima_escala
                 self.after(0, lambda: self._on_ifft_done(x_hw, escala))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_ifft_erro(err))

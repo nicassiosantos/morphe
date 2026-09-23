@@ -141,8 +141,49 @@ o espectrograma contra a STFT feita à mão, e cada formato de arquivo (vírgula
 vírgula com vírgula decimal, coluna de tempo que dá fs, `.npy`, `.wav` estéreo de 16
 bits), além de recusar arquivos malformados. **19 de 19.**
 
-**Falta da etapa 0:** uma janela para o espectrograma (a biblioteca já faz) e o mesmo
-caminho por blocos nas janelas de FIR e FFT.
+**Etapa 0 levada a todas as janelas, no mesmo dia.** Validada pelo estagiário na
+estação com os sinais de `exemplos/sinais/` (convolução); depois estendida a gerador,
+FFT, IFFT, FIR e IIR. Cada operação pediu uma solução diferente, porque "por blocos"
+não significa a mesma coisa em todas:
+
+- **FIR:** overlap-add pela operação FIR da placa, como na convolução. O construtor de
+  x[n] ganhou "Carregar x[n] de arquivo…", e o filtro deixou de ter limite de 1024
+  coeficientes (h também é dividido).
+- **FFT e IFFT:** um espectrograma mudaria o significado da janela. Em vez disso, a
+  **FFT de 1024·M pontos pelo algoritmo de quatro passos** (Cooley-Tukey com
+  N1 = M, N2 = 1024): M FFTs de 1024 na placa, fatores de giro e DFTs de M pontos no
+  PC. É a mesma DFT, exata. A IFFT longa é a mesma decomposição com a IFFT da placa;
+  espectros que não são múltiplos de 1024 são recusados (completar um espectro com
+  zeros mudaria o sinal). A janela da IFFT passou a abrir `.npy` complexo e `.csv`
+  com colunas real e imaginária, além do `.mrph`.
+- **IIR:** a realimentação não se decompõe. Blocos com **aquecimento** calculado pelo
+  polo de maior módulo (transitório abaixo de meio LSB, com folga), e o modelo em
+  Python roda nos **mesmos blocos**, para a conferência bit a bit continuar valendo.
+  A distância dos blocos para o filtro rodando sem parar é informada à parte, e em
+  ponto fixo ela nem sempre chega a zero: com arredondamento na realimentação,
+  estados iniciais diferentes podem não convergir para os mesmos bits. Medido no
+  modelo, fs = 8 kHz: Butterworth de ordem 4 em 1 kHz, 0 LSB; de ordem 2 em 100 Hz,
+  cai a 8 LSB com o aquecimento da fórmula (327) e estaciona em 4 com qualquer
+  aquecimento maior. Polos perto demais do círculo unitário, que pediriam
+  aquecimento maior que o bloco, são recusados com explicação.
+
+Medido na placa `.24`, pelas próprias janelas (o `.wav` de 8000 amostras) e pelo
+`testa_blocos.py --placa`:
+
+| janela / operação | resultado |
+|---|---|
+| FFT de 8192 pontos, 8 FFTs da placa | 92,9 dB contra `np.fft` (95,8 dB pela janela) |
+| IFFT de 8192 pontos, ida e volta pela placa | 87,2 dB (88,6 dB pela janela da FFT) |
+| janela da IFFT com `espectro_8192.npy` | 92,2 dB contra o NumPy |
+| FIR, 8000 × 67 | 8 blocos, 8066 amostras, 59,4 dB |
+| IIR Butterworth de ordem 4, 8000 amostras | 9 blocos, aquecimento 80, **bit a bit igual ao modelo**, 0 LSB do filtro contínuo |
+| FIR curto (N = 64) | o caminho antigo, intocado: uma requisição, 2047 amostras |
+| gerador de sinais | carrega o `.wav`, desenha como linha, salva em `.mrph` |
+
+Sem placa, o teste passou a conferir também a FFT/IFFT longa contra `np.fft` (erro
+~10⁻¹⁶ para N = 1500 a 8192) e o IIR por blocos contra o modelo contínuo.
+
+**Falta:** uma janela para o espectrograma, que está só na biblioteca.
 
 **Como o ADC funciona, lido do código** — registrado em `docs/ADC.md`. O controlador do
 University Program converte sem parar e entrega o último valor de cada canal, e foi

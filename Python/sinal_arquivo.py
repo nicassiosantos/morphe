@@ -55,6 +55,54 @@ def carregar_sinal(caminho: str) -> dsp.Signal:
     return dsp.Signal(n=n, x=x, fs=fs, description=desc)
 
 
+TIPOS_ESPECTRO = [("Espectros", "*.mrph *.npy *.csv *.txt"),
+                  ("Morphe bundle (.mrph)", "*.mrph"),
+                  ("NumPy complexo (.npy)", "*.npy"),
+                  ("Texto: colunas real e imaginária (.csv, .txt)", "*.csv *.txt"),
+                  ("Todos", "*.*")]
+
+
+def carregar_espectro(caminho: str) -> np.ndarray:
+    """Le um espectro complexo X[k] de .npy (vetor complexo) ou de texto com
+    duas colunas, parte real e parte imaginaria (uma coluna so: espectro
+    real). Para .mrph, a janela da IFFT usa o leitor de bundles."""
+    ext = os.path.splitext(caminho)[1].lower()
+    if ext == ".npy":
+        a = np.load(caminho, allow_pickle=False)
+        if np.iscomplexobj(a):
+            X = np.asarray(a, dtype=np.complex128).ravel()
+        else:
+            a = np.asarray(a, dtype=np.float64)
+            X = (a[:, 0] + 1j * a[:, 1]) if (a.ndim == 2 and a.shape[1] == 2) \
+                else a.ravel().astype(np.complex128)
+    elif ext in (".csv", ".txt"):
+        with open(caminho, encoding="utf-8-sig", errors="replace") as f:
+            linhas = [l.strip() for l in f if l.strip()]
+        ponto_virgula = any(";" in l for l in linhas)
+        valores = []
+        for l in linhas:
+            campos = ([c.strip().replace(",", ".") for c in l.split(";")]
+                      if ponto_virgula else [c for c in re.split(r"[,\t ]+", l) if c])
+            try:
+                valores.append([float(c) for c in campos])
+            except ValueError:
+                continue                                     # cabecalho
+        larguras = {len(v) for v in valores}
+        if larguras == {2}:
+            a = np.array(valores)
+            X = a[:, 0] + 1j * a[:, 1]
+        elif larguras == {1}:
+            X = np.array([v[0] for v in valores], dtype=np.complex128)
+        else:
+            raise ValueError(f"{os.path.basename(caminho)}: esperado 1 coluna (real) "
+                             f"ou 2 (real e imaginária)")
+    else:
+        raise ValueError(f"formato de espectro nao suportado: '{ext}'")
+    if X.size == 0:
+        raise ValueError(f"{os.path.basename(caminho)}: nenhum valor lido")
+    return X
+
+
 def _duas_colunas(a: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """Vetor -> amostras. Duas colunas -> (indice ou tempo, amostras)."""
     a = np.asarray(a, dtype=np.float64)

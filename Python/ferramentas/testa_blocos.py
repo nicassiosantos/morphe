@@ -14,7 +14,12 @@ Com --placa, roda contra o hardware:
   * convolucao de um sinal de 5000 amostras (duas senoides) por um passa-baixa
     de 67 coeficientes, em blocos, contra np.convolve em float64;
   * espectrograma de uma varredura de frequencia de 8192 amostras, com a FFT
-    da placa, contra o mesmo espectrograma com np.fft.
+    da placa, contra o mesmo espectrograma com np.fft;
+  * FFT de 8192 pontos em quatro passos (8 FFTs da placa) contra np.fft, e a
+    volta pela IFFT longa da placa;
+  * a mesma convolucao pela operacao FIR;
+  * IIR por blocos (Butterworth de 4a ordem): placa e modelo nos mesmos
+    blocos tem de bater bit a bit.
 
     python3 ferramentas/testa_blocos.py
     python3 ferramentas/testa_blocos.py --placa 172.16.230.24
@@ -38,7 +43,7 @@ import blocos
 import dsp_core as dsp
 from morphe_config import DEFAULT_PORT
 from morphe_protocol import TcpClient
-from sinal_arquivo import carregar_sinal
+from sinal_arquivo import carregar_espectro, carregar_sinal
 
 FALHAS: list[str] = []
 
@@ -105,6 +110,47 @@ def sem_placa() -> None:
     _, X1 = blocos.espectrograma(np.ones(100), np.fft.fft)
     confere(X1.shape == (1, 1024), "sinal menor que um quadro vira um quadro so")
 
+    print("\n[2b] FFT e IFFT longas em quatro passos (blocos de 1024 com np.fft)")
+    for N in (1024, 1500, 4096, 5000, 8192):
+        x = rng.standard_normal(N)
+        X = blocos.fft_longa(x, np.fft.fft)
+        ref = np.fft.fft(np.r_[x, np.zeros(X.size - N)])
+        xr = blocos.ifft_longa(X, np.fft.ifft)
+        erro = float(np.max(np.abs(X - ref)) / np.max(np.abs(ref)))
+        volta = float(np.max(np.abs(xr[:N] - x)))
+        confere(X.size == blocos.n_fft_longa(N) and erro < 1e-12 and volta < 1e-12,
+                f"N={N:5d}: FFT de {X.size} pontos, erro relativo {erro:.1e}; "
+                f"ida e volta {volta:.1e}")
+    try:
+        blocos.ifft_longa(np.ones(1500), np.fft.ifft)
+        confere(False, "espectro de 1500 bins deveria ser recusado")
+    except ValueError:
+        confere(True, "espectro que nao e multiplo de 1024 e recusado")
+
+    print("\n[2c] IIR por blocos com aquecimento (modelo em ponto fixo)")
+    import iir_design as iir
+    from scipy import signal
+    n = np.arange(8000)
+    x = 0.5 * np.sin(2 * np.pi * 300 * n / 8000) + 0.3 * np.sin(2 * np.pi * 3000 * n / 8000)
+    for nome, sos, tolerancia in [
+            ("Butterworth 4a ordem, 1 kHz", signal.butter(4, 1000, fs=8000, output="sos"), 0),
+            ("Butterworth 2a ordem, 100 Hz", signal.butter(2, 100, fs=8000, output="sos"), 16)]:
+        aq = blocos.aquecimento_iir(sos)
+        modelo = lambda seg, sos=sos: (blocos.q1516_iir(iir.filtra_sos_fixo(seg, sos, 16, 32)), False)
+        yb, _ = blocos.iir_por_blocos(x, modelo, aq)
+        cont = blocos.q1516_iir(iir.filtra_sos_fixo(x, sos, 16, 32))
+        d = int(np.max(np.abs(yb - cont)))
+        confere(d <= tolerancia,
+                f"{nome}: aquecimento {aq}, blocos x filtro continuo {d} LSB "
+                f"(tolerado {tolerancia}: ponto fixo nao converge sempre bit a bit)")
+    curto = x[:700]
+    modelo = lambda seg: (blocos.q1516_iir(iir.filtra_sos_fixo(seg, sos, 16, 32)), False)
+    chamadas = []
+    y1, _ = blocos.iir_por_blocos(curto, lambda s: chamadas.append(1) or modelo(s), 100)
+    confere(len(chamadas) == 1 and np.array_equal(
+        y1, blocos.q1516_iir(iir.filtra_sos_fixo(curto, sos, 16, 32))),
+        "sinal ate 1024 amostras: uma execucao so, igual a de sempre")
+
     print("\n[3] leitura de arquivo")
     with tempfile.TemporaryDirectory() as d:
         v = np.array([0.5, -1.25, 3.0, 0.0, 2.5])
@@ -134,6 +180,14 @@ def sem_placa() -> None:
         sig = carregar_sinal(os.path.join(d, "a.wav"))
         confere(sig.fs == 8000 and sig.x.size == 800 and np.allclose(sig.x, pcm / 32768),
                 "a.wav estereo de 16 bits: primeiro canal, fs=8000, em [-1, 1)")
+
+        Xc = rng.standard_normal(2048) + 1j * rng.standard_normal(2048)
+        np.save(os.path.join(d, "X.npy"), Xc)
+        with open(os.path.join(d, "X.csv"), "w", encoding="utf-8") as f:
+            f.write("re,im\n" + "\n".join(f"{z.real:.17g},{z.imag:.17g}" for z in Xc))
+        confere(np.allclose(carregar_espectro(os.path.join(d, "X.npy")), Xc)
+                and np.allclose(carregar_espectro(os.path.join(d, "X.csv")), Xc),
+                "espectro complexo de 2048 bins em .npy e em .csv (re, im)")
 
         for nome, texto in {"tres_colunas.csv": "1,2,3\n4,5,6",
                             "vazio.txt": "cabecalho\n"}.items():
@@ -187,6 +241,43 @@ def com_placa(ip: str, porta: int) -> None:
     confere(np.array_equal(picos_p, picos_r),
             "o pico de cada quadro cai no mesmo bin da referencia "
             f"({picos_p[0]} ... {picos_p[-1]}: a frequencia sobe, como a varredura)")
+
+    print(f"\n[6] FFT e IFFT longas (quatro passos) na placa {ip}")
+    t0 = time.monotonic()
+    X = blocos.fft_longa(chirp, blocos.FftPlaca(cli))
+    seg = time.monotonic() - t0
+    s = snr_db(np.fft.fft(chirp), X)
+    confere(X.size == 8192 and s > 50,
+            f"FFT de 8192 pontos: 8 FFTs da placa em {seg:.2f} s, {s:.1f} dB contra np.fft")
+    t0 = time.monotonic()
+    xr = blocos.ifft_longa(X, blocos.IfftPlaca(cli))
+    seg = time.monotonic() - t0
+    s = snr_db(chirp, np.real(xr))
+    confere(s > 50, f"IFFT de 8192 pontos: 8 IFFTs da placa em {seg:.2f} s; "
+                    f"ida e volta pela placa, {s:.1f} dB")
+
+    print(f"\n[7] FIR por blocos na placa {ip} (operacao FIR, nao a convolucao)")
+    t0 = time.monotonic()
+    y = blocos.conv_por_blocos(x, h, blocos.FirPlaca(cli))
+    seg = time.monotonic() - t0
+    s = snr_db(np.convolve(x, h), y)
+    confere(s > 60, f"x=5000 h=67 pela operacao FIR: 5 blocos em {seg:.2f} s, {s:.1f} dB")
+
+    print(f"\n[8] IIR por blocos na placa {ip}")
+    import iir_design as iir
+    from scipy import signal
+    sos = signal.butter(4, 1000, fs=fs, output="sos")
+    coefs = iir.coeficientes_inteiros(sos, 16, 32)
+    aq = blocos.aquecimento_iir(sos)
+    modelo = lambda seg_: (blocos.q1516_iir(iir.filtra_sos_fixo(seg_, sos, 16, 32)), False)
+    t0 = time.monotonic()
+    y_hw, sat = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aq)
+    seg = time.monotonic() - t0
+    y_mod, _ = blocos.iir_por_blocos(x, modelo, aq)
+    dif = int(np.count_nonzero(y_hw != y_mod))
+    confere(dif == 0 and not sat,
+            f"Butterworth 4a ordem em 1 kHz, 5000 amostras: aquecimento {aq}, "
+            f"{seg:.2f} s; placa x modelo nos mesmos blocos: {dif} amostras diferentes")
 
 
 def main() -> int:

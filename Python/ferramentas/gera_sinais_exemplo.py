@@ -16,6 +16,8 @@ Arquivos:
   passa_baixa_1k.csv     h[n], 67 coeficientes, uma coluna
   impulso_atrasado.txt   h[n] = delta[n - 2000]: a saida e x atrasado 2000
                          amostras, e h tambem passa de 1024 (vira 2 blocos)
+  espectro_8192.npy      X[k] = FFT de 8192 pontos do .wav (complexo), para a
+                         janela da IFFT: volta ao sinal por 8 IFFTs da placa
 """
 from __future__ import annotations
 
@@ -57,12 +59,14 @@ def main() -> None:
             f.write(f"{i / FS:.6f},{v:.6f}\n")
 
     np.savetxt(caminho("passa_baixa_1k.csv"), passa_baixa(), fmt="%.9f",
-               header="h[n]: passa-baixa, 67 coeficientes, corte 1 kHz a fs 8 kHz",
-               comments="")
+               header="h[n]: passa-baixa, 67 coeficientes, corte 1 kHz a fs 8 kHz")
 
     d = np.zeros(2001)
     d[2000] = 1.0
     np.savetxt(caminho("impulso_atrasado.txt"), d, fmt="%g")
+
+    X = np.fft.fft(np.r_[x, np.zeros(8192 - x.size)])
+    np.save(caminho("espectro_8192.npy"), X)
 
     for nome in sorted(os.listdir(DESTINO)):
         print(f"  {nome}  ({os.path.getsize(caminho(nome))} bytes)")

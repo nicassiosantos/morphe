@@ -4,7 +4,9 @@ e exibe magnitude/fase.
 
 Hardware: FFT IP em buffered burst, N=1024 fixo. Sinais menores são
 zero-padded até 1024 (o que equivale, no domínio da frequência, a
-interpolação espectral). A configuração TCP é compartilhada com a
+interpolação espectral). Sinais maiores viram uma FFT de 1024·M pontos pelo
+algoritmo de quatro passos (blocos.fft_longa): M FFTs de 1024 na placa,
+ligadas no PC -- a mesma DFT, não uma aproximação. A configuração TCP é compartilhada com a
 janela principal (master.tcp_panel).
 """
 from __future__ import annotations
@@ -22,17 +24,32 @@ matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import blocos
 import dsp_core as dsp
 import morphe_theme as theme
 from signal_panel import SignalPanel
-from morphe_protocol import (build_fft_request, decode_fft_response,
-                             build_ifft_request, decode_ifft_response)
+from morphe_protocol import build_fft_request, decode_fft_response
 from popout_helper import open_or_focus, refresh_all
 from plot_toolbar import PlotToolbar
 
 
 # ----------------------------------------------------------------------
 # Helpers de plot (inalterados — comportamento já estava bom)
+
+# Acima disto o stem vira um borrão e deixa a janela lenta: sinais e
+# espectros longos são desenhados como linha.
+STEM_MAX = 2048
+
+
+def _stem_ou_linha(ax, k, v, color, markersize=3):
+    if len(v) > STEM_MAX:
+        ax.plot(k, v, color=color, linewidth=0.8)
+        return
+    ml, sl, _ = ax.stem(k, v, basefmt=" ")
+    ml.set_markersize(markersize)
+    ml.set_color(color)
+    ml.set_markerfacecolor(color)
+    sl.set_color(color)
 
 def _attach_stem_format_coord(ax, n_arr: np.ndarray, x_arr: np.ndarray,
                                x_label: str = "n", y_label: str = "x",
@@ -63,11 +80,7 @@ def _stem_signal(ax, sig: Optional[dsp.Signal], title: str, color: str):
         theme.draw_empty_axes(ax, title)
         return
     n_plot = np.asarray(sig.n, dtype=float)
-    ml, sl, _ = ax.stem(n_plot, sig.x, basefmt=" ")
-    ml.set_markersize(4)
-    ml.set_color(color)
-    ml.set_markerfacecolor(color)
-    sl.set_color(color)
+    _stem_ou_linha(ax, n_plot, sig.x, color, markersize=4)
     ax.set_title(f"{title}  —  {sig.description}", fontsize=9)
     ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
     n_min, n_max = float(n_plot.min()), float(n_plot.max())
@@ -141,15 +154,12 @@ def _stem_complex_mag(ax, X: Optional[np.ndarray], db: bool, color: str,
     if db:
         eps = 1e-20
         mag_plot = 20 * np.log10(mag + eps)
-        ax.plot(k, mag_plot, marker="o", markersize=3, color=color)
+        ax.plot(k, mag_plot, color=color,
+                **({} if N > STEM_MAX else {"marker": "o", "markersize": 3}))
         ax.set_ylabel("|X[k]|  (dB)")
         ax.set_title(f"|X[k]| em dB  (N={N})", fontsize=10)
     else:
-        ml, sl, _ = ax.stem(k, mag, basefmt=" ")
-        ml.set_markersize(3)
-        ml.set_color(color)
-        ml.set_markerfacecolor(color)
-        sl.set_color(color)
+        _stem_ou_linha(ax, k, mag, color)
         ax.set_ylabel("|X[k]|")
         ax.set_title(f"|X[k]|  (N={N})", fontsize=10)
 
@@ -168,11 +178,7 @@ def _stem_complex_phase(ax, X: Optional[np.ndarray], color: str):
     N = len(X)
     k = np.arange(N, dtype=float)
     phase = np.angle(X)
-    ml, sl, _ = ax.stem(k, phase, basefmt=" ")
-    ml.set_markersize(3)
-    ml.set_color(color)
-    ml.set_markerfacecolor(color)
-    sl.set_color(color)
+    _stem_ou_linha(ax, k, phase, color)
     ax.set_title("Fase de X[k] (rad)", fontsize=10)
     ax.set_xlabel("k")
     theme.style_plot_axes(ax)
@@ -240,7 +246,9 @@ class FFTWindow(tk.Toplevel):
             f"• Tamanho da FFT: fixo em {dsp.MAX_FFT_INPUT_SIZE} pontos\n"
             f"• Sinais com N < {dsp.MAX_FFT_INPUT_SIZE} são zero-padded "
             "(equivale a interpolação espectral)\n"
-            f"• Sinais com N > {dsp.MAX_FFT_INPUT_SIZE} não são aceitos\n"
+            f"• Sinais com N > {dsp.MAX_FFT_INPUT_SIZE}: FFT de "
+            f"{dsp.MAX_FFT_INPUT_SIZE}·M pontos em quatro passos — M FFTs "
+            "de 1024 na placa, ligadas no PC (a mesma DFT, exata)\n"
             f"• Formato Q15.8 no fio: 24 bits úteis, 8 fracionários\n"
             f"• Faixa de entrada: "
             f"[{dsp.FFT_Q_MIN_FLOAT:.1f}, {dsp.FFT_Q_MAX_FLOAT:.4f}]\n"
@@ -261,6 +269,7 @@ class FFTWindow(tk.Toplevel):
             default_N=64,
             default_type="Senóide",
             max_N=dsp.MAX_FFT_INPUT_SIZE,
+            aceita_longo=True,
         )
         self.x_panel.pack(fill="x", pady=(6, 0))
 
@@ -474,11 +483,9 @@ class FFTWindow(tk.Toplevel):
             messagebox.showerror("Configuração", str(e))
             return
 
-        try:
-            x_padded = dsp.pad_zeros_to(self.x_sig.x, dsp.MAX_FFT_INPUT_SIZE)
-        except ValueError as e:
-            messagebox.showerror("Tamanho excedido", str(e))
-            return
+        longo = self.x_sig.x.size > dsp.MAX_FFT_INPUT_SIZE
+        x_padded = (self.x_sig.x if longo else
+                    dsp.pad_zeros_to(self.x_sig.x, dsp.MAX_FFT_INPUT_SIZE))
 
         # Com normalizacao nao ha saturacao: a escala encosta o pico no
         # teto em vez de cortar nele. O aviso so faz sentido sem ela.
@@ -493,12 +500,34 @@ class FFTWindow(tk.Toplevel):
 
         n_orig = int(self.x_sig.x.size)
         self.btn_fft.config(state="disabled")
+        normalizar = bool(self.var_norm.get())
+
+        if longo:
+            n_fft = blocos.n_fft_longa(n_orig)
+            m = n_fft // dsp.MAX_FFT_INPUT_SIZE
+            self.status.set(f"N={n_orig}: FFT de {n_fft} pontos em quatro passos, "
+                            f"{m} FFTs de {dsp.MAX_FFT_INPUT_SIZE} na FPGA...")
+
+            def progresso(feitos, total):
+                self.after(0, lambda: self.status.set(
+                    f"FFT {feitos} de {total} na FPGA..."))
+
+            def worker_longo():
+                try:
+                    X = blocos.fft_longa(self.x_sig.x,
+                                         blocos.FftPlaca(client, normalizar),
+                                         progresso=progresso)
+                    self.after(0, lambda: self._on_fft_done(X, n_blocos=m))
+                except Exception as e:
+                    self.after(0, lambda err=e: self._on_fft_error(err))
+
+            threading.Thread(target=worker_longo, daemon=True).start()
+            return
+
         self.status.set(
             f"Padding {n_orig}→{dsp.MAX_FFT_INPUT_SIZE} amostras, "
             "enviando à FPGA..."
         )
-
-        normalizar = bool(self.var_norm.get())
 
         def worker():
             try:
@@ -512,14 +541,20 @@ class FFTWindow(tk.Toplevel):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_fft_done(self, X: np.ndarray, escala: float = 1.0):
+    def _on_fft_done(self, X: np.ndarray, escala: float = 1.0,
+                     n_blocos: int = 1):
         self.X_complex = X
         # Um X[k] novo invalida a reconstrucao anterior.
         self.x_ifft = None
         self._redraw()
         self.btn_fft.config(state="normal")
         self.btn_ifft.config(state="normal")
-        if abs(escala - 1.0) > 1e-12:
+        if n_blocos > 1:
+            self.status.set(
+                "OK. FFT com %d pontos em quatro passos: %d FFTs de %d na "
+                "FPGA, ligadas no PC." % (len(X), n_blocos,
+                                          dsp.MAX_FFT_INPUT_SIZE))
+        elif abs(escala - 1.0) > 1e-12:
             self.status.set(
                 "OK. FFT com %d pontos.  Entrada normalizada por %.4g "
                 "(%.1f bits de faixa recuperados)."
@@ -553,11 +588,17 @@ class FFTWindow(tk.Toplevel):
         self.btn_ifft.config(state="disabled")
         self.status.set("Mandando X[k] de volta à FPGA (inverse=1)...")
 
+        def progresso(feitos, total):
+            if total > 1:
+                self.after(0, lambda: self.status.set(
+                    f"IFFT {feitos} de {total} na FPGA..."))
+
         def worker():
             try:
-                req, escala = build_ifft_request(X, normalizar=normalizar)
-                resp = client.request(req)
-                x_rec = decode_ifft_response(resp, escala)
+                # Com X de 1024 pontos e uma IFFT so, como sempre; acima,
+                # os quatro passos com a IFFT da placa.
+                x_rec = blocos.ifft_longa(X, blocos.IfftPlaca(client, normalizar),
+                                          progresso=progresso)
                 self.after(0, lambda: self._on_ifft_done(x_rec))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_ifft_error(err))

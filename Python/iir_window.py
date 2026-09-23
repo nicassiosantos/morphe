@@ -17,6 +17,16 @@ Duas diferencas que vem do IIR ser realimentado:
 
 Saturacao chega no campo `extra` da resposta, nao como erro: o resultado
 e mostrado (grudado no limite onde estourou) com o aviso.
+
+Sinais com mais de IIR_N_MAX amostras vao por blocos com aquecimento
+(blocos.iir_por_blocos): cada bloco comeca antes do trecho que interessa, o
+bastante para o transitorio do estado zero morrer, e essas saidas sao
+descartadas. O modelo roda com os MESMOS blocos, entao a conferencia bit a
+bit continua valendo; a distancia entre os blocos e o filtro rodando sem
+parar e medida a parte, em LSB. Em ponto fixo ela nao chega sempre a zero:
+com arredondamento na realimentacao, estados iniciais diferentes podem nao
+convergir para os mesmos bits (medido em 23/09/2026: 0 LSB num Butterworth
+de ordem 4 em 1 kHz, 4 a 8 num de ordem 2 em 100 Hz, a fs = 8 kHz).
 """
 from __future__ import annotations
 
@@ -33,6 +43,7 @@ matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import blocos
 import dsp_core as dsp
 import iir_design as iir
 import morphe_config as cfg
@@ -168,6 +179,9 @@ class IIRWindow(tk.Toplevel):
             hw_section.body, kind="warn", wraplength=320,
             text=(f"• x[n]: até {MAX_N} amostras (o bloco processa sempre "
                   f"{MAX_N}; o resto vai como zero)\n"
+                  f"• Acima de {MAX_N}: por blocos, cada um com aquecimento "
+                  "calculado pelos polos; conferido contra o modelo nos "
+                  "mesmos blocos\n"
                   f"• Até {cfg.IIR_SECOES_MAX} seções de 2ª ordem "
                   f"(ordem {2 * cfg.IIR_SECOES_MAX})\n"
                   "• Amostras e coeficientes em Q15.16, "
@@ -178,7 +192,7 @@ class IIRWindow(tk.Toplevel):
         ).pack(fill="x")
 
         self.builder = SuperpositionBuilder(
-            parent, on_signal_changed=self._on_x_updated)
+            parent, on_signal_changed=self._on_x_updated, aceita_longo=True)
         self.builder.pack(fill="x", pady=(6, 0))
 
         self.filtro = IIRFilterPanel(
@@ -371,6 +385,10 @@ class IIRWindow(tk.Toplevel):
                                  "Erro: %s\nVerifique host/porta na janela principal." % e)
             return
 
+        if self.x_n_useful > MAX_N:
+            self._on_run_blocos(client)
+            return
+
         x = self.x_input[:MAX_N]
         sos = self.sos
         x_q = _q(x)
@@ -393,7 +411,48 @@ class IIRWindow(tk.Toplevel):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_run_done(self, y_q, saturou, y_ref):
+    def _on_run_blocos(self, client):
+        """x acima de MAX_N: blocos com aquecimento, na placa e no modelo."""
+        x = self.x_input[:self.x_n_useful]
+        sos = self.sos
+        try:
+            aquec = blocos.aquecimento_iir(sos, FRAC)
+        except ValueError as e:
+            messagebox.showerror("IIR por blocos", str(e))
+            return
+        coefs = iir.coeficientes_inteiros(sos, FRAC, TOTAL)
+        self.btn_run.configure(state="disabled")
+        self.status.set("N=%d: por blocos, aquecimento de %d amostras por bloco, "
+                        "enviando à FPGA..." % (x.size, aquec))
+
+        def progresso(feitos, total):
+            self.after(0, lambda: self.status.set(
+                "Bloco %d de %d na FPGA..." % (feitos, total)))
+
+        def modelo(seg):
+            return _q(iir.filtra_sos_fixo(seg, sos, FRAC, TOTAL)), False
+
+        def worker():
+            try:
+                y_q, saturou = blocos.iir_por_blocos(
+                    x, blocos.IirPlaca(client, coefs), aquec, MAX_N, progresso)
+                self.after(0, lambda: self.status.set(
+                    "Conferindo contra o modelo em Python..."))
+                # Referencia bit a bit: o modelo com os MESMOS blocos.
+                y_ref, _ = blocos.iir_por_blocos(x, modelo, aquec, MAX_N)
+                # Quanto os blocos se afastam do filtro rodando sem parar.
+                y_cont = _q(iir.filtra_sos_fixo(x, sos, FRAC, TOTAL))
+                dist = int(np.max(np.abs(y_ref - y_cont)))
+                info = ("%d blocos, aquecimento %d; blocos × filtro contínuo: "
+                        "%d LSB" % (1 + int(np.ceil((x.size - MAX_N) / (MAX_N - aquec))),
+                                    aquec, dist))
+                self.after(0, lambda: self._on_run_done(y_q, saturou, y_ref, info))
+            except Exception as e:
+                self.after(0, lambda err=e: self._on_run_error(err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_run_done(self, y_q, saturou, y_ref, info_blocos: str = ""):
         self.y_output = dsp.q1516_to_float(y_q)
         self.y_saturou = saturou
         dif = np.nonzero(y_q != y_ref[:len(y_q)])[0]
@@ -408,6 +467,9 @@ class IIRWindow(tk.Toplevel):
                    % (dif.size, i, y_q[i], y_ref[i]))
         if saturou:
             msg += "  SATUROU em alguma amostra."
+        if info_blocos:
+            msg += "  [" + info_blocos + "]"
+            self.y_confere += " (" + info_blocos + ")"
         self.status.set(msg)
         self._update_run_button()
         self._redraw_plots()
@@ -434,7 +496,7 @@ class IIRWindow(tk.Toplevel):
                                dtype=np.float64).reshape(-1)
             # x vai já encaixado na grade Q15.16 (o que a placa recebeu),
             # para o comparador refazer a conta a partir dos mesmos inteiros.
-            x = _q(self.x_input[:MAX_N]) / ESCALA
+            x = _q(self.x_input[:max(MAX_N, self.x_n_useful)]) / ESCALA
             sections = [
                 {"name": "x", "kind": "real", "type": "float32", "fs": fs,
                  "data": x.astype(np.float32),
