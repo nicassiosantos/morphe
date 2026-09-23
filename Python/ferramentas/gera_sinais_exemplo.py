@@ -18,6 +18,9 @@ Arquivos:
                          amostras, e h tambem passa de 1024 (vira 2 blocos)
   espectro_8192.npy      X[k] = FFT de 8192 pontos do .wav (complexo), para a
                          janela da IFFT: volta ao sinal por 8 IFFTs da placa
+  varredura_8k.wav       2 s a 8 kHz: tom que sobe de 100 Hz a 3,5 kHz, mais um
+                         tom fixo de 1 kHz na segunda metade -- no espectrograma,
+                         uma rampa e uma linha que aparece no meio
 """
 from __future__ import annotations
 
@@ -67,6 +70,12 @@ def main() -> None:
 
     X = np.fft.fft(np.r_[x, np.zeros(8192 - x.size)])
     np.save(caminho("espectro_8192.npy"), X)
+
+    t = np.arange(2 * FS) / FS
+    varredura = 0.5 * np.sin(2 * np.pi * (100 * t + (3500 - 100) / (2 * t[-1]) * t ** 2))
+    varredura += 0.25 * np.sin(2 * np.pi * 1000 * t) * (t >= 1.0)
+    wavfile.write(caminho("varredura_8k.wav"), FS,
+                  np.round(varredura * 32767).astype(np.int16))
 
     for nome in sorted(os.listdir(DESTINO)):
         print(f"  {nome}  ({os.path.getsize(caminho(nome))} bytes)")

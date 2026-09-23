@@ -11,6 +11,7 @@ hardware (1024 amostras) em todas as janelas. Gerados por
 | `passa_baixa_1k.csv` | h[n]: passa-baixa de 67 coeficientes, corte em 1 kHz |
 | `impulso_atrasado.txt` | h[n] = δ[n − 2000]: 2001 amostras, também maior que o hardware |
 | `espectro_8192.npy` | X[k]: a FFT de 8192 pontos do `.wav`, complexa |
+| `varredura_8k.wav` | 2 s a 8 kHz: um tom que sobe de 100 Hz a 3,5 kHz, mais um tom fixo de 1 kHz a partir de t = 1 s |
 
 Todos os casos abaixo foram conferidos contra a placa `172.16.230.24` em 23/09/2026,
 pelas próprias janelas.
@@ -53,6 +54,19 @@ aquecimento do que cabe no bloco: a janela recusa com a explicação.
 
 1. **Abrir espectro…** → `espectro_8192.npy`
 2. **Calcular IFFT na FPGA** → 8 IFFTs de 1024 na placa; SNR contra o NumPy ~92 dB
+
+## Espectrograma
+
+1. **Sinal x[n]** → Tipo **Arquivo** → `varredura_8k.wav` → **Gerar**
+2. **Calcular espectrograma na FPGA** → 31 quadros de 1024 (janela de Hann, 50 % de
+   sobreposição), uma FFT da placa por quadro
+3. A imagem mostra **uma rampa** (a varredura) e, a partir de 1 s, **uma linha em
+   1 kHz**. As faixas verticais em 1 s e no fim são o início abrupto do tom e o corte
+   do sinal, que espalham energia por todas as frequências. Embaixo, o espectro médio
+   (Welch), FPGA e NumPy sobrepostos; ~93 dB entre os dois
+
+Troque a sobreposição (0 %, 50 %, 75 %) e a janela (Retangular mostra o vazamento
+espectral bem maior que a de Hann).
 
 ## Gerador de sinais
 
