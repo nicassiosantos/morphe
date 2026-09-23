@@ -280,6 +280,29 @@ ligar a estação supondo que a placa já está ligada e na rede, e falharia cal
 não estivesse. Preferiu-se o comando explícito — que, uma vez executado, não precisa ser
 repetido: os outros computadores só abrem o app.
 
+### O Quartus 20.1 em todos os computadores do laboratório
+
+Para o aluno usar o Quartus por conta própria — compilar um projeto dele e programar a
+FPGA pelo USB-Blaster ligado em qualquer computador —, cada computador precisa do
+Quartus **20.1** em `/opt`, da regra udev do cabo e do PATH para todas as contas. O
+`instala-quartus.sh` faz tudo isso, copiando a 20.1 da estação em vez de usar o
+instalador, para que a versão seja a mesma em todo o laboratório. Numa conta com sudo:
+
+```bash
+git clone -b estagio/v1.1-1024pontos https://github.com/nicassiosantos/morphe.git
+```
+
+```bash
+cd morphe && sudo ./instala-quartus.sh
+```
+
+Na estação ele não copia nada e só completa o resto (PATH e atalho no menu). Com a
+estação em outro IP, `--origem coordenador@<ip>`; de um HD externo, `--origem <pasta>`;
+só conferir, `--verificar`. Quem estiver logado precisa sair e entrar de novo.
+
+**Cuidado:** gravar um projeto próprio numa placa que está servindo o Morphe substitui o
+bitstream da plataforma para a turma inteira; depois, `./morphe-up.sh` restaura.
+
 ### O que já foi verificado, e o que falta
 
 Verificado em 16/09/2026, da conta `alunopds`: permissões da home (é o bloqueio), rede
