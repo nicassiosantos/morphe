@@ -9,8 +9,10 @@
 # caminho critico").
 #
 # Faz, na ordem, e pula o que ja estiver feito:
-#   1. copia /opt/intelFPGA_lite/20.1 da estacao (ou de um HD externo);
-#   2. confere que a copia e mesmo a 20.1;
+#   1. procura os Quartus ja instalados; um 20.1 com Cyclone V fora das homes e usado
+#      como esta, um dentro de uma home e copiado para /opt sem rede, e so sem nenhum
+#      dos dois a copia vem da estacao (ou de um HD externo);
+#   2. confere que o escolhido e mesmo a 20.1 e tem o Cyclone V;
 #   3. libera a leitura para todas as contas;
 #   4. regra udev do USB-Blaster, para qualquer conta enxergar o cabo;
 #   5. libudev.so.0, que o jtagd do USB-Blaster II da DE1-SoC procura;
@@ -26,6 +28,7 @@
 #   sudo ./instala-quartus.sh --verificar                   # so confere, nao muda nada
 #
 # Na propria estacao ele nao copia nada (a 20.1 ja esta la) e faz so os passos 3 a 8.
+# Com --verificar, o passo 1 mostra tudo o que ja esta instalado, sem mudar nada.
 # Pode ser rodado de novo quantas vezes quiser.
 
 set -euo pipefail
@@ -37,12 +40,14 @@ ARGS="$*"
 
 BASE="/opt/intelFPGA_lite"
 DEST="$BASE/20.1"
-QBIN="$DEST/quartus/bin"
 PERFIL="/etc/profile.d/quartus.sh"
 ATALHO="/usr/share/applications/quartus-20.1.desktop"
 REGRA="/etc/udev/rules.d/51-usbblaster.rules"
 LIBDIR="/lib/x86_64-linux-gnu"
 ESPACO_GB=17   # a 20.1 da estacao ocupa 16 GB
+# Existe enquanto uma copia esta em andamento. Se ela for interrompida, a proxima
+# execucao nao confunde a pasta pela metade com uma instalacao e retoma o rsync.
+INCOMPLETA=".instala-quartus-copia-incompleta"
 
 # ---------------------------------------------------------------------------
 # Saida
@@ -79,7 +84,7 @@ while [[ $# -gt 0 ]]; do
         --origem)    ORIGEM="${2:?--origem precisa de um valor}"; shift 2 ;;
         --aluno)     ALUNO="${2:?--aluno precisa de um valor}"; shift 2 ;;
         --verificar) VERIFICAR=1; shift ;;
-        -h|--help)   sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)   sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)           morrer "opcao desconhecida: $1" "use --help para ver as opcoes" ;;
     esac
 done
@@ -104,63 +109,124 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 1 e 2. O Quartus 20.1 em /opt
+# 1 e 2. Um Quartus 20.1 utilizavel: o que ja existe, ou uma copia da estacao
 # ---------------------------------------------------------------------------
+# Antes de copiar 16 GB, procura o que ja esta instalado. Um 20.1 fora das homes
+# serve como esta. Um 20.1 dentro de uma home NAO serve direto -- as homes sao 0750 e
+# o aluno nao le (foi o bloqueio da estacao em 16/09) --, mas vira a origem de uma
+# copia local para /opt, sem rede. So sem nenhum dos dois a copia vem da estacao.
+#
+# "Utilizavel" inclui o suporte ao Cyclone V: um Quartus sem ele programa a placa mas
+# nao compila nada para a DE1-SoC.
 
-versao_ok() { "$QBIN/quartus_sh" --version 2>/dev/null | grep -q 'Version 20\.1'; }
+tem_cyclonev() {
+    local devinfo="$1/quartus/common/devinfo"
+    [[ -d "$devinfo" ]] || return 0   # estrutura desconhecida: nao da para dizer que falta
+    compgen -G "$devinfo/cyclonev*" >/dev/null
+}
 
-passo "Quartus 20.1 em $DEST"
-if [[ -x "$QBIN/quartus_sh" ]]; then
-    ok "ja instalado"
+versao_de() { "$1/quartus/bin/quartus_sh" --version 2>/dev/null | grep -m1 'Version' || true; }
+
+eh_desta_maquina() {
+    local host="${1#*@}"
+    [[ "$host" == "localhost" || "$host" == "127.0.0.1" ]] && return 0
+    hostname -I 2>/dev/null | tr ' ' '\n' | grep -qxF "$host"
+}
+
+passo "Quartus ja instalados neste computador"
+QROOT=""      # o 20.1 que sera usado
+EM_HOME=""    # um 20.1 dentro de uma home, para copiar localmente
+while IFS= read -r qsh; do
+    raiz="${qsh%/quartus/bin/quartus_sh}"
+    v="$(versao_de "$raiz")"
+    if [[ -e "$raiz/$INCOMPLETA" ]]; then
+        aviso "$raiz: copia interrompida da outra vez -- sera retomada"
+    elif [[ "$v" != *"Version 20.1"* ]]; then
+        ok "$raiz: ${v:-versao ilegivel} -- outra versao, fica atras da 20.1 no PATH"
+    elif ! tem_cyclonev "$raiz"; then
+        aviso "$raiz: $v -- SEM suporte ao Cyclone V, nao serve para a DE1-SoC"
+    elif [[ "$raiz" == /home/* || "$raiz" == /root/* ]]; then
+        ok "$raiz: $v -- dentro de uma home, o aluno nao le; serve de origem da copia"
+        [[ -n "$EM_HOME" ]] || EM_HOME="$raiz"
+    else
+        ok "$raiz: $v -- serve"
+        # a de /opt/intelFPGA_lite ganha de qualquer outra, por ser a da estacao
+        if [[ -z "$QROOT" || "$raiz" == "$DEST" ]]; then QROOT="$raiz"; fi
+    fi
+done < <(find /opt /usr/local /tools /home /root -maxdepth 6 \( -type f -o -type l \) -path '*/quartus/bin/quartus_sh' 2>/dev/null | sort -u)
+[[ -n "$QROOT$EM_HOME" ]] || ok "nenhum Quartus 20.1 com Cyclone V"
+
+passo "Quartus 20.1 que as contas vao usar"
+if [[ -n "$QROOT" ]]; then
+    ok "$QROOT (ja instalado, nada a copiar)"
 elif [[ $VERIFICAR -eq 1 ]]; then
-    falta "o Quartus 20.1 nao esta em $DEST"
+    if [[ -n "$EM_HOME" ]]; then
+        falta "o 20.1 so existe em $EM_HOME, que o aluno nao le; sem --verificar ele e copiado para $DEST"
+    else
+        falta "nao ha Quartus 20.1 utilizavel; sem --verificar ele e copiado da estacao"
+    fi
 else
+    if [[ -z "$EM_HOME" && ! -d "$ORIGEM" ]] && eh_desta_maquina "$ORIGEM"; then
+        morrer "este computador E a estacao ($ORIGEM), e nao ha Quartus 20.1 utilizavel em $DEST." "Confira com: ls /opt/intelFPGA_lite"
+    fi
     livre="$(df --output=avail -BG "$(dirname "$BASE")" | tail -1 | tr -dc '0-9')"
     [[ "$livre" -ge $ESPACO_GB ]] || morrer "so ha ${livre} GB livres em /opt; a copia precisa de ${ESPACO_GB} GB"
 
     command -v rsync >/dev/null || { aviso "instalando o rsync"; apt-get install -y rsync >/dev/null; }
+    mkdir -p "$DEST"
+    touch "$DEST/$INCOMPLETA"
 
-    if [[ -d "$ORIGEM" ]]; then
+    if [[ -n "$EM_HOME" ]]; then
+        ok "copiando $EM_HOME para $DEST (local, sem rede)"
+        rsync -a --info=progress2 "$EM_HOME/" "$DEST/"
+    elif [[ -d "$ORIGEM" ]]; then
         # HD externo: aceita a pasta intelFPGA_lite ou a propria pasta 20.1
         if [[ -d "$ORIGEM/20.1/quartus" ]]; then FONTE="$ORIGEM/20.1/"
         elif [[ -d "$ORIGEM/quartus" ]];   then FONTE="$ORIGEM/"
         else morrer "$ORIGEM nao tem a pasta 20.1/quartus"; fi
         ok "copiando de $FONTE"
-        mkdir -p "$DEST"
         rsync -a --info=progress2 "$FONTE" "$DEST/"
     else
         ok "copiando de $ORIGEM:$DEST (16 GB, alguns minutos)"
         aviso "a senha pedida e a da conta ${ORIGEM%@*} NA ESTACAO"
-        mkdir -p "$DEST"
-        rsync -a --info=progress2 -e "ssh -o StrictHostKeyChecking=accept-new" "$ORIGEM:$DEST/" "$DEST/" \
-            || morrer "a copia falhou." "Na estacao, confira o IP com: hostname -I" "e se o SSH esta no ar com: systemctl is-active ssh" "Depois rode de novo com: sudo $0 --origem coordenador@<ip>"
-        fiz "copiado"
+        rsync -a --info=progress2 -e "ssh -o StrictHostKeyChecking=accept-new" "$ORIGEM:$DEST/" "$DEST/" || morrer "a copia falhou." "Na estacao, confira o IP com: hostname -I" "e se o SSH esta no ar com: systemctl is-active ssh" "Depois rode de novo com: sudo $0 --origem coordenador@<ip>"
     fi
+    rm -f "$DEST/$INCOMPLETA"
+    fiz "copiado"
+    QROOT="$DEST"
 fi
 
-if [[ -x "$QBIN/quartus_sh" ]]; then
-    if versao_ok; then
-        ok "$("$QBIN/quartus_sh" --version | grep -m1 'Version')"
-    else
-        morrer "$DEST nao e o Quartus 20.1:" "$("$QBIN/quartus_sh" --version 2>&1 | head -3)"
-    fi
+if [[ -n "$QROOT" ]]; then
+    v="$(versao_de "$QROOT")"
+    [[ "$v" == *"Version 20.1"* ]] || morrer "$QROOT nao e o Quartus 20.1:" "${v:-quartus_sh --version nao respondeu}"
+    tem_cyclonev "$QROOT" || morrer "$QROOT nao tem suporte ao Cyclone V"
+    ok "$v"
 fi
+QBIN="$QROOT/quartus/bin"
 
 # ---------------------------------------------------------------------------
 # 3. Leitura para todas as contas
 # ---------------------------------------------------------------------------
 
 passo "Permissoes"
-if [[ -d "$DEST" ]]; then
-    # Algum arquivo ou pasta que o aluno nao consiga ler (ou entrar)?
-    trancado="$(find "$BASE" \( -type d ! -perm -o=rx \) -o \( -type f ! -perm -o=r \) -print -quit 2>/dev/null)"
+if [[ -n "$QROOT" ]]; then
+    # Algum arquivo ou pasta que o aluno nao consiga ler (ou entrar)? Inclui as pastas
+    # acima do QROOT: uma so sem o x dos outros tranca tudo o que esta dentro.
+    trancado="$(find "$QROOT" \( -type d ! -perm -o=rx \) -o \( -type f ! -perm -o=r \) -print -quit 2>/dev/null)"
+    d="$(dirname "$QROOT")"
+    while [[ -z "$trancado" && "$d" != "/" ]]; do
+        [[ "$(stat -c %A "$d")" == ????????x* || "$(stat -c %A "$d")" == ?????????x ]] || trancado="$d"
+        d="$(dirname "$d")"
+    done
     if [[ -z "$trancado" ]]; then
-        ok "todas as contas leem $BASE"
+        ok "todas as contas leem $QROOT"
     elif [[ $VERIFICAR -eq 1 ]]; then
         falta "ha arquivos que o aluno nao le, por exemplo $trancado"
     else
-        chmod -R a+rX "$BASE"
-        fiz "chmod -R a+rX $BASE"
+        chmod -R a+rX "$QROOT"
+        d="$(dirname "$QROOT")"
+        while [[ "$d" != "/" ]]; do chmod a+x "$d"; d="$(dirname "$d")"; done
+        fiz "chmod -R a+rX $QROOT"
     fi
 fi
 
@@ -203,8 +269,10 @@ fi
 # leem o ~/.bashrc. A 20.1 vai NA FRENTE para ganhar de outra versao instalada.
 
 passo "PATH ($PERFIL)"
-LINHA_PATH="export PATH=\"$QBIN:$DEST/quartus/sopc_builder/bin:\$PATH\""
-if grep -qsF "$LINHA_PATH" "$PERFIL"; then
+LINHA_PATH="export PATH=\"$QBIN:$QROOT/quartus/sopc_builder/bin:\$PATH\""
+if [[ -z "$QROOT" ]]; then
+    falta "sem Quartus 20.1, nao ha o que por no PATH"
+elif grep -qsF "$LINHA_PATH" "$PERFIL"; then
     ok "ja configurado"
 elif [[ $VERIFICAR -eq 1 ]]; then
     falta "$PERFIL nao poe a 20.1 no PATH"
@@ -218,12 +286,14 @@ fi
 # ---------------------------------------------------------------------------
 
 passo "Atalho no menu ($ATALHO)"
-if [[ -f "$ATALHO" ]]; then
+if [[ -z "$QROOT" ]]; then
+    falta "sem Quartus 20.1, nao ha atalho a criar"
+elif grep -qsxF "Exec=$QBIN/quartus" "$ATALHO"; then
     ok "ja existe"
 elif [[ $VERIFICAR -eq 1 ]]; then
-    falta "o atalho \"Quartus Prime Lite 20.1\""
+    falta "o atalho \"Quartus Prime Lite 20.1\" para $QBIN/quartus"
 else
-    ICONE="$(find "$DEST/quartus/adm" -maxdepth 1 -iname '*.png' 2>/dev/null | sort | head -1)"
+    ICONE="$(find "$QROOT/quartus/adm" -maxdepth 1 -iname '*.png' 2>/dev/null | sort | head -1)"
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Quartus Prime Lite 20.1' "Exec=$QBIN/quartus" "Icon=${ICONE:-applications-engineering}" 'Terminal=false' 'Categories=Development;Electronics;' > "$ATALHO"
     fiz "\"Quartus Prime Lite 20.1\" no menu"
 fi
@@ -237,9 +307,12 @@ fi
 
 if id "$ALUNO" >/dev/null 2>&1 && [[ -x "$QBIN/quartus_sh" ]]; then
     passo "Teste na conta $ALUNO"
+    qual="$(sudo -u "$ALUNO" -H bash -lc 'command -v quartus_sh' || true)"
     versao_aluno="$(sudo -u "$ALUNO" -H bash -lc 'quartus_sh --version 2>/dev/null | grep -m1 Version' || true)"
-    if [[ "$versao_aluno" == *"Version 20.1"* ]]; then
-        ok "quartus_sh: $versao_aluno"
+    if [[ "$qual" != "$QBIN/quartus_sh" ]]; then
+        falta "o aluno acha o quartus_sh em ${qual:-lugar nenhum}, e nao em $QBIN (sair e entrar de novo resolve so se o PATH ja estiver certo)"
+    elif [[ "$versao_aluno" == *"Version 20.1"* ]]; then
+        ok "quartus_sh: $qual -- $versao_aluno"
     else
         falta "o aluno nao acha o quartus_sh 20.1 no PATH (achou: ${versao_aluno:-nada})"
     fi
