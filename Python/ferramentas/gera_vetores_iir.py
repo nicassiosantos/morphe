@@ -26,9 +26,10 @@ num laco realimentado o wrap-around vira oscilacao sustentada, e o unico
 jeito de saber que a saturacao funciona e provocar.
 
 Uso:
-    python gera_vetores_iir.py [normal|saturacao|cascata] [destino]
+    python ferramentas/gera_vetores_iir.py [normal|saturacao|cascata] [destino]
 
-O destino padrao e ../Quartus, que e de onde o testbench le.
+O destino padrao e Quartus/, na raiz do repositorio, que e de onde o
+testbench le.
 """
 from __future__ import annotations
 
@@ -37,6 +38,7 @@ import sys
 
 import numpy as np
 
+import _caminho  # noqa: F401 -- poe Python/ no sys.path
 import iir_design as iir
 
 
@@ -57,7 +59,7 @@ def main() -> int:
         caso = args.pop(0)
     destino = args[0] if args else \
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "..", "Quartus")
+                     "..", "..", "Quartus")
     destino = os.path.abspath(destino)
 
     if caso == "cascata":

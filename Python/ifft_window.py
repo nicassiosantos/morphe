@@ -168,7 +168,7 @@ class IFFTWindow(tk.Toplevel):
                             style="Card.TLabelframe",
                             padding=(14, 12, 14, 14))
         op.pack(fill="x", pady=(12, 0))
-        # Ver PRECISAO-NUMERICA.md: normalizar encosta o pico do espectro
+        # Ver docs/PRECISAO-NUMERICA.md: normalizar encosta o pico do espectro
         # no teto do Q15.8 antes de quantizar e desfaz a escala na volta.
         # Exato, porque a IDFT e linear. Desligavel para dar de comparar.
         self.var_norm = tk.BooleanVar(value=True)

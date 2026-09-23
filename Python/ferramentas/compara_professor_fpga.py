@@ -39,6 +39,7 @@ import tempfile
 
 import numpy as np
 
+import _caminho  # noqa: F401 -- poe Python/ no sys.path
 import iir_design as iir
 import morphe_config as cfg
 from morphe_protocol import TcpClient, build_iir_request, decode_iir_response

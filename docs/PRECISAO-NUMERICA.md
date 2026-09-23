@@ -192,8 +192,8 @@ Q15.8 da entrada. Não adianta procurar bug ali.
 
 ## Onde reproduzir
 
-    Python/testa_bit_inverse.py      <ip>    bit inverse + convenção 1/N
-    Python/testa_ifft_roundtrip.py   <ip>    ida e volta, 3 verificações
+    Python/ferramentas/testa_bit_inverse.py <ip>    bit inverse + convenção 1/N
+    Python/ferramentas/testa_ifft_roundtrip.py <ip>    ida e volta, 3 verificações
 
 Ver também `RESSALVAS.md` item 17 (histórico da IFFT) e item 13 (tempo de
 resposta como indicador de saúde do core).

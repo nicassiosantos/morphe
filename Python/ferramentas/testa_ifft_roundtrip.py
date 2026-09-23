@@ -24,6 +24,7 @@ import sys
 
 import numpy as np
 
+import _caminho  # noqa: F401 -- poe Python/ no sys.path
 import morphe_config as cfg
 from morphe_protocol import (
     TcpClient, build_fft_request, decode_fft_response,

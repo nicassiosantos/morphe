@@ -39,6 +39,14 @@ Quartus/vetores_*.hex
 C/fix_*.py
 Python/ifft_bundle.mrph
 
-# saidas do testa_concorrencia.py, que ficam na raiz do clone
+# Gerados pelo Quartus e pelo Platform Designer a cada compilacao ou abertura.
+# Sairam do git em 23/09/2026; listar aqui impede que voltem.
+Quartus/.qsys_edit/
+Quartus/hps_sdram_p0_summary.csv
+Quartus/*.ipregen.rpt
+Quartus/serv_req_info.txt
+*.bak
+
+# saidas do testa_concorrencia.py, que ficam na pasta de onde ele roda
 *-junto.csv
 *-sozinho.csv

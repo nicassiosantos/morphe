@@ -22,7 +22,7 @@ estágio curricular no Laboratório de DSP (DTEC/UEFS), sob supervisão do
 Objetivo do fork: tornar a plataforma reproduzível a partir do repositório e
 utilizável por alunos de DSP sem conhecimento de baixo nível.
 
-Resumo das mudanças, detalhadas em `RESSALVAS.md`:
+Resumo das mudanças, detalhadas em `docs/RESSALVAS.md`:
 
 1. Correções mínimas que fazem o `morphe_server` compilar.
 2. Expansão de `conv1d` e do FIR de 128 para 1024 amostras por entrada.

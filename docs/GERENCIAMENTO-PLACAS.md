@@ -124,7 +124,7 @@ esbarrar no Quartus. Cada conta que for operar precisa do seu `--setup-ssh`.
 
 ## Testar com várias requisições ao mesmo tempo
 
-`Python/testa_concorrencia.py` dispara N requisições simultâneas, **confere cada
+`Python/ferramentas/testa_concorrencia.py` dispara N requisições simultâneas, **confere cada
 resposta** (convolução com impulso tem que devolver a própria entrada; FFT de impulso tem
 que dar espectro plano) e mede a fila. Duas fases: sozinho, para a linha de base da placa
 vazia, e concorrente.
@@ -132,19 +132,19 @@ vazia, e concorrente.
 Uma máquina só, as duas placas, um cliente em cada por vez:
 
 ```bash
-cd /opt/morphe/Python && python3 testa_concorrencia.py --clientes 4 --rodadas 8
+cd /opt/morphe/Python && python3 ferramentas/testa_concorrencia.py --clientes 4 --rodadas 8
 ```
 
 Todos na mesma placa, que é o teste da fila:
 
 ```bash
-python3 testa_concorrencia.py --modo mesma --clientes 6
+python3 ferramentas/testa_concorrencia.py --modo mesma --clientes 6
 ```
 
 Com a regra do app (sonda antes de cada requisição e vai na mais livre):
 
 ```bash
-python3 testa_concorrencia.py --modo escolher --clientes 4
+python3 ferramentas/testa_concorrencia.py --modo escolher --clientes 4
 ```
 
 **Duas máquinas ao mesmo tempo** — é o cenário real de dois alunos. Rode nas duas com
@@ -152,11 +152,11 @@ etiquetas diferentes, começando quase juntos; no notebook, informe as placas, p
 descoberta dele para na primeira:
 
 ```bash
-python3 testa_concorrencia.py --etiqueta lab --clientes 3 --rodadas 10
+python3 ferramentas/testa_concorrencia.py --etiqueta lab --clientes 3 --rodadas 10
 ```
 
 ```bash
-python3 testa_concorrencia.py --etiqueta notebook --placas 172.16.230.24,172.16.230.52 --clientes 3 --rodadas 10
+python3 ferramentas/testa_concorrencia.py --etiqueta notebook --placas 172.16.230.24,172.16.230.52 --clientes 3 --rodadas 10
 ```
 
 Como ler a saída:

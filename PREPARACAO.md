@@ -3,7 +3,7 @@
 Antes, colocar a plataforma em operação eram **9 passos** na estação, seis deles
 comandos de terminal, dois exigindo SSH na placa, e cinco pontos de conhecimento
 tácito que faziam qualquer um deles falhar em silêncio. A contagem está em
-`LINHA-DE-BASE-PASSOS.md`.
+`docs/LINHA-DE-BASE-PASSOS.md`.
 
 Agora:
 
@@ -357,7 +357,7 @@ enviou e reiniciou o servidor, e fechou com `morphe_ping` 4/4 — conv1d com err
 214,1 ms e FFT de 1024 pontos com espectro plano em 21,2 ms. O cliente abriu já
 conectado, sem endereço digitado. **A rotina diária caiu de 9 passos para 3**, e destes
 três um é a operação em si — a preparação saiu de 8 passos para 1. A contagem anterior
-está em `LINHA-DE-BASE-PASSOS.md`.
+está em `docs/LINHA-DE-BASE-PASSOS.md`.
 
 Continua pendente: instalar o `C/autostart/` em alguma placa — está escrito e nunca foi
 executado —, e os dois itens de turma listados na seção acima.

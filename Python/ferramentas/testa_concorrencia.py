@@ -56,7 +56,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _caminho  # noqa: F401 -- poe Python/ no sys.path
 
 import dsp_core as dsp
 from morphe_protocol import (

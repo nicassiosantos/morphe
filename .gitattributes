@@ -3,6 +3,9 @@
 # conversao automatica de fim de linha no Windows quebraria a verificacao.
 Quartus/conv1d.v             -text
 Quartus/fir_wrapper.v        -text
+Quartus/fft_wrapper.v        -text
+Quartus/iir_cascade.v        -text
+Quartus/iir_biquad_mac.v     -text
 Quartus/ghrd_top.v           -text
 Quartus/soc_system.qsys      -text
 Quartus/soc_system.sopcinfo  -text

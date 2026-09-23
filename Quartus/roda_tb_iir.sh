@@ -56,7 +56,7 @@ for caso in normal saturacao cascata; do
     echo "###########################################################"
     echo "# CASO: $caso"
     echo "###########################################################"
-    ( cd "$PY" && "$PYTHON" gera_vetores_iir.py "$caso" "$SIM" )
+    ( cd "$PY" && "$PYTHON" ferramentas/gera_vetores_iir.py "$caso" "$SIM" )
 
     if [ "$caso" = "cascata" ]; then
         VVP="tb_casc.vvp"

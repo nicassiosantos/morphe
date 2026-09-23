@@ -82,7 +82,7 @@ Com o hardware de 1024, `FIR_YN_SPAN` = 8192 e `MORPHE_CONV_Y_MAX` = 2047
 `MORPHE_CONV_Y_MAX` por `MORPHE_CONV_N_MAX` era necessária apenas no hardware
 antigo. Não reaplique.
 
-## 7. `morphe_server_handling_sigs.c` é código morto
+## 7. `morphe_server_handling_sigs.c` é código morto (em `legado/C/` desde 23/09/2026)
 
 O Makefile constrói um único arquivo:
 
@@ -344,5 +344,6 @@ O erro do ida-e-volta nunca vai a zero: o piso e o Q15.8 do espectro, na
 ordem de 1e-3 relativo.
 
 `C/morphe_server_handling_sigs.c` e uma copia antiga do servidor, que o
-Makefile nao compila e que **nao** recebeu a IFFT. Se ainda serve para
-alguma coisa, precisa decidir se volta a ser o principal ou se sai.
+Makefile nao compila e que **nao** recebeu a IFFT. **Decidido em 23/09/2026:**
+saiu de `C/` para `legado/C/`, junto com o resto do projeto original que o
+produto nao usa.

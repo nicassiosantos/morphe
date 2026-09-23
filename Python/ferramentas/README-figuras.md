@@ -24,13 +24,13 @@ fidelidade é estrutural e não uma reconstrução aproximada.
 
 ```bash
 # figuras do artigo — dados vindos da FPGA
-python gerar_figuras.py --host 192.168.1.10
+python ferramentas/gerar_figuras.py --host 192.168.1.10
 
 # iterar no layout sem a placa na mesa
-python gerar_figuras.py --emular
+python ferramentas/gerar_figuras.py --emular
 
 # só algumas telas; fundo branco nos gráficos (impressão)
-python gerar_figuras.py --host 192.168.1.10 --so fft,conv --fundo-branco
+python ferramentas/gerar_figuras.py --host 192.168.1.10 --so fft,conv --fundo-branco
 ```
 
 Saída em `figuras/*.svg`. Para o LaTeX:

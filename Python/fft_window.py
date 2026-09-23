@@ -283,7 +283,7 @@ class FFTWindow(tk.Toplevel):
         # linear -- o que muda e so o erro de quantizacao. Fica visivel e
         # desligavel porque a diferenca entre ligado e desligado e a coisa
         # mais didatica desta tela: ~40 dB de SNR num sinal de amplitude
-        # pequena. Ver PRECISAO-NUMERICA.md.
+        # pequena. Ver docs/PRECISAO-NUMERICA.md.
         self.var_norm = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             op, text="Normalizar entrada (usa a faixa cheia do Q15.8)",

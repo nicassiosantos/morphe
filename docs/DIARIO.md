@@ -62,6 +62,33 @@ clientes). Com uma placa só a fórmula é a antiga, então os resultados de 8 e
 clientes do modo `mesma` continuam comparáveis. Falta rodar o modo `dividir` no
 laboratório.
 
+**Reorganização do repositório — escrita, conferida no Windows, falta validar na
+estação.** Objetivo: deixar claro o que é produto e o que não é, antes de levar o
+Morphe aos outros computadores. As três pastas do produto (`C/`, `Python/`, `Quartus/`)
+ficaram onde estavam, porque o `morphe-up.sh`, o `/opt/morphe` e a `PROVENIENCIA.sha256`
+dependem delas. Saiu delas o que não roda: ferramentas de teste e desenvolvimento para
+`Python/ferramentas/` (acham os módulos do cliente por um `_caminho.py`), bundles de
+exemplo para `exemplos/`, documentação para `docs/` (este diário inclusive) e o que o
+projeto original tinha e o produto não usa para `legado/`, com um README dizendo o
+porquê de cada arquivo. Backups `.bak` e arquivos que o Quartus regenera saíram do git
+e entraram no `.gitignore`. Novo `README.md` na raiz, com o mapa.
+
+Conferido: todos os `.py` compilam; cada ferramenta movida importa os módulos do
+cliente (as que tratam `--help` como IP chegam a tentar a conexão, como antes da
+mudança); o `gera_vetores_iir.py` gera os quatro `.hex`; o aplicativo importa; os
+scripts de shell passam no `bash -n`.
+
+**Duas coisas que a reorganização descobriu:**
+- **Os `iir_*.v` não estão no `soc_system.qsf`.** O Quartus os encontra por estarem na
+  pasta do projeto — movê-los quebraria a compilação. E `fft_impulse_test.v` e
+  `spiral_dft_top.v` estão **listados** no projeto sem serem usados; saem junto com a
+  próxima compilação do bitstream, não antes.
+- **A `PROVENIENCIA.sha256` está desatualizada para o servidor.** `morphe_server.c` e
+  `morphe_config.h` mudaram depois de 15/09 (a correção de 21/09) e falham na
+  conferência. Precisa ser regerada na estação. De quebra, `fft_wrapper.v`,
+  `iir_cascade.v` e `iir_biquad_mac.v` falhavam **só no clone Windows**, por conversão
+  de fim de linha: entraram na lista `-text` do `.gitattributes`.
+
 **Documentos do estágio:** o início passa a **25/09/2026** (sexta), com encerramento
 mantido em 04/12/2026 — um dia de 5 h e dez semanas de 25 h dão as mesmas 255 h, e a
 semana curta passa a ser a primeira. Formulário, termo e plano refeitos para a

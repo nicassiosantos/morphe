@@ -119,7 +119,7 @@ funcionando**. O bitstream e novo; tudo foi remapeado. Reenvie o servidor
 e rode:
 
 ```bash
-python testa_ifft_roundtrip.py 172.16.103.226
+python ferramentas/testa_ifft_roundtrip.py 172.16.103.226
 ```
 
 Se a IFFT continuar com zero falhas, o remapeamento nao quebrou nada.

@@ -202,7 +202,7 @@ def build_fft_request(x_float: np.ndarray, *,
 
     `scale` fixa a escala na mao e ignora `normalizar`.
 
-    Ver PRECISAO-NUMERICA.md para os numeros medidos.
+    Ver docs/PRECISAO-NUMERICA.md para os numeros medidos.
     """
     # Importacao tardia para evitar ciclo entre dsp_core e morphe_protocol
     import dsp_core as dsp

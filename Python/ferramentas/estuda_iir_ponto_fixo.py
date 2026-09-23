@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import _caminho  # noqa: F401 -- poe Python/ no sys.path
 import iir_design as iir
 
 

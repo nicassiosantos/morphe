@@ -42,6 +42,7 @@ import tkinter as tk
 
 import numpy as np
 
+import _caminho  # noqa: F401 -- poe Python/ no sys.path
 import dsp_core as dsp
 import morphe_export as mex
 import morphe_protocol as proto
