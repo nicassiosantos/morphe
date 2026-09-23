@@ -285,17 +285,32 @@ fi
 # 7. Atalho no menu
 # ---------------------------------------------------------------------------
 
+# O atalho so conta como pronto se o Exec aponta para esta 20.1 E o Icon aponta para
+# um arquivo que existe. Em 23/09, na estacao, um atalho escrito a mao com um Icon
+# inventado passava pela checagem antiga, que so olhava o Exec.
+
+icone_ok() {
+    local icone
+    icone="$(sed -n 's/^Icon=//p' "$ATALHO" 2>/dev/null | head -1)"
+    [[ -n "$icone" ]] || return 1
+    [[ "$icone" != /* ]] && return 0   # nome de tema, sem caminho: quem resolve e o tema
+    [[ -f "$icone" ]]
+}
+
 passo "Atalho no menu ($ATALHO)"
 if [[ -z "$QROOT" ]]; then
     falta "sem Quartus 20.1, nao ha atalho a criar"
-elif grep -qsxF "Exec=$QBIN/quartus" "$ATALHO"; then
+elif grep -qsxF "Exec=$QBIN/quartus" "$ATALHO" && icone_ok; then
     ok "ja existe"
 elif [[ $VERIFICAR -eq 1 ]]; then
-    falta "o atalho \"Quartus Prime Lite 20.1\" para $QBIN/quartus"
+    falta "o atalho \"Quartus Prime Lite 20.1\" para $QBIN/quartus (ou o icone dele nao existe)"
 else
-    ICONE="$(find "$QROOT/quartus/adm" -maxdepth 1 -iname '*.png' 2>/dev/null | sort | head -1)"
+    ICONE="$(find "$QROOT/quartus" -maxdepth 3 -iname '*quartus*.png' 2>/dev/null | sort | head -1)"
+    [[ -n "$ICONE" ]] || ICONE="$(find "$QROOT/quartus/adm" -maxdepth 1 -iname '*.png' 2>/dev/null | sort | head -1)"
     printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Quartus Prime Lite 20.1' "Exec=$QBIN/quartus" "Icon=${ICONE:-applications-engineering}" 'Terminal=false' 'Categories=Development;Electronics;' > "$ATALHO"
-    fiz "\"Quartus Prime Lite 20.1\" no menu"
+    chmod 644 "$ATALHO"
+    command -v update-desktop-database >/dev/null && update-desktop-database /usr/share/applications 2>/dev/null || true
+    fiz "\"Quartus Prime Lite 20.1\" no menu (icone: ${ICONE:-o generico do tema})"
 fi
 
 # ---------------------------------------------------------------------------
