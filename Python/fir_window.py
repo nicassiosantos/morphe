@@ -265,6 +265,8 @@ class SuperpositionBuilder(ttk.LabelFrame):
         self._aceita_longo = aceita_longo
         #: sinal lido de arquivo; None = modo superposicao
         self._arquivo: Optional[dsp.Signal] = None
+        #: fs travada pelo filtro projetado; None = sem trava
+        self._fs_filtro: Optional[float] = None
 
         # Linha de parâmetros globais (N + fs)
         params = ttk.Frame(self, style="Card.TFrame")
@@ -379,11 +381,39 @@ class SuperpositionBuilder(ttk.LabelFrame):
         self._arquivo = sig
         self.var_N.set(str(sig.x.size))
         self._entry_N.configure(state="disabled")
-        # fs do arquivo, a menos que o filtro ja tenha travado a sua.
-        if sig.fs != 1.0 and not self.var_fs_lock.get():
+        # fs do arquivo, a menos que o filtro ja tenha travado a sua -- e
+        # nesse caso, se forem diferentes, avisa.
+        if sig.fs != 1.0 and self._fs_filtro is None:
             self.var_fs.set(f"{sig.fs:g}")
         self._update_expression_display()
         self._on_signal_changed(*self.compute_signal())
+        self._avisa_fs_diferente()
+
+    def _avisa_fs_diferente(self) -> None:
+        """Avisa quando o sinal de arquivo e o filtro projetado tem fs
+        diferentes. Vale nas duas ordens: arquivo depois do filtro ou filtro
+        depois do arquivo. Arquivo sem fs (uma coluna, .npy) nao tem com o
+        que comparar e nao avisa."""
+        if self._fs_filtro is None:
+            return
+        sig = self._arquivo
+        if sig is None or sig.fs == 1.0 or \
+                abs(sig.fs - self._fs_filtro) <= 1e-6 * self._fs_filtro:
+            self.var_fs_lock.set("(fs do filtro)")
+            return
+        self.var_fs_lock.set(f"(fs do filtro ≠ {sig.fs:g} Hz do arquivo!)")
+        razao = sig.fs / self._fs_filtro
+        messagebox.showwarning(
+            "fs do sinal ≠ fs do filtro",
+            f"O sinal do arquivo foi amostrado a {sig.fs:g} Hz, mas o filtro "
+            f"foi projetado para fs = {self._fs_filtro:g} Hz.\n\n"
+            "A FPGA calcula do mesmo jeito — o filtro só multiplica e soma "
+            "amostras —, mas as frequências do projeto não valem para este "
+            f"sinal: tudo o que o projeto diz em f Hz acontece em "
+            f"f × {razao:.4g} Hz neste sinal (um corte em 1000 Hz cai em "
+            f"{1000 * razao:.4g} Hz).\n\n"
+            f"Projete o filtro com fs = {sig.fs:g} Hz, ou use um sinal "
+            f"amostrado a {self._fs_filtro:g} Hz.")
 
     def _add_row(self):
         if len(self._rows) >= MAX_COMPONENTS:
@@ -486,9 +516,12 @@ class SuperpositionBuilder(ttk.LabelFrame):
     def set_fs_locked(self, fs: float, locked: bool = True) -> None:
         self.var_fs.set(f"{fs:g}")
         if locked:
+            self._fs_filtro = float(fs)
             self._entry_fs.configure(state="readonly")
             self.var_fs_lock.set("(fs do filtro)")
+            self._avisa_fs_diferente()
         else:
+            self._fs_filtro = None
             self._entry_fs.configure(state="normal")
             self.var_fs_lock.set("")
 

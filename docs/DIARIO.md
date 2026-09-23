@@ -194,6 +194,16 @@ bin da referência. A imagem mostra a rampa e a linha de 1 kHz surgindo em t = 1
 comentadas (marca `ESPECTROGRAMA`) e o arquivo da janela continua no repositório,
 para ligar de novo se for usado.
 
+**Aviso de fs diferente entre o sinal e o filtro (FIR e IIR).** Achado ao responder
+uma pergunta sobre de onde vem o fs de um arquivo: se o filtro projetado já tinha
+travado o fs, o do arquivo era ignorado **em silêncio** — um `.wav` de 44,1 kHz com um
+filtro projetado a 8 kHz passava sem nada. Agora o construtor de x[n] (compartilhado
+pelas duas janelas) avisa nas duas ordens (arquivo depois do filtro, filtro depois do
+arquivo), com a conta de onde o corte do projeto cai de fato, e marca o campo com
+"(fs do filtro ≠ … Hz do arquivo!)". Arquivo sem fs (uma coluna, `.npy`) não tem com o
+que comparar e não avisa. Conferido nas duas janelas, nos quatro casos (duas ordens,
+mesma fs, arquivo sem fs).
+
 **Como o ADC funciona, lido do código** — registrado em `docs/ADC.md`. O controlador do
 University Program converte sem parar e entrega o último valor de cada canal, e foi
 gerado com `numch = 1`: **só os canais 0 e 1 são lidos**, não os oito. Entrada unipolar
