@@ -331,6 +331,44 @@ cada uma com o seu `--cable`, o tether da primeira sobrevivendo à preparação 
    (medido em 21/09: coordenador contra o tether do aluno). Os cabos, nesta estação:
    `DE-SoC [1-2]` é a placa `172.16.230.24`, `DE-SoC [1-3]` é a `172.16.230.52`.
 
+### Duas contas no mesmo `.morphe-estado` — e nunca `sudo`
+
+Coordenador e aluno usam o mesmo `/opt/morphe`, e portanto o mesmo `.morphe-estado`
+(placa lembrada, arquivos do tether). Até 23/09/2026 cada arquivo nascia com o dono de
+quem o criou e permissão `644`, e **a outra conta não conseguia reescrevê-lo**: depois
+de o aluno preparar a placa, o `morphe-up.sh` do coordenador parava em
+`.morphe-estado/tethers/DE-SoC__1-2_.cabo: Permission denied`. Desde então o script
+deixa as pastas dali `777` e os arquivos `666` (o `/opt/morphe` é `o-rwx`, então só as
+contas da turma chegam até eles) e apaga antes de gravar.
+
+**Contornar com `sudo` piora tudo, e o script agora recusa rodar como root.** Medido em
+23/09: como root ele achou o Quartus da conta root — a **22.1std** em
+`/root/intelFPGA_lite`, não a 20.1 —, deixou o tether como processo do root, que nenhuma
+outra conta derruba, pediu a senha da placa três vezes (a chave SSH é por conta, e o
+root não tem) e gravou o estado como root.
+
+Uma vez por estação, para os arquivos antigos, na conta **coordenador**:
+
+```bash
+sudo chown -R coordenador:alunopds /opt/morphe/.morphe-estado
+```
+
+```bash
+sudo chmod -R a+rwX /opt/morphe/.morphe-estado
+```
+
+Se um tether ficou com o root (`ps -o user=,pid=,args= -C quartus_pgm` mostra `root`),
+derrube o grupo inteiro pelo PGID que o `morphe-up.sh` imprimiu — só o `quartus_pgm`
+deixaria o `sleep infinity` órfão:
+
+```bash
+sudo kill -- -<PGID>
+```
+
+E o `morphe-up.sh` passou a preferir o Quartus **20.1** onde quer que ele esteja — antes
+valia o primeiro encontrado, com a home antes de `/opt`. Outra versão só é usada, com
+aviso, quando não há 20.1 nenhuma.
+
 ### O `pip --user` é a armadilha recorrente do cliente
 
 Duas vezes (17/09 e 21/09) o cliente quebrou numa conta por um pacote instalado com

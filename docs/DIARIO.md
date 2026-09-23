@@ -89,6 +89,30 @@ scripts de shell passam no `bash -n`.
   `iir_cascade.v` e `iir_biquad_mac.v` falhavam **só no clone Windows**, por conversão
   de fim de linha: entraram na lista `-text` do `.gitattributes`.
 
+**Reorganização validada na estação** (`/opt/morphe` em `8d88911`), com uma placa só —
+a `.52` estava desligada (`No route to host`):
+- `testa_iir_hw.py`, agora em `ferramentas/`: os 4 casos **bit a bit iguais** ao modelo.
+- `testa_concorrencia.py --modo dividir --clientes 4`: **32/32**, 8,4 req/s. Com uma
+  placa o modo `dividir` é igual ao `mesma`; a correção da correlação continua sem
+  medida com duas placas.
+- `sha256sum -c PROVENIENCIA.sha256`: 11 OK e os 2 FAILED esperados do servidor.
+- `morphe-up.sh`: **4/4** (conv 0,00 em 216,6 ms; FFT plana em 24,8 ms).
+- No Windows, `roda_tb_iir.sh` (Icarus): os 3 casos bit a bit iguais — o gerador de
+  vetores funciona do lugar novo.
+
+**Mas o `morphe-up.sh` do coordenador parou em `Permission denied`** no `.cabo` do
+tether, que o aluno tinha gravado dias antes: o `.morphe-estado` é compartilhado pelas
+duas contas e cada arquivo nascia `644` com o dono de quem o criou. Defeito anterior à
+reorganização, exposto por ela. **O contorno com `sudo` mostrou três problemas a mais:**
+como root o script achou a **22.1std** em `/root/intelFPGA_lite` e programou a placa com
+ela (funcionou, mas não é a versão do projeto); o tether ficou como processo do root; e
+a placa pediu senha três vezes, porque a chave SSH é por conta. **Corrigido no script,
+ainda não validado:** pastas do estado `777`, arquivos `666` e apagar antes de gravar; a
+20.1 preferida onde quer que esteja; e recusa de rodar como root. A escolha de versão foi
+conferida com dois Quartus falsos (PATH na 22.1 e a 20.1 disponível → 20.1; só a 22.1 →
+usa com aviso; nenhum → erro), e a gravação por cima de arquivo alheio, com um arquivo
+somente leitura.
+
 **Documentos do estágio:** o início passa a **25/09/2026** (sexta), com encerramento
 mantido em 04/12/2026 — um dia de 5 h e dez semanas de 25 h dão as mesmas 255 h, e a
 semana curta passa a ser a primeira. Formulário, termo e plano refeitos para a

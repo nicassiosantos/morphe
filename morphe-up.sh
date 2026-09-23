@@ -105,7 +105,31 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Nunca como root. Em 23/09 um 'sudo ./morphe-up.sh' achou o Quartus da conta
+# root (a 22.1std, nao a 20.1), deixou o tether da licenca como processo do
+# root -- que nenhuma outra conta consegue derrubar -- e gravou o estado como
+# root. O script nao precisa de sudo para nada.
+if [[ $EUID -eq 0 ]]; then
+    morrer "nao rode o morphe-up.sh com sudo nem como root." \
+        "rode da sua conta: ./morphe-up.sh" \
+        "se o erro era 'Permission denied' no .morphe-estado, ver PREPARACAO.md."
+fi
+
+# O .morphe-estado e compartilhado pelas contas que usam o mesmo clone -- na
+# estacao, coordenador e alunopds em /opt/morphe. Com o umask padrao, o arquivo
+# que uma conta cria (644) a outra nao reescreve: em 23/09 o coordenador parou
+# em "Permission denied" no .cabo gravado pelo aluno. Por isso as pastas daqui
+# ficam 777 e os arquivos 666, e quem grava apaga antes -- apagar depende da
+# pasta, nao do dono do arquivo. O /opt/morphe e o-rwx: "todos" sao so as
+# contas que ja chegam ate aqui.
 mkdir -p "$ESTADO" "$DIR_TETHERS"
+chmod 777 "$ESTADO" "$DIR_TETHERS" 2>/dev/null || true
+
+grava_estado() {   # grava_estado <arquivo>, com o conteudo pelo stdin
+    rm -f "$1" 2>/dev/null || true
+    cat > "$1"
+    chmod 666 "$1" 2>/dev/null || true
+}
 
 # ---------------------------------------------------------------------------
 # Python do cliente
@@ -130,25 +154,43 @@ achar_python() {
 # O PATH do Quartus mora no ~/.bashrc, que os terminais em ksh93 da estacao nao
 # leem. Em vez de exigir que o usuario saiba disso, procuramos as ferramentas.
 
+# A versao tem de ser a 20.1, a que compilou o bitstream. Ate 23/09 valia o
+# primeiro quartus_pgm encontrado, e um 'sudo ./morphe-up.sh' programou a placa
+# com a 22.1std que mora em /root. Agora a 20.1 ganha de qualquer outra, onde
+# quer que esteja; outra versao so e usada, com aviso, se nao houver 20.1.
+
+versao_quartus() { "$1/quartus_pgm" --version 2>/dev/null | grep -m1 -o 'Version [0-9.]*' || true; }
+
+usar_quartus() {
+    QUARTUS_ROOTDIR="$(dirname "$1")"
+    export QUARTUS_ROOTDIR
+    export PATH="$1:$PATH"
+}
+
 achar_quartus() {
-    if command -v quartus_pgm >/dev/null 2>&1 && command -v jtagconfig >/dev/null 2>&1; then
-        return 0
+    local candidatos=() base bin reserva=""
+    if command -v quartus_pgm >/dev/null 2>&1; then
+        candidatos+=("$(dirname "$(command -v quartus_pgm)")")
     fi
-    local bases=(
-        "${QUARTUS_ROOTDIR:-}"
-        "$HOME"/intelFPGA_lite/*/quartus
-        "$HOME"/intelFPGA_lite/*/qprogrammer
-        /opt/intelFPGA_lite/*/quartus
-        /opt/intelFPGA_lite/*/qprogrammer
-        "$HOME"/intelFPGA/*/quartus
-    )
-    for base in "${bases[@]}"; do
-        [[ -n "$base" && -x "$base/bin/quartus_pgm" ]] || continue
-        export QUARTUS_ROOTDIR="$base"
-        export PATH="$base/bin:$PATH"
-        return 0
+    for base in "${QUARTUS_ROOTDIR:-}" \
+                /opt/intelFPGA_lite/20.1/quartus "$HOME"/intelFPGA_lite/20.1/quartus \
+                /opt/intelFPGA_lite/20.1/qprogrammer "$HOME"/intelFPGA_lite/20.1/qprogrammer \
+                /opt/intelFPGA_lite/*/quartus "$HOME"/intelFPGA_lite/*/quartus \
+                /opt/intelFPGA_lite/*/qprogrammer "$HOME"/intelFPGA_lite/*/qprogrammer \
+                "$HOME"/intelFPGA/*/quartus; do
+        if [[ -n "$base" ]]; then candidatos+=("$base/bin"); fi
     done
-    return 1
+    for bin in "${candidatos[@]}"; do
+        [[ -x "$bin/quartus_pgm" && -x "$bin/jtagconfig" ]] || continue
+        if [[ "$(versao_quartus "$bin")" == "Version 20.1"* ]]; then
+            usar_quartus "$bin"
+            return 0
+        fi
+        [[ -n "$reserva" ]] || reserva="$bin"
+    done
+    [[ -n "$reserva" ]] || return 1
+    aviso "nao achei o Quartus 20.1; usando $(versao_quartus "$reserva") em $reserva"
+    usar_quartus "$reserva"
 }
 
 # ---------------------------------------------------------------------------
@@ -302,10 +344,10 @@ derrubar_tether() {
 # preparadas, que e o que uma escolha automatica vai precisar ler.
 lembrar_placa() {
     local ip="$1"
-    printf '%s' "$ip" > "$CONF_PLACA"
+    printf '%s' "$ip" | grava_estado "$CONF_PLACA"
     local atuais=""
     [[ -f "$CONF_PLACAS" ]] && atuais="$(grep -v -x -F "$ip" "$CONF_PLACAS" || true)"
-    { [[ -n "$atuais" ]] && printf '%s\n' "$atuais"; printf '%s\n' "$ip"; } > "$CONF_PLACAS"
+    { [[ -n "$atuais" ]] && printf '%s\n' "$atuais"; printf '%s\n' "$ip"; } | grava_estado "$CONF_PLACAS"
 }
 
 programar_fpga() {
@@ -315,7 +357,7 @@ programar_fpga() {
     achar_quartus || morrer "nao achei o quartus_pgm." \
         "procurei no PATH, em \$QUARTUS_ROOTDIR e nas instalacoes usuais." \
         "se o Quartus esta em outro lugar, exporte QUARTUS_ROOTDIR e rode de novo."
-    ok "quartus em ${QUARTUS_ROOTDIR:-$(dirname "$(command -v quartus_pgm)")}"
+    ok "quartus em $QUARTUS_ROOTDIR ($(versao_quartus "$QUARTUS_ROOTDIR/bin"))"
 
     # O cabo primeiro: e ele que diz QUAL tether substituir. Antes isto vinha
     # antes de saber o cabo, e por isso derrubava o tether de qualquer placa.
@@ -342,14 +384,14 @@ programar_fpga() {
     # O @2 e a posicao da FPGA na cadeia JTAG; a posicao 1 e o HPS.
     # Sem ele a programacao falha.
     passo "programando a FPGA"
-    : > "$log_t"
+    : | grava_estado "$log_t"
     rm -f "$pid_t"
-    printf '%s' "$CABO" > "${pid_t%.pid}.cabo"
+    printf '%s' "$CABO" | grava_estado "${pid_t%.pid}.cabo"
     # O proprio processo grava o PGID: sob setsid ele e lider de sessao, entao
     # seu $$ e o PGID do grupo inteiro (o bash, o sleep e o quartus_pgm). Ler o
     # PGID aqui fora, do PID devolvido por $!, nao serve -- o setsid pode ter
     # forkado e esse PID ja ter morrido.
-    setsid bash -c "echo \$\$ > '$pid_t'; sleep infinity | quartus_pgm -m jtag -c '$CABO' -o 'p;$SOF@2' >> '$log_t' 2>&1" &
+    setsid bash -c "umask 000; echo \$\$ > '$pid_t'; sleep infinity | quartus_pgm -m jtag -c '$CABO' -o 'p;$SOF@2' >> '$log_t' 2>&1" &
 
     local limite=60
     while (( limite-- > 0 )); do
