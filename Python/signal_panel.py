@@ -5,15 +5,20 @@ Consome o design system de `morphe_theme` (card branco + botão "Gerar"
 em estilo outline azul). Reutilizado pelas telas de convolução (duas
 instâncias), de FFT (uma instância) e pelo gerador. Aceita um `max_N`
 opcional para impor o limite do hardware.
+
+O tipo "Arquivo" carrega um sinal qualquer (.csv, .txt, .npy, .wav) por
+sinal_arquivo.py. Com `aceita_longo`, o `max_N` deixa de ser limite: a janela
+processa sinais maiores por blocos (blocos.py) e o N maximo so e informado.
 """
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 
 import dsp_core as dsp
 import morphe_theme as theme
+from sinal_arquivo import TIPOS_DIALOGO, carregar_sinal
 
 
 SIGNAL_TYPES = [
@@ -22,6 +27,7 @@ SIGNAL_TYPES = [
     "Senóide",
     "Exponencial",
     "Retangular",
+    "Arquivo",
 ]
 
 # Layout do formulário de geração. Um único grid de 2 colunas partilhado por
@@ -42,7 +48,7 @@ class SignalPanel(ttk.LabelFrame):
     def __init__(self, parent, title: str = "Sinal",
                  on_generate: Optional[Callable[["SignalPanel"], None]] = None,
                  default_N: int = 32, default_type: str = "Impulso unitário",
-                 max_N: Optional[int] = None):
+                 max_N: Optional[int] = None, aceita_longo: bool = False):
         # Garante os estilos do tema mesmo se o painel for instanciado
         # fora do hub principal (setup_styles é idempotente).
         theme.setup_styles(parent)
@@ -54,6 +60,8 @@ class SignalPanel(ttk.LabelFrame):
         )
         self._on_generate = on_generate
         self._max_N = max_N
+        self._aceita_longo = aceita_longo
+        self._arquivo: Optional[dsp.Signal] = None   # o sinal do tipo "Arquivo"
 
         # Grid de duas colunas partilhado por TODOS os campos: rótulos na
         # coluna 0 (largura fixa) e entradas na coluna 1 (expansível, sticky
@@ -74,12 +82,18 @@ class SignalPanel(ttk.LabelFrame):
         combo.bind("<<ComboboxSelected>>", lambda e: self._refresh_params())
 
         # Linha 1 — N
-        n_label = "N" if max_N is None else f"N (máx {max_N})"
+        if max_N is None:
+            n_label = "N"
+        elif aceita_longo:
+            n_label = f"N ({max_N} por bloco)"
+        else:
+            n_label = f"N (máx {max_N})"
         ttk.Label(self, text=n_label, style="Card.TLabel").grid(
             row=1, column=0, sticky="w", pady=(0, 6))
         self.var_N = tk.StringVar(value=str(default_N))
-        ttk.Entry(self, textvariable=self.var_N, width=_INPUT_WIDTH).grid(
-            row=1, column=1, sticky="ew", pady=(0, 6))
+        self._entry_N = ttk.Entry(self, textvariable=self.var_N,
+                                  width=_INPUT_WIDTH)
+        self._entry_N.grid(row=1, column=1, sticky="ew", pady=(0, 6))
 
         # Parâmetros dinâmicos ocupam as linhas 2..N do MESMO grid.
         # Guardamos os widgets criados para removê-los ao trocar de tipo.
@@ -106,7 +120,24 @@ class SignalPanel(ttk.LabelFrame):
 
         self._row = _PARAMS_ROW0
         t = self.signal_type.get()
-        if t == "Degrau unitário":
+        # No tipo "Arquivo", N e o tamanho do arquivo: o campo fica so leitura.
+        self._entry_N.config(state="disabled" if t == "Arquivo" else "normal")
+        if t == "Arquivo":
+            btn = ttk.Button(self, text="Escolher arquivo…",
+                             style="Outline.TButton",
+                             command=self._escolher_arquivo)
+            btn.grid(row=self._row, column=0, columnspan=2, sticky="ew",
+                     pady=(0, 4))
+            self._row += 1
+            nome = (self._arquivo.description if self._arquivo is not None
+                    else "nenhum arquivo escolhido")
+            self._lbl_arquivo = ttk.Label(self, text=nome, style="Card.TLabel",
+                                          wraplength=220)
+            self._lbl_arquivo.grid(row=self._row, column=0, columnspan=2,
+                                   sticky="w", pady=(0, 4))
+            self._param_widgets.extend([btn, self._lbl_arquivo])
+            self._row += 1
+        elif t == "Degrau unitário":
             self._add("n0", "n0", "0")
         elif t == "Impulso unitário":
             self._add("n0", "n0", "0")
@@ -132,6 +163,29 @@ class SignalPanel(ttk.LabelFrame):
             self._add("A", "A", "1.0")
             self._add("Início", "n_start", "0")
             self._add("Largura", "width", "8")
+
+    def _escolher_arquivo(self):
+        caminho = filedialog.askopenfilename(
+            title="Carregar sinal de arquivo", filetypes=TIPOS_DIALOGO)
+        if not caminho:
+            return
+        try:
+            sig = carregar_sinal(caminho)
+            self._confere_tamanho(sig.x.size)
+        except Exception as e:
+            messagebox.showerror("Erro ao carregar o sinal", str(e))
+            return
+        self._arquivo = sig
+        self.var_N.set(str(sig.x.size))
+        self._lbl_arquivo.config(text=sig.description)
+
+    def _confere_tamanho(self, N: int):
+        if self._max_N is None or self._aceita_longo or N <= self._max_N:
+            return
+        raise ValueError(
+            f"N={N} excede o máximo desta janela ({self._max_N} amostras, "
+            f"o tamanho do hardware)."
+        )
 
     def _add(self, label: str, key: str, default: str):
         lbl = ttk.Label(self, text=label, style="Card.TLabel")
@@ -159,18 +213,18 @@ class SignalPanel(ttk.LabelFrame):
 
     def build(self) -> dsp.Signal:
         """Monta o Signal com base no estado atual dos campos."""
+        if self.signal_type.get() == "Arquivo":
+            if self._arquivo is None:
+                raise ValueError("Escolha um arquivo antes de gerar.")
+            self._confere_tamanho(self._arquivo.x.size)
+            return self._arquivo.copy()
         try:
             N = int(self.var_N.get())
         except ValueError as e:
             raise ValueError("N deve ser inteiro") from e
         if N <= 0:
             raise ValueError("N deve ser > 0")
-        if self._max_N is not None and N > self._max_N:
-            raise ValueError(
-                f"N={N} excede o máximo permitido pelo hardware ({self._max_N}). "
-                f"Reduza N ou — quando aplicável — o sinal será automaticamente "
-                f"completado com zeros até atingir o tamanho do hardware."
-            )
+        self._confere_tamanho(N)
 
         t = self.signal_type.get()
         if t == "Degrau unitário":

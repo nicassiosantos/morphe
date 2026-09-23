@@ -63,6 +63,7 @@ compilação falha.
 | `docs/PRECISAO-NUMERICA.md` | os formatos de ponto fixo e os erros medidos |
 | `docs/COMPILAR-IIR.md` | como recompilar o bitstream |
 | `docs/NOVA-PLACA.md` | incorporar uma placa nova ao laboratório |
+| `docs/ADC.md` | como o ADC da placa funciona e as etapas para capturar sinais com ele |
 | `docs/RESSALVAS.md` | o que foi corrigido no projeto original, e por quê |
 | `docs/LINHA-DE-BASE-PASSOS.md` | a medição de usabilidade antes das mudanças |
 | `docs/DIARIO.md` | o diário do estágio: o que foi feito, medido e validado, dia a dia |

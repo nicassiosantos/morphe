@@ -113,6 +113,45 @@ conferida com dois Quartus falsos (PATH na 22.1 e a 20.1 disponível → 20.1; s
 usa com aviso; nenhum → erro), e a gravação por cima de arquivo alheio, com um arquivo
 somente leitura.
 
+**Correção das duas contas validada na estação** (`f98248d`): o coordenador, sem
+`sudo`, achou a 20.1, não pediu senha e fechou 4/4; depois do `--down` dele, o
+`alunopds` fechou 4/4 reescrevendo os arquivos que o coordenador acabara de gravar —
+sem `Permission denied`.
+
+**Etapa 0 do ADC: sinal de arquivo e processamento por blocos — validada na placa.**
+Até hoje só entravam os cinco sinais gerados; agora o painel de sinal tem o tipo
+**Arquivo** (`.csv`, `.txt`, `.npy`, `.wav`; `Python/sinal_arquivo.py`), e a janela de
+convolução aceita sinais de qualquer tamanho: acima de 1024 amostras ela divide x e h em
+blocos e junta por **overlap-add** (`Python/blocos.py`). Com sinal curto nada muda — é a
+mesma requisição de antes, e a descrição continua trazendo o "1024+1024 → 2047" que
+serve de diagnóstico. Gráficos com mais de 2048 amostras viram linha em vez de hastes.
+
+Medido, contra a placa `.24`, de um PC Windows do laboratório
+(`ferramentas/testa_blocos.py --placa`):
+
+| caso | resultado |
+|---|---|
+| convolução de 5000 amostras por um passa-baixa de 67 coeficientes | **5 blocos em 1,51 s**, relação sinal-erro **63,5 dB** contra `np.convolve`; o tom de 3 kHz sumiu e o de 300 Hz passou (pico 0,801 para amplitude 0,8) |
+| espectrograma de uma varredura de 8192 amostras, FFT da placa | **15 quadros em 1,01 s**, **92,5 dB** contra `np.fft`; o pico de cada quadro no mesmo bin da referência |
+| a própria janela de convolução, de ponta a ponta | 16 × 8: uma requisição, 2047 amostras da placa; 5000 × 67: 5 blocos, erro máximo 6,7 × 10⁻⁴ |
+
+Sem placa, o mesmo teste confere a montagem dos blocos contra `np.convolve` para sete
+combinações de tamanho — inclusive h maior que 1024, que vira blocos nos dois sinais —,
+o espectrograma contra a STFT feita à mão, e cada formato de arquivo (vírgula, ponto e
+vírgula com vírgula decimal, coluna de tempo que dá fs, `.npy`, `.wav` estéreo de 16
+bits), além de recusar arquivos malformados. **19 de 19.**
+
+**Falta da etapa 0:** uma janela para o espectrograma (a biblioteca já faz) e o mesmo
+caminho por blocos nas janelas de FIR e FFT.
+
+**Como o ADC funciona, lido do código** — registrado em `docs/ADC.md`. O controlador do
+University Program converte sem parar e entrega o último valor de cada canal, e foi
+gerado com `numch = 1`: **só os canais 0 e 1 são lidos**, não os oito. Entrada unipolar
+de 0 a ~4,1 V. A conta a partir do código mostra que **ele não serve para capturar
+sinais**: sem instante de amostragem definido, a incerteza de ~6 µs limitaria um tom de
+5 kHz a ~25 dB. A captura (etapa 2) precisa de um controlador próprio, que dispare a
+conversão exatamente a cada 1/fs.
+
 **Documentos do estágio:** o início passa a **25/09/2026** (sexta), com encerramento
 mantido em 04/12/2026 — um dia de 5 h e dez semanas de 25 h dão as mesmas 255 h, e a
 semana curta passa a ser a primeira. Formulário, termo e plano refeitos para a

@@ -3,7 +3,9 @@ conv_window.py — janela para gerar dois sinais, enviá-los à FPGA por TCP
 e exibir a convolução y[n] = x[n] * h[n] retornada.
 
 Hardware: conv1d aceita até CONV_N_MAX amostras por entrada (ver morphe_config).
-Sinais menores são zero-padded. A configuração TCP é compartilhada com a janela
+Sinais menores são zero-padded; sinais maiores (de arquivo, por exemplo) são
+processados por blocos, por overlap-add (blocos.py) -- várias requisições,
+mesmo resultado de uma convolução linear só. A configuração TCP é compartilhada com a janela
 principal (master.tcp_panel).
 """
 from __future__ import annotations
@@ -21,10 +23,10 @@ matplotlib.use("TkAgg")
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+import blocos
 import dsp_core as dsp
 import morphe_theme as theme
 from signal_panel import SignalPanel
-from morphe_protocol import build_conv_request, DTYPE_CODES
 from popout_helper import open_or_focus, refresh_all
 from plot_toolbar import PlotToolbar
 
@@ -51,17 +53,25 @@ def _attach_stem_format_coord(ax, n_arr: np.ndarray, x_arr: np.ndarray,
     ax.format_coord = fmt
 
 
+# Acima disto o stem vira um borrão e deixa a janela lenta (um marcador e uma
+# haste por amostra): sinais longos, de arquivo, são desenhados como linha.
+STEM_MAX = 2048
+
+
 def _stem_signal(ax, sig: Optional[dsp.Signal], title: str, color: str):
     ax.clear()
     if sig is None or sig.n.size == 0:
         theme.draw_empty_axes(ax, title)
         return
     n_plot = np.asarray(sig.n, dtype=float)
-    ml, sl, _ = ax.stem(n_plot, sig.x, basefmt=" ")
-    ml.set_markersize(4)
-    ml.set_color(color)
-    ml.set_markerfacecolor(color)
-    sl.set_color(color)
+    if sig.x.size > STEM_MAX:
+        ax.plot(n_plot, sig.x, color=color, linewidth=0.8)
+    else:
+        ml, sl, _ = ax.stem(n_plot, sig.x, basefmt=" ")
+        ml.set_markersize(4)
+        ml.set_color(color)
+        ml.set_markerfacecolor(color)
+        sl.set_color(color)
     ax.set_title(f"{title}  —  {sig.description}", fontsize=9)
     ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
     n_min, n_max = float(n_plot.min()), float(n_plot.max())
@@ -139,6 +149,7 @@ class ConvolutionWindow(tk.Toplevel):
             default_N=16,
             default_type="Retangular",
             max_N=dsp.MAX_CONV_INPUT_SIZE,
+            aceita_longo=True,
         )
         self.x_panel.pack(fill="x", pady=(6, 0))
 
@@ -148,6 +159,7 @@ class ConvolutionWindow(tk.Toplevel):
             default_N=8,
             default_type="Retangular",
             max_N=dsp.MAX_CONV_INPUT_SIZE,
+            aceita_longo=True,
         )
         self.h_panel.pack(fill="x", pady=(8, 0))
 
@@ -306,53 +318,44 @@ class ConvolutionWindow(tk.Toplevel):
                 ):
                     return
 
-        try:
-            x_padded = dsp.pad_zeros_to(self.x_sig.x, dsp.MAX_CONV_INPUT_SIZE)
-            h_padded = dsp.pad_zeros_to(self.h_sig.x, dsp.MAX_CONV_INPUT_SIZE)
-        except ValueError as e:
-            messagebox.showerror("Tamanho excedido", str(e))
-            return
-
         nx_orig = int(self.x_sig.x.size)
         nh_orig = int(self.h_sig.x.size)
         n0_x = int(self.x_sig.n[0]) if self.x_sig.n.size else 0
         n0_h = int(self.h_sig.n[0]) if self.h_sig.n.size else 0
+        n_max = dsp.MAX_CONV_INPUT_SIZE
+        n_req = blocos.n_requisicoes_conv(nx_orig, nh_orig)
 
         self.btn_conv.config(state="disabled")
-        self.status.set(
-            f"Padding {nx_orig}→{dsp.MAX_CONV_INPUT_SIZE} e "
-            f"{nh_orig}→{dsp.MAX_CONV_INPUT_SIZE}, enviando à FPGA..."
-        )
+        if n_req == 1:
+            self.status.set(f"Padding {nx_orig}→{n_max} e {nh_orig}→{n_max}, "
+                            f"enviando à FPGA...")
+        else:
+            self.status.set(f"Sinal maior que {n_max} amostras: {n_req} blocos "
+                            f"(overlap-add), enviando à FPGA...")
 
-        x_q = dsp.float_to_q1516(x_padded)
-        h_q = dsp.float_to_q1516(h_padded)
+        conv_placa = blocos.ConvPlaca(client)
+
+        def progresso(feitos, total):
+            if total > 1:
+                self.after(0, lambda: self.status.set(
+                    f"Bloco {feitos} de {total} na FPGA..."))
 
         def worker():
             try:
-                req = build_conv_request(
-                    x_q.astype(np.float64), h_q.astype(np.float64),
-                    DTYPE_CODES["int32"],
-                )
-                resp = client.request(req)
-                if not resp.ok:
-                    raise RuntimeError(resp.payload.decode("utf-8", "replace"))
-
-                be = np.dtype(">i4")
-                y_q = np.frombuffer(resp.payload, dtype=be, count=resp.n_out)
-                y_full = dsp.q1516_to_float(y_q)
-
-                n_useful = nx_orig + nh_orig - 1
-                y = y_full[:n_useful]
+                y = blocos.conv_por_blocos(self.x_sig.x, self.h_sig.x,
+                                           conv_placa, progresso=progresso)
+                n_useful = y.size
                 n = np.arange(n_useful, dtype=np.int64) + (n0_x + n0_h)
 
+                if n_req == 1:
+                    hw = (f"hardware: {n_max}+{n_max} → "
+                          f"{conv_placa.n_out} amostras Q15.16")
+                else:
+                    hw = (f"{n_req} blocos de até {n_max}+{n_max} "
+                          f"por overlap-add, Q15.16")
                 result = dsp.Signal(
                     n=n, x=y,
-                    description=(
-                        f"y[n] = x ∗ h  (N útil={n_useful}, "
-                        f"hardware: {dsp.MAX_CONV_INPUT_SIZE}+"
-                        f"{dsp.MAX_CONV_INPUT_SIZE} → "
-                        f"{len(y_full)} amostras Q15.16)"
-                    ),
+                    description=f"y[n] = x ∗ h  (N útil={n_useful}, {hw})",
                     dtype_out=self.dtype_var.get(),
                 )
                 self.after(0, lambda: self._on_conv_done(result))

@@ -140,11 +140,14 @@ class SignalGeneratorWindow(tk.Toplevel):
         s = self.current
         if s is not None:
             n_plot = np.asarray(s.n, dtype=float)
-            ml, sl, _ = self.ax.stem(n_plot, s.x, basefmt=" ")
-            ml.set_markersize(4)
-            ml.set_color(dsp.COLOR_X)
-            ml.set_markerfacecolor(dsp.COLOR_X)
-            sl.set_color(dsp.COLOR_X)
+            if s.x.size > 2048:        # sinal longo, de arquivo: linha
+                self.ax.plot(n_plot, s.x, color=dsp.COLOR_X, linewidth=0.8)
+            else:
+                ml, sl, _ = self.ax.stem(n_plot, s.x, basefmt=" ")
+                ml.set_markersize(4)
+                ml.set_color(dsp.COLOR_X)
+                ml.set_markerfacecolor(dsp.COLOR_X)
+                sl.set_color(dsp.COLOR_X)
             self.ax.set_title(s.description, fontsize=9)
             self.ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
             self.ax.set_xlabel("n")
