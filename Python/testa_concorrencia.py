@@ -212,9 +212,11 @@ def placas_preparadas(placas: list[str], porta: int) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def executa(placa_de, ops, clientes: int, rodadas: int, porta: int,
-            n: int, timeout: float, etiqueta: str) -> list[Resultado]:
+            n: int, timeout: float, etiqueta: str,
+            n_placas: int = 1) -> list[Resultado]:
     """Dispara clientes x rodadas requisicoes. `placa_de(cliente, rodada)`
-    decide a placa de cada uma -- e o que separa os modos."""
+    decide a placa de cada uma -- e o que separa os modos. `n_placas` e o
+    rodizio de placas que `placa_de` usa, para a operacao nao andar junto."""
     resultados: list[Resultado] = []
     trava = threading.Lock()
     largada = threading.Barrier(clientes)
@@ -225,7 +227,14 @@ def executa(placa_de, ops, clientes: int, rodadas: int, porta: int,
         largada.wait()
         for r in range(rodadas):
             placa = placa_de(c, r)
-            op = ops[(c + r) % len(ops)]
+            # A operacao NAO pode usar o mesmo indice da placa. Ate 23/09 as
+            # duas eram (c + r): com 2 placas e 2 operacoes a correlacao era
+            # perfeita, uma placa so recebia convolucoes e a outra so FFTs
+            # (o "1267 ms contra 22,7 ms" de 22/09). Com c // n_placas, os
+            # clientes que caem na mesma placa alternam de operacao. Com uma
+            # placa so (n_placas = 1) a formula e a antiga: os resultados do
+            # modo "mesma" continuam comparaveis.
+            op = ops[(c // n_placas + r) % len(ops)]
             fn = uma_conv if op == "conv" else uma_fft
             try:
                 ms = fn(placa, porta, n, timeout)
@@ -348,7 +357,8 @@ def main() -> int:
             return placas[(c + r) % len(placas)]
 
     res = executa(placa_de, ops, args.clientes, args.rodadas,
-                  args.porta, args.n, args.timeout, args.etiqueta)
+                  args.porta, args.n, args.timeout, args.etiqueta,
+                  n_placas=len(placas))
     segundos = executa.segundos
 
     geral = resume("todos os clientes", res)

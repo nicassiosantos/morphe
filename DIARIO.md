@@ -16,6 +16,59 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 23/09/2026 — O Quartus 20.1 para o aluno, em todos os computadores do laboratório
+
+**O que se queria:** que a conta `alunopds` de **qualquer** computador do laboratório
+use o Quartus normalmente — compilar um projeto próprio e programar a FPGA pelo
+USB-Blaster ligado naquele computador —, **sempre na versão 20.1**, a mesma que compila
+o bitstream do Morphe. Até hoje o aluno só usava o Quartus indiretamente, pelo
+`morphe-up.sh`, e só na estação `LABPS-47723`: nem lá ele tinha o Quartus no `PATH`.
+
+**Escrito:** `instala-quartus.sh` (`58e9738`, `73951ab`, `61dfd69`). Numa conta com
+sudo, clonar e rodar. Ele lista os Quartus já instalados e escolhe: um 20.1 com suporte
+a Cyclone V fora das homes é usado como está; um dentro de uma home (0750, o aluno não
+lê) é copiado para `/opt` localmente; sem nenhum dos dois, a 20.1 é copiada **da
+estação** por `rsync`, e não do instalador, para a versão ser a mesma em todo lugar.
+Depois: leitura para todos, regra udev do USB-Blaster, `libudev.so.0`, `PATH` em
+`/etc/profile.d` com a 20.1 na frente, atalho no menu e um teste feito da própria conta
+do aluno. Pula o que já estiver feito; `--verificar` só confere.
+
+**Validado na estação.** O script achou três instalações — a 20.1 em `/opt` (usada), a
+20.1 original em `/home/coordenador` e uma **22.1std em `/root`**, que ninguém sabia
+que existia — e todas são `20.1.0 Build 711 Lite Edition` onde deviam ser. Faltava a
+`libudev.so.0` (criada). Da conta `alunopds`, depois de sair e entrar: `quartus_sh`
+resolve para `/opt/intelFPGA_lite/20.1`, e o **Programmer do Quartus enxergou o cabo
+`DE-SoC [1-2]`**. O aluno programa a FPGA na estação por conta própria.
+
+**Validado em um segundo computador**, sem nenhum aviso. Outros oito estão copiando.
+
+**O que a medição corrigiu:**
+- **O SSH da estação estava desligado** — a cópia pela rede não teria funcionado.
+  Instalado o `openssh-server`. Ficou aberto com a senha do coordenador, que tem sudo:
+  desligar (`systemctl disable --now ssh`) quando os computadores estiverem prontos.
+- **Nove cópias simultâneas da mesma estação passam de uma hora.** São ~16 GB por
+  máquina saindo de um disco e de uma placa de rede só, com centenas de milhares de
+  arquivos pequenos. Para os próximos: lotes de 2 ou 3, ou um HD externo
+  (`--origem <pasta>`). Uma cópia interrompida é retomada ao rodar de novo.
+- **O atalho do menu não apareceu na estação.** Foi escrito à mão antes do script, com
+  um ícone presumido (`quartusii.png`), e o script o dava por pronto porque só olhava o
+  `Exec`. `61dfd69` passa a conferir o ícone também — **escrito, ainda não validado.**
+
+**Corrigido, ainda não medido de novo:** o índice correlacionado do
+`testa_concorrencia.py` apontado ontem. A operação passa a ser
+`ops[(c // n_placas + r) % len(ops)]`: com duas placas, cada uma recebe metade
+convoluções e metade FFTs (conferido por enumeração para 2 e 3 placas, de 2 a 6
+clientes). Com uma placa só a fórmula é a antiga, então os resultados de 8 e 10
+clientes do modo `mesma` continuam comparáveis. Falta rodar o modo `dividir` no
+laboratório.
+
+**Documentos do estágio:** o início passa a **25/09/2026** (sexta), com encerramento
+mantido em 04/12/2026 — um dia de 5 h e dez semanas de 25 h dão as mesmas 255 h, e a
+semana curta passa a ser a primeira. Formulário, termo e plano refeitos para a
+coordenadora de estágio.
+
+---
+
 ## 22/09/2026 — A infraestrutura de requisições, documentada e medida
 
 **O que se queria saber:** o que acontece quando duas pessoas, em máquinas diferentes,
