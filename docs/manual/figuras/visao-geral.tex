@@ -1,0 +1,35 @@
+\begin{tikzpicture}[node distance=5mm]
+  % Computadores
+  \node[cliente, minimum width=30mm] (pc1) {PC do laboratório\\\scriptsize aplicativo Morphe};
+  \node[cliente, minimum width=30mm, below=of pc1] (pc2) {PC do laboratório\\\scriptsize aplicativo Morphe};
+  \node[cliente, minimum width=30mm, below=of pc2] (est) {Estação\\\scriptsize aplicativo + \texttt{morphe-up.sh}};
+
+  % Rede
+  \node[rede, right=14mm of pc2, minimum height=34mm, text width=18mm] (sw) {Rede do\\laboratório};
+
+  % Placas
+  \node[hps, right=16mm of sw.north east, anchor=north west, yshift=4mm, text width=24mm]
+        (hps1) {HPS\\\scriptsize ARM + Linux\\\texttt{morphe\_server}};
+  \node[fpga, right=10mm of hps1, text width=18mm, minimum height=16mm] (fp1) {FPGA\\\scriptsize aceleradores};
+  \node[hps, right=16mm of sw.south east, anchor=south west, yshift=-4mm, text width=24mm]
+        (hps2) {HPS\\\scriptsize ARM + Linux\\\texttt{morphe\_server}};
+  \node[fpga, right=10mm of hps2, text width=18mm, minimum height=16mm] (fp2) {FPGA\\\scriptsize aceleradores};
+
+  \begin{scope}[on background layer]
+    \node[grupo, fit=(hps1)(fp1), label={[font=\scriptsize\bfseries]above:DE1-SoC (placa 1)}] (b1) {};
+    \node[grupo, fit=(hps2)(fp2), label={[font=\scriptsize\bfseries]above:DE1-SoC (placa 2)}] (b2) {};
+  \end{scope}
+
+  \draw[<->, thick] (hps1) -- node[rotulo, above]{AXI} (fp1);
+  \draw[<->, thick] (hps2) -- node[rotulo, above]{AXI} (fp2);
+
+  % Rede
+  \foreach \p in {pc1, pc2, est}
+    \draw[<->, thick, cRede] (\p.east) -- (\p.east -| sw.west);
+  \draw[<->, thick, cRede] (sw.east |- hps1) -- node[rotulo, above]{TCP 5000} (hps1.west);
+  \draw[<->, thick, cRede] (sw.east |- hps2) -- node[rotulo, below]{TCP 5000\\SSH} (hps2.west);
+
+  % JTAG
+  \draw[->, thick, dashed, cFpga]
+    (est.south) -- ++(0,-6mm) -| node[rotulo, pos=0.25, below]{USB-Blaster (JTAG): programa a FPGA e mantém o \emph{tether}} (fp2.south);
+\end{tikzpicture}

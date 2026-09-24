@@ -1,0 +1,26 @@
+% IIR por blocos com aquecimento (Python/blocos.py, iir_por_blocos).
+\begin{tikzpicture}[
+    blk/.style={draw, minimum height=6mm, inner sep=0pt, font=\scriptsize, anchor=west},
+  ]
+  \def\B{36mm}\def\A{10mm} % bloco da placa (1024) e aquecimento no desenho
+
+  \node[anchor=east, font=\small] at (-2mm,0) {\(x[n]\)};
+  \draw[fill=black!4] (0,-3mm) rectangle (3*\B-2*\A+8mm,3mm);
+  \node[font=\scriptsize] at (1.5*\B,0) {sinal de arquivo, qualquer tamanho};
+
+  % bloco 1: sem aquecimento
+  \node[blk, fill=opIir!25, minimum width=\B] at (0,-10mm) {bloco 1: 1024 guardadas};
+  % bloco 2
+  \node[blk, fill=black!10, minimum width=\A] at (\B-\A,-17mm) {};
+  \node[blk, fill=opIir!25, minimum width=\B-\A] at (\B,-17mm) {bloco 2: \(1024 - A\)};
+  % bloco 3
+  \node[blk, fill=black!10, minimum width=\A] at (2*\B-2*\A,-24mm) {};
+  \node[blk, fill=opIir!25, minimum width=\B-\A] at (2*\B-\A,-24mm) {bloco 3};
+
+  \draw[decorate, decoration={brace, mirror, amplitude=3pt}]
+    (\B-\A,-20.5mm) -- node[below=3pt, font=\scriptsize, align=center]{aquecimento \(A\):\\descartado} (\B,-20.5mm);
+
+  \node[rotulo, anchor=west, align=left, text width=48mm] at (3*\B-2*\A+12mm,-17mm)
+    {\(A\) sai do polo de maior módulo: o transitório de estado zero cai abaixo de
+     meio LSB do Q15.16 antes da primeira amostra guardada.};
+\end{tikzpicture}

@@ -1,0 +1,29 @@
+% Os passos do morphe-up.sh, na ordem em que o script os imprime.
+\begin{tikzpicture}[
+    p/.style={caixa, fill=white, text width=54mm, font=\scriptsize},
+    onde/.style={font=\tiny\bfseries, anchor=east},
+    node distance=4mm,
+  ]
+  \node[p, draw=cCliente] (p0) {confere a conta (recusa \texttt{root}) e acha o Quartus 20.1};
+  \node[p, draw=cFpga, below=of p0] (p1) {programa a FPGA pelo JTAG\\(\texttt{quartus\_pgm} + \emph{tether} do cabo)};
+  \node[p, draw=cRede, below=of p1] (p2) {confere o caminho até a placa (rede, SSH)};
+  \node[p, draw=cHps, below=of p2] (p3) {envia e compila o servidor na placa\\(\texttt{make -B})};
+  \node[p, draw=cHps, below=of p3] (p4) {(re)inicia o servidor e grava a marca\\\texttt{/var/run/morphe-fpga-preparada}};
+  \node[p, draw=cCliente, below=of p4] (p5) {verifica a plataforma (\texttt{morphe\_ping})\\e registra a placa em \texttt{.morphe-estado/placas}};
+
+  \foreach \a/\b in {p0/p1,p1/p2,p2/p3,p3/p4,p4/p5} \draw[seta] (\a) -- (\b);
+
+  \node[onde, text=cCliente] at ($(p0.west)+(-2mm,0)$) {estação};
+  \node[onde, text=cFpga]    at ($(p1.west)+(-2mm,0)$) {JTAG};
+  \node[onde, text=cRede]    at ($(p2.west)+(-2mm,0)$) {rede};
+  \node[onde, text=cHps]     at ($(p3.west)+(-2mm,0)$) {placa (SSH)};
+  \node[onde, text=cHps]     at ($(p4.west)+(-2mm,0)$) {placa (SSH)};
+  \node[onde, text=cCliente] at ($(p5.west)+(-2mm,0)$) {estação};
+
+  \node[rotulo, anchor=west, text width=48mm, align=left] at ($(p1.east)+(6mm,0)$)
+    {O \emph{tether} precisa ficar vivo: sem ele o bitstream de avaliação para
+     depois de uma hora --- a FFT e, com ela, todas as operações.};
+  \node[rotulo, anchor=west, text width=48mm, align=left] at ($(p4.east)+(6mm,0)$)
+    {Sem a marca o servidor recusa toda operação (status 8): a placa recém-ligada
+     ainda está com o bitstream de fábrica.};
+\end{tikzpicture}

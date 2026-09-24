@@ -1,0 +1,30 @@
+% Q15.8 dentro de um int32 (FFT/IFFT) e Q15.16 (conv, FIR, IIR). 1 bit = 3,6 mm.
+\begin{tikzpicture}
+  \def\u{3.4mm}
+  % faixa(bit_inicial_da_esquerda, n_bits, texto, cor, y)
+  \newcommand{\faixa}[5]{%
+    \draw[fill=#4] (#1*\u,#5) rectangle ++(#2*\u,6mm);
+    \foreach \k in {1,...,#2} \draw[black!25] ({(#1+\k)*\u},#5) -- ++(0,6mm);
+    \node[font=\scriptsize] at ({(#1+#2/2)*\u},#5+3mm) {#3};}
+
+  % ---- Q15.8 --------------------------------------------------------------
+  \node[anchor=east, font=\small, align=right] at (-2mm,3mm) {\textbf{Q15.8}\\\scriptsize FFT, IFFT};
+  \faixa{0}{8}{extensão de sinal}{black!8}{0}
+  \faixa{8}{1}{s}{opConv!25}{0}
+  \faixa{9}{15}{parte inteira (15)}{cCliente!15}{0}
+  \faixa{24}{8}{fração (8)}{cHps!18}{0}
+  \draw[decorate, decoration={brace, mirror, amplitude=4pt}]
+    (8*\u,-1mm) -- node[below=4pt, font=\scriptsize]{24 bits que o IP da FFT lê (\texttt{sink\_real[23:0]})} (32*\u,-1mm);
+  \node[anchor=west, font=\scriptsize, align=left] at (33*\u,3mm) {passo \(2^{-8}\)\\faixa \(\pm 32768\)};
+
+  % ---- Q15.16 -------------------------------------------------------------
+  \node[anchor=east, font=\small, align=right] at (-2mm,-17mm) {\textbf{Q15.16}\\\scriptsize conv, FIR, IIR};
+  \faixa{0}{1}{s}{opConv!25}{-20mm}
+  \faixa{1}{15}{parte inteira (15)}{cCliente!15}{-20mm}
+  \faixa{16}{16}{fração (16)}{cHps!18}{-20mm}
+  \node[anchor=west, font=\scriptsize, align=left] at (33*\u,-17mm) {passo \(2^{-16}\)\\faixa \(\pm 32768\)};
+
+  % regua
+  \foreach \b/\p in {31/0,24/7,16/15,8/23,0/31}
+    \node[font=\tiny, text=black!60] at ({(\p+0.5)*\u},8mm) {\b};
+\end{tikzpicture}

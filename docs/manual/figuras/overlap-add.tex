@@ -1,0 +1,33 @@
+% Overlap-add: x em blocos de L, cada um convoluido na placa com h (M amostras).
+\begin{tikzpicture}[
+    blk/.style={draw, minimum height=6mm, inner sep=0pt, font=\scriptsize},
+  ]
+  \def\L{30mm}\def\T{10mm} % comprimento do bloco e da cauda (M-1) no desenho
+
+  % Sinal de entrada
+  \node[anchor=east, font=\small] at (-2mm,0) {\(x[n]\)};
+  \foreach \i/\c in {0/opConv, 1/opFft, 2/opIir} {
+    \node[blk, fill=\c!15, minimum width=\L, anchor=west] at (\i*\L,0) {bloco \the\numexpr\i+1\relax: \(L\) amostras};
+  }
+  \node[font=\small] at (3*\L+6mm,0) {\(\cdots\)};
+
+  % Convolucoes na placa (deslocadas)
+  \foreach \i/\c in {0/opConv, 1/opFft, 2/opIir} {
+    \pgfmathsetmacro{\y}{-12-9*\i}
+    \node[blk, fill=\c!15, minimum width=\L, anchor=west] (c\i) at (\i*\L,\y mm) {\(x_{\the\numexpr\i+1\relax} * h\)};
+    \node[blk, fill=\c!35, minimum width=\T, anchor=west] at (c\i.east) {cauda};
+    \node[font=\scriptsize, anchor=east, text=black!60] at (-2mm,\y mm) {na placa};
+  }
+
+  % Soma
+  \draw[thick] (0,-42mm) -- (3*\L+\T,-42mm);
+  \node[anchor=east, font=\small] at (-2mm,-48mm) {\(y[n]\)};
+  \node[blk, fill=black!5, minimum width=3*\L+\T, anchor=west] at (0,-48mm)
+    {soma: onde duas caudas se sobrepõem, as amostras se somam};
+
+  % Marcas de sobreposicao
+  \foreach \i in {1,2}
+    \draw[densely dashed, black!50] (\i*\L,-8mm) -- (\i*\L,-45mm);
+  \draw[decorate, decoration={brace, amplitude=3pt}]
+    (\L,-37mm) -- node[below=3pt, font=\scriptsize]{\(M-1\)} (\L+\T,-37mm);
+\end{tikzpicture}

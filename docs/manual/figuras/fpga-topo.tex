@@ -1,0 +1,72 @@
+% Topo da FPGA: cada acelerador com as suas memorias e PIOs.
+% Linha por acelerador: [SRAMs de entrada] -> [nucleo] -> [SRAM de saida].
+\begin{tikzpicture}[
+    ent/.style={mem, minimum width=17mm},
+    nuc/.style={caixa, fill=white, minimum width=34mm, minimum height=13mm, font=\scriptsize},
+    pio/.style={font=\tiny\ttfamily, text=black!70},
+  ]
+  \def\xe{0}\def\xn{36mm}\def\xs{72mm}
+
+  % --- convolucao -------------------------------------------------------
+  \node[ent, fill=opConv!10] (cx) at (\xe,  3mm) {conv1d\_xn};
+  \node[ent, fill=opConv!10] (ch) at (\xe, -3mm) {conv1d\_hn};
+  \node[nuc, draw=opConv]    (cc) at (\xn, 0)    {\texttt{conv1d}\\MAC Q15.16\\\(x, h \le 1024 \to y \le 2047\)};
+  \node[ent, fill=opConv!10] (cy) at (\xs, 0)    {conv1d\_yn};
+
+  % --- FIR ----------------------------------------------------------------
+  \node[ent, fill=opConv!10] (fx) at (\xe, -19mm) {fir\_xn};
+  \node[ent, fill=opConv!10] (fh) at (\xe, -25mm) {fir\_hn};
+  \node[nuc, draw=opConv]    (fc) at (\xn, -22mm) {\texttt{conv1d} (\texttt{fir\_inst})\\o mesmo RTL da convolução};
+  \node[ent, fill=opConv!10] (fy) at (\xs, -22mm) {fir\_yn};
+
+  % --- FFT ----------------------------------------------------------------
+  \node[ent, fill=opFft!10] (tx) at (\xe, -41mm) {fft\_xn\_re};
+  \node[ent, fill=opFft!10] (ti) at (\xe, -47mm) {fft\_xn\_imag};
+  \node[nuc, draw=opFft]    (tc) at (\xn, -44mm) {\texttt{fft\_wrapper} + IP FFT II\\Buffered Burst, N = 1024\\Q15.8, expoente de bloco};
+  \node[ent, fill=opFft!10] (ty) at (\xs, -41mm) {fft\_yn\_re};
+  \node[ent, fill=opFft!10] (tj) at (\xs, -47mm) {fft\_yn\_imag};
+
+  % --- IIR ----------------------------------------------------------------
+  \node[ent, fill=opIir!10] (ix) at (\xe, -63mm) {iir\_xn};
+  \node[ent, fill=opIir!10] (ik) at (\xe, -69mm) {iir\_coef};
+  \node[nuc, draw=opIir]    (ic) at (\xn, -66mm) {\texttt{iir\_cascade}\\até 16 seções, Q15.16\\1 MAC (5 DSP)};
+  \node[ent, fill=opIir!10] (iy) at (\xs, -66mm) {iir\_yn};
+
+  % Setas de dados
+  \foreach \a/\b in {cx/cc,ch/cc,fx/fc,fh/fc,tx/tc,ti/tc,ix/ic,ik/ic}
+    \draw[seta] (\a.east) -- (\a.east -| \b.west);
+  \foreach \a/\b in {cc/cy,fc/fy,ic/iy}
+    \draw[seta] (\a.east) -- (\b.west);
+  \draw[seta] (tc.east |- ty) -- (ty.west);
+  \draw[seta] (tc.east |- tj) -- (tj.west);
+
+  % PIOs de controle (acima de cada nucleo)
+  \node[pio, above=0.5mm of cc] {PIO: start, done};
+  \node[pio, above=0.5mm of fc] {PIO: start, done, error};
+  \node[pio, above=0.5mm of tc] {PIO: start, done, inverse, bfp\_exponent};
+  \node[pio, above=0.5mm of ic] {PIO: start, done, error, nsecoes};
+
+  % Interconexao: desce pela esquerda (entradas) e pela direita (saidas)
+  \coordinate (bE) at (-12mm, 0);        % barramento da esquerda
+  \coordinate (bD) at (\xs+13mm, 0);     % barramento da direita
+  \def\ytopo{14mm}
+  \draw[thick, cHps] (bE |- 0,-72mm) -- (bE |- 0,\ytopo) -- node[rotulo, above, text=cHps]{interconexão do Platform Designer} (bD |- 0,\ytopo) -- (bD |- 0,-66mm);
+  \foreach \y in {3,-3,-19,-25,-41,-47,-63,-69}
+    \draw[cHps] (bE |- 0,\y mm) -- (\xe-8.5mm,\y mm);
+  \foreach \y in {0,-22,-41,-47,-66}
+    \draw[cHps] (bD |- 0,\y mm) -- (\xs+8.5mm,\y mm);
+
+  % HPS, a esquerda, fora da FPGA
+  \node[hps, minimum height=40mm, text width=21mm, anchor=east] (hps) at (-24mm,-29mm)
+    {HPS\\[2mm]\scriptsize ponte HPS\(\to\)FPGA: memórias\\[2mm] ponte leve: PIOs};
+  \draw[<->, very thick, cHps] (hps.east) -- (bE |- hps.east);
+
+  % cantos da FPGA (virgula dentro de fit=... quebraria a lista de opcoes)
+  \coordinate (cantoA) at (bE |- 0,\ytopo);
+  \coordinate (cantoB) at (bD |- 0,-72mm);
+  \begin{scope}[on background layer]
+    \node[grupo, draw=cFpga, fill=cFpga!4, fit=(cx)(iy)(ik)(tj)(cantoA)(cantoB),
+          inner ysep=5mm,
+          label={[font=\scriptsize\bfseries, text=cFpga]above:{FPGA (Cyclone V), relógio de 50 MHz}}] {};
+  \end{scope}
+\end{tikzpicture}

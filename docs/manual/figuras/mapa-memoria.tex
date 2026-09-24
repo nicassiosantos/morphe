@@ -1,0 +1,57 @@
+% Mapa de memoria. Enderecos de C/hps_0.h e C/address_map_arm.h.
+\begin{tikzpicture}[
+    reg/.style={draw, minimum width=34mm, minimum height=5.2mm, inner sep=1pt,
+                font=\scriptsize\ttfamily, anchor=north},
+    end/.style={font=\scriptsize\ttfamily, anchor=east, text=black!70},
+  ]
+  % ---- Ponte HPS->FPGA ---------------------------------------------------
+  \node[font=\small\bfseries, align=center] at (0,8mm) {Ponte HPS\(\to\)FPGA\\\normalfont\scriptsize base \texttt{0xC000\,0000}, 32 bits};
+  \foreach \i/\nome/\off/\cor in {
+      0/fir\_yn/0x10000/opConv,
+      1/conv1d\_yn/0x12000/opConv,
+      2/fir\_hn/0x14000/opConv,
+      3/fir\_xn/0x15000/opConv,
+      4/conv1d\_hn/0x16000/opConv,
+      5/conv1d\_xn/0x17000/opConv,
+      6/fft\_yn\_re/0x18000/opFft,
+      7/fft\_yn\_imag/0x19000/opFft,
+      8/fft\_xn\_re/0x1A000/opFft,
+      9/fft\_xn\_imag/0x1B000/opFft,
+      10/iir\_xn/0x1C000/opIir,
+      11/iir\_yn/0x1D000/opIir,
+      12/iir\_coef/0x1E000/opIir}
+  {
+    \node[reg, fill=\cor!12] (h\i) at (0,-\i*5.2mm) {\nome};
+    \node[end] at (h\i.west) {\off\ };
+  }
+
+  % ---- Ponte leve ---------------------------------------------------------
+  \begin{scope}[xshift=72mm]
+  \node[font=\small\bfseries, align=center] at (0,8mm) {Ponte leve (LW)\\\normalfont\scriptsize base \texttt{0xFF20\,0000}, PIOs};
+  \foreach \i/\nome/\off/\cor in {
+      0/fir\_error/0x00/opConv,
+      1/fir\_done/0x10/opConv,
+      2/fir\_start/0x20/opConv,
+      3/conv1d\_done/0x30/opConv,
+      4/conv1d\_start/0x40/opConv,
+      5/fft\_bfp\_exponent/0x50/opFft,
+      6/fft\_wrapper\_done/0x60/opFft,
+      7/fft\_inverse/0x70/opFft,
+      8/fft\_wrapper\_start/0x80/opFft,
+      9/iir\_start/0x90/opIir,
+      10/iir\_done/0xA0/opIir,
+      11/iir\_error/0xB0/opIir,
+      12/iir\_nsecoes/0xC0/opIir}
+  {
+    \node[reg, fill=\cor!12] (l\i) at (0,-\i*5.2mm) {\nome};
+    \node[end] at (l\i.west) {\off\ };
+  }
+  \end{scope}
+
+  % Legenda
+  \begin{scope}[yshift=-72mm, xshift=-10mm]
+    \foreach \x/\c/\t in {0/opConv/convolução e FIR, 38/opFft/FFT e IFFT, 72/opIir/IIR}
+      { \fill[\c!12, draw=black] (\x mm,0) rectangle ++(4mm,3mm);
+        \node[anchor=west, font=\scriptsize] at (\x mm+5mm,1.5mm) {\t}; }
+  \end{scope}
+\end{tikzpicture}

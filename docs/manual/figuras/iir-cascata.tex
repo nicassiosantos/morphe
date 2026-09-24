@@ -1,0 +1,59 @@
+% Cascata de secoes de 2a ordem e uma secao em forma direta I.
+\begin{tikzpicture}[
+    sos/.style={caixa, draw=opIir, fill=opIir!10, minimum width=16mm},
+    som/.style={circle, draw, inner sep=0pt, minimum size=5mm},
+    atr/.style={draw, minimum size=6mm, font=\scriptsize, inner sep=1pt},
+    gan/.style={isosceles triangle, draw, inner sep=0.6pt, minimum height=5mm,
+                font=\tiny, isosceles triangle apex angle=60},
+  ]
+  % ---- Cascata -----------------------------------------------------------
+  \node (xin) at (0,0) {\(x[n]\)};
+  \node[sos, right=8mm of xin] (s1) {seção 1};
+  \node[sos, right=8mm of s1]  (s2) {seção 2};
+  \node[right=6mm of s2] (dots) {\(\cdots\)};
+  \node[sos, right=6mm of dots] (sS) {seção \(S\)};
+  \node[right=8mm of sS] (yout) {\(y[n]\)};
+  \draw[seta] (xin) -- (s1);
+  \draw[seta] (s1) -- (s2);
+  \draw[seta] (s2) -- (dots);
+  \draw[seta] (dots) -- (sS);
+  \draw[seta] (sS) -- (yout);
+  \node[rotulo, below=1mm of s2] {cada seção: \(b_0, b_1, b_2, a_1, a_2\) em Q15.16, com \(a_0 = 1\)\\
+     até 16 seções, ordem até 32};
+
+  % ---- Uma secao, forma direta I -------------------------------------------
+  \begin{scope}[yshift=-26mm, xshift=10mm]
+    \node (x) at (0,0) {\(x_s[n]\)};
+    \coordinate (xa) at (12mm,0);
+    \node[atr] (z1) at (12mm,-11mm) {\(z^{-1}\)};
+    \node[atr] (z2) at (12mm,-22mm) {\(z^{-1}\)};
+    \node[gan] (b0) at (22mm,0)    {\(b_0\)};
+    \node[gan] (b1) at (22mm,-11mm){\(b_1\)};
+    \node[gan] (b2) at (22mm,-22mm){\(b_2\)};
+    \node[som] (sm) at (38mm,0) {\(+\)};
+    \node[caixa, fill=white, font=\scriptsize] (q) at (56mm,0) {arredonda\\satura};
+    \coordinate (ya) at (72mm,0);
+    \node (y) at (82mm,0) {\(y_s[n]\)};
+    \node[atr] (w1) at (72mm,-11mm) {\(z^{-1}\)};
+    \node[atr] (w2) at (72mm,-22mm) {\(z^{-1}\)};
+    \node[gan, shape border rotate=180] (a1) at (54mm,-11mm) {\(-a_1\)};
+    \node[gan, shape border rotate=180] (a2) at (54mm,-22mm) {\(-a_2\)};
+
+    \draw[seta] (x) -- (b0);
+    \draw[seta] (xa) -- (z1);  \draw[seta] (z1) -- (z2);
+    \draw[seta] (z1) -- (b1);  \draw[seta] (z2) -- (b2);
+    \draw[seta] (b0) -- (sm);
+    \draw[seta] (b1) -| (sm);
+    \draw[seta] (b2) -| ($(sm.south)+(-1.5mm,0)$);
+    \draw[seta] (sm) -- (q);
+    \draw[seta] (q) -- (y);
+    \draw[seta] (ya) -- (w1);  \draw[seta] (w1) -- (w2);
+    \draw[seta] (w1) -- (a1);  \draw[seta] (w2) -- (a2);
+    \draw[seta] (a1) -| ($(sm.south)+(1.5mm,0)$);
+    \draw[seta] (a2) -| ($(sm.south)+(1.5mm,0)$);
+    \fill (xa) circle (0.6mm);  \fill (ya) circle (0.6mm);
+
+    \node[rotulo, align=left, anchor=west] at (86mm,-14mm)
+      {4 registradores\\de estado por seção;\\as 5 multiplicações\\num só MAC\\compartilhado};
+  \end{scope}
+\end{tikzpicture}

@@ -1,0 +1,41 @@
+% Cabecalhos do protocolo Morphe-TCP (C/morphe_protocol.h). 1 byte = 6 mm.
+\begin{tikzpicture}[
+    campo/.style={draw, minimum height=9mm, inner sep=0pt, align=center,
+                  font=\scriptsize},
+  ]
+  \def\u{6.2mm}
+  % campo(inicio, bytes, texto, cor)
+  \newcommand{\campo}[5]{%
+    \node[campo, fill=#4, minimum width=#2*\u, anchor=west] at (#1*\u, #5) {#3};}
+
+  % ---- Requisicao ------------------------------------------------------
+  \node[anchor=east, font=\small\bfseries] at (-2mm,0) {requisição};
+  \campo{0}{4}{\texttt{magic}\\\texttt{"MRPM"}}{cCliente!12}{0}
+  \campo{4}{2}{\texttt{version}\\1}{white}{0}
+  \campo{6}{2}{\texttt{opcode}}{opIir!15}{0}
+  \campo{8}{2}{\texttt{dtype}}{white}{0}
+  \campo{10}{2}{\texttt{flags}}{white}{0}
+  \campo{12}{4}{\texttt{n\_x}\\amostras de \(x\)}{white}{0}
+  \campo{16}{4}{\texttt{n\_h}\\\(h\) ou seções}{white}{0}
+
+  % ---- Resposta --------------------------------------------------------
+  \node[anchor=east, font=\small\bfseries] at (-2mm,-26mm) {resposta};
+  \campo{0}{4}{\texttt{magic}\\\texttt{"MRPN"}}{cHps!12}{-26mm}
+  \campo{4}{2}{\texttt{version}}{white}{-26mm}
+  \campo{6}{2}{\texttt{opcode}}{opIir!15}{-26mm}
+  \campo{8}{2}{\texttt{dtype}}{white}{-26mm}
+  \campo{10}{2}{\texttt{status}}{opConv!15}{-26mm}
+  \campo{12}{4}{\texttt{n\_out}}{white}{-26mm}
+  \campo{16}{4}{\texttt{extra}\\saturou (IIR)}{white}{-26mm}
+
+  % Regua de bytes
+  \foreach \b in {0,4,8,12,16,20}
+    \node[font=\tiny, text=black!60] at (\b*\u, 7mm) {\b};
+  \draw[black!40] (0,5.5mm) -- (20*\u,5.5mm);
+
+  % Payload, logo depois de cada cabecalho
+  \node[campo, fill=black!5, dashed, minimum width=20*\u, anchor=west] at (0,-9mm)
+    {\emph{payload}: \(x\) e \(h\), espectro complexo ou coeficientes --- int32, 4 bytes por valor};
+  \node[campo, fill=black!5, dashed, minimum width=20*\u, anchor=west] at (0,-35mm)
+    {\emph{payload}: \(y\) (int32 ou float32), ou a mensagem de erro se \texttt{status} \(\ne 0\)};
+\end{tikzpicture}

@@ -1,0 +1,27 @@
+% ADC: o que existe hoje (linha cheia) e o que falta (tracejado).
+\begin{tikzpicture}[node distance=6mm]
+  % ---- Hoje ---------------------------------------------------------------
+  \node[caixa, fill=white, text width=16mm] (con) {conector\\analógico\\\scriptsize CH0--CH7};
+  \node[caixa, fill=black!6, right=of con, text width=23mm] (ltc) {LTC2308\\\scriptsize 12 bits, 8 canais\\0--4,095\,V};
+  \node[fpga, right=18mm of ltc, text width=31mm] (up) {controlador do\\University Program\\\scriptsize\itshape instância comentada};
+
+  \draw[seta] (con) -- (ltc);
+  \draw[<->, thick] (ltc) -- node[rotulo, above]{SPI, 4 fios}
+                              node[rotulo, below]{\texttt{CONVST}\\\texttt{SCLK DIN}\\\texttt{DOUT}} (up);
+
+  % ---- O que falta ----------------------------------------------------------
+  \node[futuro, right=8mm of up, text width=18mm] (pio) {PIO\\\scriptsize leitura avulsa};
+  \node[futuro, below=14mm of ltc, text width=24mm] (ctl) {controlador próprio\\\scriptsize CONVST a \(1/f_s\)};
+  \node[futuro, text width=18mm] (ram) at (ctl -| up) {RAM de\\captura};
+  \node[futuro, text width=18mm] (op) at (ctl -| pio) {opcodes;\\janela\\``Aquisição''};
+
+  \draw[seta, dashed, cFuturo] (up) -- (pio);
+  \draw[seta, dashed, cFuturo] (pio) -- (op);
+  \draw[seta, dashed, cFuturo] (ltc) -- (ctl);
+  \draw[seta, dashed, cFuturo] (ctl) -- (ram);
+  \draw[seta, dashed, cFuturo] (ram) -- (op);
+
+  \node[rotulo, anchor=north, text=cFuturo!70!black, align=left] at ($(ctl.south)!0.5!(op.south)+(0,-2mm)$)
+    {etapa 1: leitura avulsa, o \emph{voltímetro} (linha de cima)\\
+     etapa 2: captura a \(f_s\) fixa em RAM (linha de baixo)};
+\end{tikzpicture}

@@ -1,0 +1,24 @@
+% Escolha da placa pela sonda mais rapida (Python/tcp_panel.py).
+\begin{tikzpicture}[
+    ev/.style={font=\scriptsize, align=center},
+  ]
+  % eixo de tempo
+  \draw[->, black!60] (0,-26mm) -- (125mm,-26mm) node[below left, font=\scriptsize]{tempo};
+  \node[cliente, text width=18mm] (cl) at (-14mm,-9mm) {cliente\\\scriptsize \texttt{OP\_PING}\\em paralelo};
+
+  % Placa 1: ocupada com uma convolucao
+  \node[anchor=east, font=\scriptsize\bfseries] at (-2mm,0) {};
+  \node[hps, anchor=west, minimum width=10mm] at (0,0) {placa 1};
+  \draw[fill=opConv!20] (14mm,-3mm) rectangle (100mm,3mm);
+  \node[ev] at (57mm,0) {ocupada: convolução de outro aluno (\(\approx\)214\,ms)};
+  \draw[fill=cHps!30] (100mm,-3mm) rectangle (106mm,3mm);
+  \node[ev, anchor=west] at (107mm,0) {PING};
+
+  % Placa 2: livre
+  \node[hps, anchor=west, minimum width=10mm] at (0,-16mm) {placa 2};
+  \draw[fill=cHps!30] (16mm,-19mm) rectangle (22mm,-13mm);
+  \node[ev, anchor=west] at (23mm,-16mm) {PING responde em milissegundos \(\Rightarrow\) \textbf{escolhida}};
+
+  \draw[seta, cRede] (cl.east) -- (0,0);
+  \draw[seta, cRede] (cl.east) -- (0,-16mm);
+\end{tikzpicture}

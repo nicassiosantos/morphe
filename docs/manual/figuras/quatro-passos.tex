@@ -1,0 +1,41 @@
+% FFT longa pelo algoritmo de quatro passos (Python/blocos.py, fft_longa).
+% N = M * 1024; n = n1 + M*n2; k = 1024*k1 + k2.
+\begin{tikzpicture}[
+    passo/.style={font=\scriptsize\bfseries, align=center},
+    lin/.style={draw, minimum width=34mm, minimum height=5mm, inner sep=0pt, font=\tiny},
+  ]
+  % ---- 1: subsequencias -> M FFTs de 1024 na placa --------------------------
+  \node[passo] at (17mm,8mm) {1. \(M\) subsequências\\\(x[n_1 + M n_2]\)};
+  \foreach \r in {0,1,2} {
+    \node[lin, fill=opFft!12] (a\r) at (17mm,-\r*6mm) {\(n_1 = \r\): FFT na placa};
+  }
+  \node at (17mm,-18mm) {\(\vdots\)};
+  \node[lin, fill=opFft!12] (a3) at (17mm,-24mm) {\(n_1 = M-1\)};
+
+  % ---- 2: giro ---------------------------------------------------------------
+  \node[passo] at (58mm,8mm) {2. multiplica por\\\(W_N^{\,n_1 k_2}\)};
+  \node[caixa, fill=white, minimum width=20mm, minimum height=30mm] (g) at (58mm,-12mm)
+    {fatores\\de giro\\\scriptsize (no PC)};
+
+  % ---- 3: DFTs de M pontos por coluna ------------------------------------------
+  \node[passo] at (100mm,8mm) {3. DFT de \(M\) pontos\\em cada coluna \(k_2\)};
+  \draw[fill=cCliente!8] (83mm,-26.5mm) rectangle (117mm,2.5mm);
+  \foreach \c in {0,...,8}
+    \draw[cCliente, thick, ->] ({85mm+\c*3.8mm},1.5mm) -- ({85mm+\c*3.8mm},-25.5mm);
+  \node[font=\tiny, fill=cCliente!8] at (100mm,-12mm) {1024 colunas, no PC};
+
+  % ---- 4: leitura por linhas -----------------------------------------------------
+  \node[passo] at (140mm,8mm) {4. lê por linhas:\\\(X[1024 k_1 + k_2]\)};
+  \draw[fill=black!4] (125mm,-26.5mm) rectangle (155mm,2.5mm);
+  \foreach \r in {0,...,4}
+    \draw[thick, ->] (126.5mm,{0.5mm-\r*6mm}) -- (153.5mm,{0.5mm-\r*6mm});
+
+  \draw[seta] (34.5mm,-12mm) -- (g.west);
+  \draw[seta] (g.east) -- (83mm,-12mm);
+  \draw[seta] (117mm,-12mm) -- (125mm,-12mm);
+
+  \node[rotulo, text width=150mm, align=left, anchor=north west] at (0,-31mm)
+    {Não é aproximação: é a DFT de \(N\) pontos com a conta dividida
+     (Cooley--Tukey com \(N_1 = M\), \(N_2 = 1024\)). A IFFT longa usa a mesma
+     decomposição, com os fatores conjugados e \(1/N = 1/1024 \cdot 1/M\).};
+\end{tikzpicture}

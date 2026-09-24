@@ -1,0 +1,43 @@
+% As tres camadas e os modulos de cada uma.
+\begin{tikzpicture}[
+    mod/.style={caixa, minimum width=27mm, minimum height=9mm, font=\scriptsize},
+    faixa/.style={draw, rounded corners=4pt, inner sep=4mm},
+  ]
+  % --- Cliente -----------------------------------------------------------
+  \node[mod, cliente] (jan)  at (0,0)     {janelas\\\texttt{*\_window.py}};
+  \node[mod, cliente] (blo)  at (30mm,0)  {\texttt{blocos.py}\\sinais longos};
+  \node[mod, cliente] (dsp)  at (60mm,0)  {\texttt{dsp\_core.py}\\ponto fixo e referência};
+  \node[mod, cliente] (proj) at (90mm,0)  {projetistas\\\texttt{fir/iir\_design}};
+  \node[mod, cliente] (pro)  at (120mm,0) {\texttt{morphe\_protocol}\\cliente TCP};
+
+  % --- Servidor ----------------------------------------------------------
+  \node[mod, hps, minimum width=52mm] (srv) at (60mm,-24mm)
+        {\texttt{morphe\_server.c}\\valida, copia, dispara, espera, lê};
+  \node[mod, hps] (mk) at (0,-24mm) {marca\\\texttt{fpga-preparada}};
+  \draw[seta] (srv.west) -- node[rotulo, above]{consulta} (mk.east);
+
+  % --- FPGA --------------------------------------------------------------
+  \node[mod, fpga] (conv) at (15mm,-48mm)  {\texttt{conv1d}\\convolução};
+  \node[mod, fpga] (fir)  at (45mm,-48mm)  {\texttt{conv1d}\\FIR};
+  \node[mod, fpga] (fft)  at (75mm,-48mm)  {IP FFT II\\FFT e IFFT};
+  \node[mod, fpga] (iir)  at (105mm,-48mm) {\texttt{iir\_cascade}\\IIR};
+
+  % Faixas, todas da mesma largura
+  \begin{scope}[on background layer]
+    \node[faixa, draw=cCliente, fill=cCliente!4, fit=(jan)(pro),
+          label={[anchor=south west, inner sep=1pt, font=\scriptsize\bfseries, text=cCliente]north west:{PC --- Python}}] {};
+    \node[faixa, draw=cHps, fill=cHps!4, fit=(mk)(srv)(pro.east |- srv),
+          label={[anchor=south west, inner sep=1pt, font=\scriptsize\bfseries, text=cHps]north west:{HPS --- C, Linux}}] {};
+    \node[faixa, draw=cFpga, fill=cFpga!4, fit=(conv)(iir)(jan.west |- conv)(pro.east |- iir),
+          label={[anchor=south west, inner sep=1pt, font=\scriptsize\bfseries, text=cFpga]north west:{FPGA --- Verilog}}] {};
+  \end{scope}
+
+  \draw[seta] (jan) -- (blo);
+  \draw[seta] (blo) -- (dsp);
+  \draw[seta] (proj) -- (dsp);
+  \draw[seta] (dsp.north) to[bend left=25] (pro.north);
+  \draw[<->, thick, cRede] (pro.south) |- node[rotulo, pos=0.3, left]{TCP\\5000} (srv.east);
+  \foreach \m in {conv, fir, fft, iir}
+    \draw[seta] (srv.south) -- ++(0,-5mm) -| (\m.north);
+  \node[rotulo, right] at ($(srv.south)+(1mm,-2.5mm)$) {\texttt{/dev/mem}};
+\end{tikzpicture}

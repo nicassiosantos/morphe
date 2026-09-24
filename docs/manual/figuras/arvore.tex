@@ -1,0 +1,30 @@
+% Arvore do repositorio (estado de de9bc41). Pacote dirtree.
+\renewcommand*\DTstylecomment{\small\rmfamily\itshape\color{black!65}}
+\renewcommand*\DTstyle{\small\ttfamily}
+\dirtree{%
+.1 morphe/.
+.2 README.md\DTcomment{ponto de entrada}.
+.2 morphe-up.sh\DTcomment{prepara a placa: FPGA, servidor, marca}.
+.2 instala-quartus.sh\DTcomment{Quartus 20.1 para todas as contas de um PC}.
+.2 deploy.sh, gera\_proveniencia.sh, PROVENIENCIA.sha256.
+.2 Python/\DTcomment{o aplicativo}.
+.3 morphe\_app.py\DTcomment{janela principal}.
+.3 *\_window.py\DTcomment{uma janela por operação}.
+.3 morphe\_protocol.py\DTcomment{cliente TCP}.
+.3 dsp\_core.py, blocos.py\DTcomment{ponto fixo, referência, sinais longos}.
+.3 fir\_design.py, iir\_design.py\DTcomment{projetistas de filtros}.
+.3 ferramentas/\DTcomment{testes contra a placa, figuras, vetores}.
+.2 C/\DTcomment{o servidor da placa}.
+.3 morphe\_server.c, morphe\_protocol.h, morphe\_config.h.
+.3 hps\_0.h\DTcomment{gerado do Platform Designer}.
+.3 autostart/.
+.2 Quartus/\DTcomment{o hardware}.
+.3 ghrd\_top.v\DTcomment{topo: instancia os aceleradores}.
+.3 conv1d.v, fft\_wrapper.v, iir\_*.v\DTcomment{os aceleradores}.
+.3 soc\_system.qsys, soc\_system.qsf.
+.3 tb\_iir\_*.v, roda\_tb\_iir.sh\DTcomment{testbenches}.
+.3 output\_files/\DTcomment{o bitstream}.
+.2 exemplos/\DTcomment{pacotes .mrph e sinais de exemplo}.
+.2 docs/\DTcomment{documentação técnica e diário}.
+.2 legado/\DTcomment{do projeto original, fora do produto}.
+}

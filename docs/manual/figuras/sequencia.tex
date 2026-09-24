@@ -1,0 +1,36 @@
+% Diagrama de sequencia de uma operacao (ex.: convolucao).
+\begin{tikzpicture}[
+    ator/.style={caixa, minimum width=26mm, font=\scriptsize},
+    msg/.style={->, thick},
+    nota/.style={font=\scriptsize, align=left, fill=white, inner sep=1pt},
+  ]
+  \def\xa{0}\def\xb{36mm}\def\xc{74mm}\def\xd{112mm}
+  \def\fim{-112mm}
+
+  \node[ator, cliente] (a) at (\xa,0) {Janela\\(\texttt{conv\_window})};
+  \node[ator, cliente] (b) at (\xb,0) {\texttt{morphe\_protocol}};
+  \node[ator, hps]     (c) at (\xc,0) {\texttt{morphe\_server}};
+  \node[ator, fpga]    (d) at (\xd,0) {\texttt{conv1d}\\e memórias};
+
+  \foreach \n in {a,b,c,d}
+    \draw[densely dashed, black!40] (\n.south) -- (\n.south |- 0,\fim);
+
+  % Atividade no servidor
+  \fill[cHps!25] ($(\xc,-26mm)+(-1mm,0)$) rectangle ($(\xc,-100mm)+(1mm,0)$);
+
+  \draw[msg] (\xa,-12mm) -- node[above, rotulo]{\(x[n],\ h[n]\) em ponto flutuante} (\xb,-12mm);
+  \draw[msg] (\xb,-17mm) arc[start angle=90, end angle=-90, radius=2.5mm]
+             node[right, nota, pos=0.5, xshift=1mm] {codifica em Q15.16};
+  \draw[msg, cRede] (\xb,-26mm) -- node[above, rotulo]{\texttt{connect}; cabeçalho de 20\,B + \emph{payload}} (\xc,-26mm);
+  \draw[msg] (\xc,-32mm) arc[start angle=90, end angle=-90, radius=2.5mm]
+             node[right, nota, pos=0.5, xshift=1mm] {valida magic, versão,\\opcode, tamanhos, marca};
+  \draw[msg] (\xc,-44mm) -- node[above, rotulo]{escreve \(x\) e \(h\) nas SRAMs} (\xd,-44mm);
+  \draw[msg] (\xc,-52mm) -- node[above, rotulo]{\emph{start} = 1 (ponte leve)} (\xd,-52mm);
+  \draw[msg, dashed] (\xd,-60mm) -- node[above, rotulo]{lê \emph{done} até 1 (limite 5\,s)} (\xc,-60mm);
+  \node[nota, right] at (\xd,-57mm) {calcula\\\(\approx\)214\,ms};
+  \draw[msg, dashed] (\xd,-70mm) -- node[above, rotulo]{lê \(y\) da SRAM de saída} (\xc,-70mm);
+  \draw[msg, cRede] (\xc,-82mm) -- node[above, rotulo]{cabeçalho de resposta + \(y\); \texttt{close}} (\xb,-82mm);
+  \draw[msg] (\xb,-88mm) arc[start angle=90, end angle=-90, radius=2.5mm]
+             node[right, nota, pos=0.5, xshift=1mm] {decodifica, remove\\o \emph{padding}};
+  \draw[msg] (\xb,-100mm) -- node[above, rotulo]{\(y\) da placa \(\times\) \(y\) de referência} (\xa,-100mm);
+\end{tikzpicture}
