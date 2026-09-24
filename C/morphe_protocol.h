@@ -10,7 +10,8 @@
  * Request header (20 bytes):
  *   uint32 magic    = 0x4D52504D ('MRPM')
  *   uint16 version  = 1
- *   uint16 opcode   (1=CONV, 2=FFT, 3=PING, 4=FIR, 5=IFFT, 6=IIR)
+ *   uint16 opcode   (1=CONV, 2=FFT, 3=PING, 4=FIR, 5=IFFT, 6=IIR, 7=ADC,
+ *                    8=ADC_CONTINUO)
  *   uint16 dtype    (1=int32, 2=float32)
  *   uint16 flags    (0)
  *   uint32 n_x      (comprimento de x)
@@ -28,6 +29,23 @@
  *               coeficientes (int32 Q15.16), na ordem b0 b1 b2 a1 a2
  *               por secao -- a mesma da SRAM iir_coef e do
  *               iir_design.coeficientes_inteiros(). a0 = 1 implicito.
+ *   ADC      -> sem payload. n_x = numero de amostras, n_h = divisor
+ *               (fs = 50 MHz / n_h), flags = palavra de configuracao do
+ *               LTC2308 (6 bits: S/D O/S S1 S0 UNI SLP). A resposta traz
+ *               n_x codigos int32 do conversor: 0..4095 em modo unipolar,
+ *               -2048..2047 em bipolar (1 LSB = 1 mV); extra = divisor.
+ *   ADC_CONTINUO -> igual ao ADC, mas n_x = total de amostras sem o limite
+ *               da RAM (0 = ate o cliente parar). A resposta e diferente:
+ *               o cabecalho (status OK, n_out = 0, extra = divisor) e depois
+ *               uma sequencia de BLOCOS, enquanto a captura segue:
+ *                   uint32 n       amostras neste bloco
+ *                   uint32 estado  0 = segue; 1 = fim; 2 = perdeu amostras
+ *                                  (o servidor nao acompanhou); 3 = timeout
+ *                   n x int32      codigos, como no ADC
+ *               O ultimo bloco tem n = 0 e estado != 0. Os blocos sao
+ *               continuos no tempo; com estado 2, o que veio antes vale.
+ *               Para parar antes, o cliente manda 1 byte qualquer (ou fecha
+ *               a conexao).
  *
  * Response header (20 bytes):
  *   uint32 magic    = 0x4D52504E ('MRPN')
@@ -56,6 +74,14 @@
 #define MORPHE_OP_FIR      4U   /* filtro FIR (igual ao OP_FIR=4 do cliente) */
 #define MORPHE_OP_IFFT     5U   /* transformada inversa: mesmo IP, bit inverse=1 */
 #define MORPHE_OP_IIR      6U   /* cascata de biquads Q15.16 (iir_cascade.v) */
+#define MORPHE_OP_ADC      7U   /* captura do LTC2308 a fs fixa (adc_captura.v) */
+#define MORPHE_OP_ADC_CONTINUO 8U   /* a mesma, sem limite de tamanho, em blocos */
+
+/* Estado de cada bloco da resposta do ADC_CONTINUO. */
+#define MORPHE_ADC_BLOCO_SEGUE    0U
+#define MORPHE_ADC_BLOCO_FIM      1U
+#define MORPHE_ADC_BLOCO_PERDEU   2U
+#define MORPHE_ADC_BLOCO_TIMEOUT  3U
 
 #define MORPHE_DTYPE_INT32    1U
 #define MORPHE_DTYPE_FLOAT32  2U

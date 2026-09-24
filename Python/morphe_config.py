@@ -57,6 +57,18 @@ IIR_COEF_POR_SECAO: int = 5
 # Amostras e coeficientes em Q15.16, o mesmo da conv1d.
 IIR_FRAC_BITS: int = 16
 
+# ---- ADC (LTC2308, captura a fs fixa pelo adc_captura.v) ------------------
+# Amostras por captura: a RAM adc_buf tem 2^15 palavras.
+ADC_N_MAX: int = 32768
+# fs = ADC_CLK_HZ / divisor, divisor em [ADC_DIV_MIN, ADC_DIV_MAX]:
+# de 1 kHz a 200 kHz. So valem as fs em que 50 MHz / fs e inteiro.
+ADC_CLK_HZ: int = 50_000_000
+ADC_DIV_MIN: int = 250
+ADC_DIV_MAX: int = 50_000
+# Um passo do conversor: referencia de 4,096 V em 12 bits = 1 mV, nos dois
+# modos (unipolar 0..4,095 V; bipolar -2,048..+2,047 V).
+ADC_LSB_V: float = 4.096 / 4096
+
 # ---- Rede ----------------------------------------------------------------
 
 #: Porta TCP padrao do servidor (cliente pode sobrescrever).

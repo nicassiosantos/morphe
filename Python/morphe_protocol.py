@@ -61,6 +61,14 @@ OP_PING = 3   # descoberta de servico
 OP_FIR  = 4   # filtro FIR (instancia separada do conv1d, mesmo Verilog)
 OP_IFFT = 5   # transformada inversa: mesmo IP da FFT, bit inverse=1
 OP_IIR  = 6   # cascata de biquads Q15.16 (iir_cascade.v); n_h = no. de secoes
+OP_ADC  = 7   # captura do LTC2308 (adc_captura.v); n_h = divisor, flags = config
+OP_ADC_CONTINUO = 8   # a mesma, sem limite de tamanho: resposta em blocos
+
+# Estado de cada bloco da resposta do OP_ADC_CONTINUO (ver morphe_protocol.h).
+ADC_BLOCO_SEGUE = 0
+ADC_BLOCO_FIM = 1
+ADC_BLOCO_PERDEU = 2
+ADC_BLOCO_TIMEOUT = 3
 
 DTYPE_INT32   = 1
 DTYPE_FLOAT32 = 2
@@ -158,6 +166,32 @@ def build_iir_request(x_q: np.ndarray, coefs_q, dtype_code: int = DTYPE_INT32) -
     )
     return hdr + pack_samples(np.asarray(x_q), dtype_code) \
                + pack_samples(coefs.reshape(-1), dtype_code)
+
+
+def build_adc_request(n: int, divisor: int, config: int) -> bytes:
+    """Constroi request ADC: so cabecalho, sem payload.
+
+    n       : amostras a capturar (1..ADC_N_MAX)
+    divisor : periodo de amostragem em ciclos de 50 MHz (fs = 50e6/divisor)
+    config  : palavra de 6 bits do LTC2308 (S/D O/S S1 S0 UNI SLP), no campo
+              flags do cabecalho. aquisicao.palavra_config() a monta.
+    """
+    return struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_ADC, DTYPE_INT32, int(config) & 0x3F,
+        int(n), int(divisor),
+    )
+
+
+def build_adc_continuo_request(n_total: int, divisor: int, config: int) -> bytes:
+    """Request da captura continua. n_total = 0: ate o cliente pedir parada
+    (1 byte qualquer no mesmo socket). A resposta vem em blocos; quem a le e
+    aquisicao.capturar_continuo()."""
+    return struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_ADC_CONTINUO, DTYPE_INT32, int(config) & 0x3F,
+        int(n_total), int(divisor),
+    )
 
 
 def escala_para_q1508(v: np.ndarray, folga: float = 0.98) -> float:
@@ -396,6 +430,20 @@ def decode_iir_response(resp: Response) -> tuple[np.ndarray, bool]:
     be = _np_dtype_be(resp.dtype_code)
     arr = np.frombuffer(resp.payload, dtype=be, count=resp.n_out)
     return arr.astype(np.int64), bool(resp.extra & 1)
+
+
+def decode_adc_response(resp: Response) -> tuple[np.ndarray, int]:
+    """Decodifica resposta do ADC: (codigos do conversor, divisor usado).
+
+    Os codigos sao inteiros com sinal: 0..4095 em modo unipolar e
+    -2048..2047 em bipolar (o servidor ja estendeu o sinal). 1 codigo = 1 mV.
+    """
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_ADC:
+        raise ValueError(f"esperado opcode ADC, veio {resp.opcode}")
+    arr = np.frombuffer(resp.payload, dtype=">i4", count=resp.n_out)
+    return arr.astype(np.int64), int(resp.extra)
 
 
 def decode_fft_response(resp: Response, scale: float = 1.0) -> np.ndarray:

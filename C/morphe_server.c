@@ -31,6 +31,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 
@@ -85,9 +86,27 @@
         _MORPHE_END(IIR_YN_BASE,   IIR_YN_SPAN), \
         _MORPHE_END(IIR_COEF_BASE, IIR_COEF_SPAN))
 
+/* O ADC so entra no servidor quando o hps_0.h foi GERADO de um .sopcinfo que o
+ * tem (a RAM adc_buf e os cinco PIOs) e traz o timestamp do sysid. Nunca
+ * escrever esses simbolos a mao: um cabecalho que descreve hardware que nao
+ * esta na FPGA leva o servidor a tocar endereco sem escravo, e isso trava o
+ * barramento do HPS (ver fpga_init). Sem eles, OP_ADC e recusado sem tocar
+ * na FPGA. */
+#if defined(ADC_BUF_BASE) && defined(ADC_START_BASE) && defined(ADC_DONE_BASE) && \
+    defined(ADC_CONFIG_BASE) && defined(ADC_DIVISOR_BASE) && \
+    defined(ADC_NAMOSTRAS_BASE) && defined(ADC_CONTADOR_BASE) && \
+    defined(SYSID_QSYS_BASE) && defined(SYSID_QSYS_TIMESTAMP)
+#define MORPHE_TEM_ADC 1
+#define _MORPHE_END_ADC _MORPHE_END(ADC_BUF_BASE, ADC_BUF_SPAN)
+#else
+#define MORPHE_TEM_ADC 0
+#define _MORPHE_END_ADC 0
+#endif
+
 #define MORPHE_ONCHIP_MMAP_SPAN \
     _MORPHE_ROUND_UP( \
-        _MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
+        _MORPHE_MAX2(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
+                     _MORPHE_END_ADC), \
         _MORPHE_PAGE_SIZE)
 
 /* Saida maxima do FIR: derivada do span real de fir_yn no hps_0.h. */
@@ -106,6 +125,9 @@ _Static_assert(FIR_YN_SPAN      >= MORPHE_CONV_Y_MAX * (int)sizeof(int32_t), "Er
 _Static_assert(IIR_XN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(IIR_YN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(IIR_COEF_SPAN    >= MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO * (int)sizeof(int32_t), "Erro");
+#if MORPHE_TEM_ADC
+_Static_assert(ADC_BUF_SPAN     >= MORPHE_ADC_N_MAX * (int)sizeof(int32_t), "Erro");
+#endif
 _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 
 #define FPGA_DONE_TIMEOUT_MS 5000
@@ -150,6 +172,11 @@ static int32_t  *g_iir_xn     = NULL;
 static int32_t  *g_iir_yn     = NULL;
 static int32_t  *g_iir_coef   = NULL;
 
+#if MORPHE_TEM_ADC
+static volatile uint32_t *g_adc_buf = NULL;   /* escrito pelo FPGA durante a captura */
+static volatile uint32_t *g_sysid   = NULL;   /* [0] = id, [1] = timestamp do bitstream */
+#endif
+
 static volatile uint32_t *g_pio_fft_start    = NULL;
 static volatile uint32_t *g_pio_fft_inverse  = NULL;
 static volatile uint32_t *g_pio_fft_done     = NULL;
@@ -166,6 +193,15 @@ static volatile uint32_t *g_pio_iir_start    = NULL;
 static volatile uint32_t *g_pio_iir_done     = NULL;
 static volatile uint32_t *g_pio_iir_error    = NULL;
 static volatile uint32_t *g_pio_iir_nsecoes  = NULL;
+
+#if MORPHE_TEM_ADC
+static volatile uint32_t *g_pio_adc_start     = NULL;
+static volatile uint32_t *g_pio_adc_done      = NULL;
+static volatile uint32_t *g_pio_adc_config    = NULL;
+static volatile uint32_t *g_pio_adc_divisor   = NULL;
+static volatile uint32_t *g_pio_adc_namostras = NULL;
+static volatile uint32_t *g_pio_adc_contador  = NULL;
+#endif
 
 static struct timespec  g_start_time;
 static char             g_hostname[128] = "morphe-server";
@@ -278,6 +314,18 @@ static int fpga_init(void) {
     g_iir_yn   = (int32_t *)((char *)g_fpga_virt + IIR_YN_BASE);
     g_iir_coef = (int32_t *)((char *)g_fpga_virt + IIR_COEF_BASE);
 
+#if MORPHE_TEM_ADC
+    g_adc_buf  = (volatile uint32_t *)((char *)g_fpga_virt + ADC_BUF_BASE);
+
+    /* O sysid fica fora da janela LW mapeada acima (0x10000 > LW_BRIDGE_SPAN):
+     * pagina propria. Mapear nao acessa nada; a leitura so acontece em
+     * handle_adc, depois de fpga_preparada(). */
+    void *sysid_pag = mmap(NULL, _MORPHE_PAGE_SIZE, PROT_READ, MAP_SHARED, g_fd_mem,
+                           LW_BRIDGE_BASE + SYSID_QSYS_BASE);
+    if (sysid_pag == MAP_FAILED) return -1;
+    g_sysid = (volatile uint32_t *) sysid_pag;
+#endif
+
     g_pio_fft_start   = (volatile uint32_t *)((char *)g_lw_virt + FFT_WRAPPER_START_BASE);
     g_pio_fft_inverse = (volatile uint32_t *)((char *)g_lw_virt + FFT_INVERSE_BASE);
     g_pio_fft_done    = (volatile uint32_t *)((char *)g_lw_virt + FFT_WRAPPER_DONE_BASE);
@@ -294,6 +342,15 @@ static int fpga_init(void) {
     g_pio_iir_done    = (volatile uint32_t *)((char *)g_lw_virt + IIR_DONE_BASE);
     g_pio_iir_error   = (volatile uint32_t *)((char *)g_lw_virt + IIR_ERROR_BASE);
     g_pio_iir_nsecoes = (volatile uint32_t *)((char *)g_lw_virt + IIR_NSECOES_BASE);
+
+#if MORPHE_TEM_ADC
+    g_pio_adc_start     = (volatile uint32_t *)((char *)g_lw_virt + ADC_START_BASE);
+    g_pio_adc_done      = (volatile uint32_t *)((char *)g_lw_virt + ADC_DONE_BASE);
+    g_pio_adc_config    = (volatile uint32_t *)((char *)g_lw_virt + ADC_CONFIG_BASE);
+    g_pio_adc_divisor   = (volatile uint32_t *)((char *)g_lw_virt + ADC_DIVISOR_BASE);
+    g_pio_adc_namostras = (volatile uint32_t *)((char *)g_lw_virt + ADC_NAMOSTRAS_BASE);
+    g_pio_adc_contador  = (volatile uint32_t *)((char *)g_lw_virt + ADC_CONTADOR_BASE);
+#endif
 
     /* Nenhum acesso a FPGA aqui. Ate 21/09/2026 este ponto zerava os quatro
      * PIOs de start, e foi isso que derrubou a placa 2 no boot: com o
@@ -318,6 +375,10 @@ static int fpga_preparada(void) {
         *g_pio_conv_start = 0;
         *g_pio_fir_start  = 0;
         *g_pio_iir_start  = 0;
+#if MORPHE_TEM_ADC
+        /* so se o bitstream carregado tem o ADC: o PIO pode nao existir */
+        if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_adc_start = 0;
+#endif
         g_pios_zerados = 1;
         LOG("marca %s presente: FPGA preparada, PIOs de start zerados", MORPHE_MARCA_FPGA);
     }
@@ -872,6 +933,269 @@ static void log_tempos(const char *op, const struct timespec *t0,
         ts_diff_us(t0, t_fim));
 }
 
+/* ADC: captura n_x amostras do LTC2308 a fs = 50 MHz / n_h, no
+ * adc_captura.v. Sem payload de entrada; a palavra de configuracao do
+ * conversor (canal, entrada simples ou diferencial, uni ou bipolar) vem no
+ * campo flags do cabecalho.
+ *
+ * O instante de cada amostra e fixado pelo hardware; o servidor so dispara e
+ * espera. A espera cresce com a captura (a 1 kHz, 32768 amostras levam 33 s),
+ * por isso o timeout sai da propria duracao e nao do FPGA_DONE_TIMEOUT_MS.
+ *
+ * A RAM guarda o codigo cru de 12 bits. Em modo bipolar ele e complemento de
+ * dois e o sinal e estendido aqui, para o cliente receber o numero com sinal.
+ *
+ * Antes de tocar em qualquer PIO do ADC, confere o timestamp do sysid contra o
+ * do hps_0.h. O sysid existe em todos os bitstreams do Morphe, no mesmo
+ * endereco, entao ler e seguro; os PIOs do ADC so existem no bitstream novo.
+ * Um servidor novo com o bitstream antigo (o morphe-up ainda nao rodou, ou o
+ * .sof nao foi recompilado depois do Generate) recusa aqui em vez de travar
+ * o barramento. */
+#if !MORPHE_TEM_ADC
+static int recusar_sem_adc(int sock, uint16_t op) {
+    LOG("ADC request recusado: servidor compilado sem o ADC");
+    return send_error(sock, op, MORPHE_STATUS_BAD_OPCODE,
+                      "ADC: este servidor foi compilado sem o ADC (o hps_0.h nao tem "
+                      "adc_buf: gere o soc_system e rode gen_hps_header.py)");
+}
+static int handle_adc(int sock, uint16_t dtype, uint32_t n, uint32_t divisor, uint16_t cfg) {
+    (void) dtype; (void) n; (void) divisor; (void) cfg;
+    return recusar_sem_adc(sock, MORPHE_OP_ADC);
+}
+static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n, uint32_t divisor, uint16_t cfg) {
+    (void) dtype; (void) n; (void) divisor; (void) cfg;
+    return recusar_sem_adc(sock, MORPHE_OP_ADC_CONTINUO);
+}
+#else
+/* O que as duas operacoes do ADC conferem antes de tocar na FPGA. Devolve 1
+ * se recusou (a resposta de erro ja foi enviada) e 0 se pode seguir. */
+static int adc_recusa(int sock, uint16_t op, uint16_t dtype, uint32_t divisor, uint16_t cfg) {
+    if (!fpga_preparada()) { recusar_sem_fpga(sock, op, "ADC"); return 1; }
+
+    uint32_t ts = g_sysid[1];
+    if (ts != SYSID_QSYS_TIMESTAMP) {
+        char msg[192];
+        snprintf(msg, sizeof msg,
+                 "ADC: o bitstream na FPGA (sysid %u) nao e o deste servidor (%u) -- "
+                 "rode ./morphe-up.sh com o .sof que tem o ADC", ts, SYSID_QSYS_TIMESTAMP);
+        LOG("  -> %s", msg);
+        send_error(sock, op, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
+        return 1;
+    }
+    if (dtype != MORPHE_DTYPE_INT32) {
+        send_error(sock, op, MORPHE_STATUS_BAD_DTYPE,
+                   "ADC: a resposta e sempre int32 (codigos do conversor)");
+        return 1;
+    }
+    if (divisor < MORPHE_ADC_DIV_MIN || divisor > MORPHE_ADC_DIV_MAX) {
+        char msg[128];
+        snprintf(msg, sizeof msg, "ADC: divisor fora de [%d, %d] (fs de %d a %d Hz)",
+                 MORPHE_ADC_DIV_MIN, MORPHE_ADC_DIV_MAX,
+                 MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN);
+        send_error(sock, op, MORPHE_STATUS_BAD_SIZE, msg);
+        return 1;
+    }
+    if (cfg > 0x3FU || (cfg & MORPHE_ADC_CFG_SLP)) {
+        send_error(sock, op, MORPHE_STATUS_BAD_SIZE,
+                   "ADC: configuracao invalida (6 bits, SLP = 0)");
+        return 1;
+    }
+    return 0;
+}
+
+/* Codigo cru de 12 bits -> inteiro com sinal no modo bipolar. */
+static int32_t adc_codigo(uint32_t palavra, int bipolar) {
+    int32_t v = (int32_t) (palavra & 0xFFFU);
+    if (bipolar && v >= 2048) v -= 4096;
+    return v;
+}
+
+static int handle_adc(int sock, uint16_t dtype, uint32_t n, uint32_t divisor, uint16_t cfg) {
+    LOG("ADC request: n=%u, divisor=%u (fs=%.1f Hz), config=0x%02x",
+        n, divisor, divisor ? (double) MORPHE_ADC_CLK_HZ / divisor : 0.0, cfg);
+
+    if (adc_recusa(sock, MORPHE_OP_ADC, dtype, divisor, cfg)) return 0;
+    if (n == 0 || n > MORPHE_ADC_N_MAX) {
+        char msg[128];
+        snprintf(msg, sizeof msg, "ADC: amostras fora de [1, %d] (para mais, use a "
+                 "captura continua)", MORPHE_ADC_N_MAX);
+        return send_error(sock, MORPHE_OP_ADC, MORPHE_STATUS_BAD_SIZE, msg);
+    }
+
+    struct timespec t0, t_entrada, t_fpga, t_fim;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    *g_pio_adc_divisor   = divisor;
+    *g_pio_adc_namostras = n;
+    *g_pio_adc_config    = cfg;          /* bit 6 = 0: captura unica */
+    clock_gettime(CLOCK_MONOTONIC, &t_entrada);
+
+    *g_pio_adc_start = 0;
+    usleep(1);
+    *g_pio_adc_start = 1;
+
+    /* n+1 quadros (o primeiro e descartado) mais folga de 2 s */
+    long duracao_ms = (long) (((uint64_t)(n + 1) * divisor * 1000U) / MORPHE_ADC_CLK_HZ);
+    if (wait_done(g_pio_adc_done, (int) duracao_ms + 2000) < 0) {
+        *g_pio_adc_start = 0;
+        return send_error(sock, MORPHE_OP_ADC, MORPHE_STATUS_FPGA_TIMEOUT, "ADC: timeout");
+    }
+    *g_pio_adc_start = 0;
+    clock_gettime(CLOCK_MONOTONIC, &t_fpga);
+
+    static uint8_t tx_buf[MORPHE_ADC_N_MAX * 4];
+    const int bipolar = (cfg & MORPHE_ADC_CFG_UNI) == 0;
+    for (uint32_t i = 0; i < n; i++)
+        i32_to_be(tx_buf + i * 4, adc_codigo(g_adc_buf[i], bipolar));
+
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_ADC, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, n);
+    u32_to_be(hdr + 16, divisor);   /* extra: o divisor usado, fs = 50 MHz / extra */
+
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n * 4) < 0) return -1;
+    clock_gettime(CLOCK_MONOTONIC, &t_fim);
+
+    LOG("  -> ADC OK: %u amostras", n);
+    log_tempos("ADC", &t0, &t_entrada, &t_fpga, &t_fim);
+    return 0;
+}
+
+/* Captura continua: o hardware grava sem parar na RAM, como buffer circular,
+ * e este laco copia as amostras novas e as manda em blocos enquanto a captura
+ * segue. Nao ha buraco no tempo entre um bloco e outro: quem fixa o instante
+ * de cada amostra e o contador de periodo do FPGA, que nao para.
+ *
+ * O limite passa a ser o servidor acompanhar. A RAM guarda 32768 amostras, ou
+ * 164 ms a 200 kHz: se o laco atrasar mais que isso (rede lenta, cliente que
+ * nao le), amostras sao sobrescritas antes de copiadas. Isso NUNCA vira buraco
+ * silencioso: o contador e relido depois de cada copia, e se o escritor passou
+ * do ponto a captura termina com o estado PERDEU. Tudo o que foi enviado antes
+ * continua valido e continuo.
+ *
+ * Termina quando: chegou a n_x amostras (se n_x > 0); o cliente mandou um byte
+ * (pedido de parada) ou fechou a conexao; perdeu amostras; ou o contador parou
+ * de andar (timeout do hardware). O servidor atende uma conexao por vez, entao
+ * a placa fica ocupada durante toda a captura. */
+#define MORPHE_ADC_BLOCO_MAX 8192
+
+static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n_total, uint32_t divisor, uint16_t cfg) {
+    LOG("ADC continuo: n=%u%s, divisor=%u (fs=%.1f Hz), config=0x%02x",
+        n_total, n_total ? "" : " (ate o cliente parar)", divisor,
+        divisor ? (double) MORPHE_ADC_CLK_HZ / divisor : 0.0, cfg);
+
+    if (adc_recusa(sock, MORPHE_OP_ADC_CONTINUO, dtype, divisor, cfg)) return 0;
+
+    /* cliente que para de ler nao pode prender o servidor para sempre */
+    struct timeval espera = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &espera, sizeof espera);
+
+    uint8_t tx_buf_fim_erro[8];
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_ADC_CONTINUO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
+    u32_to_be(hdr + 16, divisor);
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+
+    struct timespec t0, t_ultimo, agora;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    t_ultimo = t0;
+
+    *g_pio_adc_divisor   = divisor;
+    *g_pio_adc_namostras = 0;
+    *g_pio_adc_config    = cfg | MORPHE_ADC_CFG_CONTINUO;
+    /* Em repouso o contador do hardware vale 0 (adc_captura.v, S_DONE). Um
+     * periodo maximo de espera garante o repouso mesmo se uma captura acabou
+     * de ser interrompida; com o contador em 0 antes do start, nenhuma leitura
+     * depois dele pode ver a contagem da captura anterior. */
+    *g_pio_adc_start = 0;
+    usleep(1100);                                    /* > 1 periodo a 1 kHz */
+    if (*g_pio_adc_contador != 0) {
+        uint32_t z = 0;
+        LOG("  -> contador do ADC nao zerou em repouso");
+        u32_to_be(tx_buf_fim_erro, z);
+        u32_to_be(tx_buf_fim_erro + 4, MORPHE_ADC_BLOCO_TIMEOUT);
+        send_all(sock, tx_buf_fim_erro, 8);
+        return 0;
+    }
+    *g_pio_adc_start = 1;
+
+    const int bipolar = (cfg & MORPHE_ADC_CFG_UNI) == 0;
+    const uint32_t n_buf = MORPHE_ADC_N_MAX;               /* potencia de 2 */
+    /* sem amostra nova por dois periodos mais 1 s: o hardware parou */
+    const long prazo_us = (long) (((uint64_t) divisor * 2U * 1000000U) / MORPHE_ADC_CLK_HZ) + 1000000L;
+    /* espera quando nao ha nada novo: ~1/8 da RAM, entre 1 e 20 ms */
+    long pausa_us = (long) (((uint64_t) n_buf / 8U * divisor * 1000000U) / MORPHE_ADC_CLK_HZ);
+    if (pausa_us < 1000) pausa_us = 1000;
+    if (pausa_us > 20000) pausa_us = 20000;
+
+    static uint8_t tx_buf[8 + MORPHE_ADC_BLOCO_MAX * 4];
+    uint32_t lidos = 0;          /* mesma aritmetica modular do contador de 32 bits */
+    uint64_t enviados = 0;
+    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
+    int cliente_foi = 0;
+
+    for (;;) {
+        char c;
+        ssize_t r = recv(sock, &c, 1, MSG_DONTWAIT);
+        if (r == 1) { LOG("  -> o cliente pediu para parar"); break; }
+        if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+            cliente_foi = 1; LOG("  -> o cliente fechou a conexao"); break;
+        }
+
+        if (n_total && enviados >= n_total) break;
+
+        uint32_t cont = *g_pio_adc_contador;
+        uint32_t disp = cont - lidos;
+        if (disp > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
+        if (disp == 0) {
+            clock_gettime(CLOCK_MONOTONIC, &agora);
+            if (ts_diff_us(&t_ultimo, &agora) > prazo_us) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
+            usleep((useconds_t) pausa_us);
+            continue;
+        }
+        uint32_t k = disp < MORPHE_ADC_BLOCO_MAX ? disp : MORPHE_ADC_BLOCO_MAX;
+        if (n_total && (uint64_t) k > n_total - enviados) k = (uint32_t) (n_total - enviados);
+
+        for (uint32_t i = 0; i < k; i++)
+            i32_to_be(tx_buf + 8 + i * 4, adc_codigo(g_adc_buf[(lidos + i) & (n_buf - 1)], bipolar));
+
+        /* o escritor passou da primeira amostra copiada? entao ela pode ter
+         * sido sobrescrita durante a copia: descarta o bloco e para */
+        if (*g_pio_adc_contador - lidos > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
+
+        u32_to_be(tx_buf + 0, k);
+        u32_to_be(tx_buf + 4, MORPHE_ADC_BLOCO_SEGUE);
+        if (send_all(sock, tx_buf, 8 + (size_t) k * 4) < 0) {
+            cliente_foi = 1; LOG("  -> envio falhou: cliente fora"); break;
+        }
+        lidos += k;
+        enviados += k;
+        clock_gettime(CLOCK_MONOTONIC, &t_ultimo);
+    }
+
+    /* O quadro em curso termina (no maximo um periodo) e o hardware volta ao
+     * repouso. O `done` do modo continuo pisca um ciclo so, curto demais para
+     * a leitura por polling: espera-se o periodo, com folga. */
+    *g_pio_adc_start = 0;
+    usleep((useconds_t) (((uint64_t) divisor * 1000000U) / MORPHE_ADC_CLK_HZ) + 200U);
+
+    if (!cliente_foi) {
+        u32_to_be(tx_buf + 0, 0);
+        u32_to_be(tx_buf + 4, estado);
+        send_all(sock, tx_buf, 8);
+    }
+    struct timeval sem_limite = { .tv_sec = 0, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sem_limite, sizeof sem_limite);
+
+    clock_gettime(CLOCK_MONOTONIC, &agora);
+    double seg = (double) ts_diff_us(&t0, &agora) / 1e6;
+    static const char *nomes[] = { "segue", "fim", "PERDEU AMOSTRAS", "TIMEOUT DO HARDWARE" };
+    LOG("  -> ADC continuo: %llu amostras em %.2f s, termino: %s",
+        (unsigned long long) enviados, seg, estado < 4 ? nomes[estado] : "?");
+    return 0;
+}
+#endif /* MORPHE_TEM_ADC */
+
 /* Dispara o IP da FFT sobre o que ja esta nas SRAMs de entrada e recolhe
  * o resultado. Unico ponto do servidor que fala com o hardware da FFT --
  * a direta e a inversa diferem so pelo argumento `inverse`.
@@ -1042,14 +1366,27 @@ static int handle_ping(int sock) {
     clock_gettime(CLOCK_MONOTONIC, &now);
     long uptime_s = (long)(now.tv_sec - g_start_time.tv_sec);
 
+    /* adc_n_max = 0 quando o ADC nao pode ser usado agora: servidor compilado
+     * sem ele, FPGA ainda sem o bitstream do Morphe, ou bitstream sem o ADC
+     * (sysid diferente do hps_0.h). Ler o sysid e seguro depois da marca. */
+    int preparada = fpga_preparada();
+    int adc_ok = 0;
+#if MORPHE_TEM_ADC
+    adc_ok = preparada && g_sysid[1] == SYSID_QSYS_TIMESTAMP;
+#endif
+
     char body[512];
     int body_len = snprintf(body, sizeof body,
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
         "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
-        "iir_n_max=%d\niir_secoes_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
-        MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS, 
+        "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
+        "adc_fs_min=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
+        MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
         MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
-        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX, uptime_s, fpga_preparada());
+        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
+        adc_ok ? MORPHE_ADC_N_MAX : 0,
+        MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
+        uptime_s, preparada);
 
     uint8_t hdr[MORPHE_HEADER_SIZE];
     build_resp_header(hdr, MORPHE_OP_PING, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, (uint32_t) body_len);
@@ -1071,7 +1408,6 @@ static void serve_connection(int sock) {
     memcpy(&flags,  hdr + 10, 2); flags  = ntohs(flags);
     uint32_t n_x = u32_from_be(hdr + 12);
     uint32_t n_h = u32_from_be(hdr + 16);
-    (void) flags;
 
     if (magic != MORPHE_MAGIC_REQ) {
         send_error(sock, opcode, MORPHE_STATUS_BAD_MAGIC, "magic invalido");
@@ -1088,6 +1424,8 @@ static void serve_connection(int sock) {
         case MORPHE_OP_IFFT: handle_ifft(sock, dtype, n_x); break;
         case MORPHE_OP_FIR:  handle_fir(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h); break;
+        case MORPHE_OP_ADC:  handle_adc(sock, dtype, n_x, n_h, flags); break;
+        case MORPHE_OP_ADC_CONTINUO: handle_adc_continuo(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");
@@ -1098,6 +1436,13 @@ static void serve_connection(int sock) {
 int main(int argc, char **argv) {
     int port = MORPHE_DEFAULT_PORT;
     if (argc >= 2) port = atoi(argv[1]);
+
+    /* Cliente que fecha a conexao no meio da resposta nao pode matar o
+     * servidor: sem isto, o send() seguinte levanta SIGPIPE, cuja acao padrao
+     * encerra o processo. Com SIG_IGN o send() so devolve EPIPE. E o jeito
+     * normal de a captura continua terminar, e tambem o que acontece quando
+     * um aluno fecha a janela durante uma operacao longa. */
+    signal(SIGPIPE, SIG_IGN);
 
     clock_gettime(CLOCK_MONOTONIC, &g_start_time);
     if (gethostname(g_hostname, sizeof g_hostname) != 0) snprintf(g_hostname, sizeof g_hostname, "morphe-server");

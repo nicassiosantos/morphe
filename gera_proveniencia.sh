@@ -31,6 +31,7 @@ ARQUIVOS=(
     Quartus/fft_wrapper.v
     Quartus/iir_cascade.v
     Quartus/iir_biquad_mac.v
+    Quartus/adc_captura.v
     Quartus/ghrd_top.v
     Quartus/soc_system.qsys
     Quartus/soc_system.sopcinfo

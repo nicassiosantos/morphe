@@ -14,6 +14,7 @@ from tkinter import ttk
 
 import morphe_theme as theme
 from signal_generator_window import SignalGeneratorWindow
+from aquisicao_window import AquisicaoWindow
 from conv_window import ConvolutionWindow
 from fft_window import FFTWindow
 from ifft_window import IFFTWindow
@@ -88,6 +89,7 @@ class MorpheMainWindow(tk.Tk):
 
         primary_actions = [
             ("Gerador de Sinais",              self._open_generator),
+            ("Aquisição  (ADC da placa)",      self._open_aquisicao),
             ("Convolução  (2 sinais → FPGA)",  self._open_conv),
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
             ("IFFT  (espectro de arquivo → FPGA)", self._open_ifft),
@@ -125,6 +127,9 @@ class MorpheMainWindow(tk.Tk):
     # ─── Callbacks ───────────────────────────────────────────
     def _open_generator(self):
         SignalGeneratorWindow(self)
+
+    def _open_aquisicao(self):
+        AquisicaoWindow(self)
 
     def _open_conv(self):
         ConvolutionWindow(self)

@@ -262,6 +262,10 @@ localparam IIR_COEF_ADDR_WIDTH = 8;     // 256 palavras = ate 51 secoes
 localparam IIR_N_SAMPLES       = 1024;
 localparam IIR_MAX_SECOES      = 16;    // ordem 32; o estudo nunca passou de 11
 
+// --- ADC (captura do LTC2308 a fs fixa, adc_captura.v) ---
+localparam ADC_ADDR_WIDTH = 15;         // 32768 amostras na RAM adc_buf
+localparam ADC_DIV_MIN    = 250;        // 50 MHz / 250 = 200 kHz, a fs maxima
+
 localparam CONV1d_DATA_WIDTH    = 32;
 localparam CONV1d_XN_ADDR_WIDTH = 10;
 localparam CONV1d_HN_ADDR_WIDTH = 10;
@@ -393,6 +397,27 @@ wire                              iir_yn_write;
 wire [IIR_DATA_WIDTH-1:0]         iir_yn_readdata;
 wire [IIR_DATA_WIDTH-1:0]         iir_yn_writedata;
 wire [3:0]                        iir_yn_byteenable = 4'b1111;
+
+
+/* -------------------------------------------------------------------------------------------
+ * 3-ter. ADC (CAPTURA) PERIPHERAL SIGNALS
+ * ------------------------------------------------------------------------------------------- */
+// --- Controle e status ---
+wire                              adc_start;
+wire                              adc_done;
+wire [6:0]                        adc_config;      // [5:0] palavra do LTC2308 (S/D O/S S1 S0 UNI SLP); [6] continuo
+wire [31:0]                       adc_divisor;     // fs = 50 MHz / divisor
+wire [15:0]                       adc_namostras;
+wire [31:0]                       adc_contador;    // amostras ja na RAM (buffer circular no modo continuo)
+
+// --- SRAM de captura: o FPGA escreve, o HPS le ---
+wire [ADC_ADDR_WIDTH-1:0]         adc_buf_address;
+wire                              adc_buf_clken;
+wire                              adc_buf_chipselect;
+wire                              adc_buf_write;
+wire [31:0]                       adc_buf_readdata;
+wire [31:0]                       adc_buf_writedata;
+wire [3:0]                        adc_buf_byteenable = 4'b1111;
 
 
 /* -------------------------------------------------------------------------------------------
@@ -568,27 +593,43 @@ conv1d #(
     .yn_sram_write      (conv1d_yn_write)
 );
 
-/*
-wire [11:0] adc_ch0;
-assign LEDR[9:0] = adc_ch0[11:2];
+// ===========================================================================================
+// INSTANTIATION: ADC (captura do LTC2308)
+// ===========================================================================================
+// Substitui o adcltc2308_controller do University Program, que estava comentado
+// aqui: aquele converte em varredura livre e nao tem instante de amostragem
+// definido (docs/ADC.md). Este dispara cada conversao exatamente a cada
+// `adc_divisor` ciclos e guarda as amostras na RAM adc_buf -- de uma vez (ate
+// 32768) ou sem parar, com a RAM como buffer circular (adc_config[6]).
+adc_captura #(
+    .ADDR_BITS (ADC_ADDR_WIDTH),
+    .DIV_MIN   (ADC_DIV_MIN)
+) adc_inst (
+    .clk        (CLOCK_50),
+    .reset_n    (hps_fpga_reset_n),
 
-adcltc2308_controller u_adc (
-    .CLOCK    (CLOCK_50),           // external_interface.clk
-    .RESET    (~hps_fpga_reset_n),  // external_interface.reset
-    .ADC_SCLK (ADC_SCLK),           // external_interface.SCLK
-    .ADC_CS_N (ADC_CONVST),         // external_interface.CS_N
-    .ADC_DOUT (ADC_DOUT),           // external_interface.DOUT
-    .ADC_DIN  (ADC_DIN),            // external_interface.DIN
-    .CH0      (adc_ch0),            // readings.CH0
-    .CH1      (),                   // readings.CH1
-    .CH2      (),                   // readings.CH2
-    .CH3      (),                   // readings.CH3
-    .CH4      (),                   // readings.CH4
-    .CH5      (),                   // readings.CH5
-    .CH6      (),                   // readings.CH6
-    .CH7      ()                    // readings.CH7
+    // PIOs de controle
+    .start      (adc_start),          // HPS -> FPGA
+    .done       (adc_done),           // FPGA -> HPS
+    .divisor    (adc_divisor),
+    .n_amostras (adc_namostras),
+    .config_adc (adc_config[5:0]),
+    .continuo   (adc_config[6]),
+    .contador   (adc_contador),
+
+    // LTC2308
+    .adc_convst (ADC_CONVST),
+    .adc_sclk   (ADC_SCLK),
+    .adc_din    (ADC_DIN),
+    .adc_dout   (ADC_DOUT),
+
+    // SRAM de captura (porta do FPGA)
+    .ram_address    (adc_buf_address),
+    .ram_wdata      (adc_buf_writedata),
+    .ram_write      (adc_buf_write),
+    .ram_chipselect (adc_buf_chipselect),
+    .ram_clken      (adc_buf_clken)
 );
-*/
 
 wire [3:0] fft_debug_state;
 assign LEDR[3:0] = fft_debug_state;
@@ -939,6 +980,24 @@ soc_system u0 (
     .iir_yn_readdata         (iir_yn_readdata),
     .iir_yn_writedata        (iir_yn_writedata),
     .iir_yn_byteenable       (iir_yn_byteenable),
+
+    // ======================================================
+    //  CUSTOM DSP EXPORTS: ADC (captura)
+    // ======================================================
+    .adc_start_export        (adc_start),
+    .adc_done_export         (adc_done),
+    .adc_config_export       (adc_config),
+    .adc_divisor_export      (adc_divisor),
+    .adc_namostras_export    (adc_namostras),
+    .adc_contador_export     (adc_contador),
+
+    .adc_buf_address         (adc_buf_address),
+    .adc_buf_clken           (adc_buf_clken),
+    .adc_buf_chipselect      (adc_buf_chipselect),
+    .adc_buf_write           (adc_buf_write),
+    .adc_buf_readdata        (adc_buf_readdata),
+    .adc_buf_writedata       (adc_buf_writedata),
+    .adc_buf_byteenable      (adc_buf_byteenable),
 
 
     

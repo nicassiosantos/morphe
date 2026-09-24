@@ -1007,7 +1007,6 @@ set_global_assignment -name VERILOG_FILE memory_write_controller.v
 set_global_assignment -name VERILOG_FILE conv1d.v
 set_global_assignment -name VERILOG_FILE memory_read_controller.v
 set_global_assignment -name VERILOG_FILE fft_wrapper.v
-set_global_assignment -name VERILOG_FILE fft_impulse_test.v
-set_global_assignment -name VERILOG_FILE output_files/spiral_dft_top.v
 set_global_assignment -name VERILOG_FILE fir_wrapper.v
+set_global_assignment -name VERILOG_FILE adc_captura.v
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top

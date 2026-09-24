@@ -9,6 +9,9 @@ opcional para impor o limite do hardware.
 O tipo "Arquivo" carrega um sinal qualquer (.csv, .txt, .npy, .wav) por
 sinal_arquivo.py. Com `aceita_longo`, o `max_N` deixa de ser limite: a janela
 processa sinais maiores por blocos (blocos.py) e o N maximo so e informado.
+
+O tipo "Captura do ADC" usa a ultima captura feita na janela Aquisicao
+(aquisicao.ultima_captura), em volts e com a fs exata do hardware.
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 
+import aquisicao
 import dsp_core as dsp
 import morphe_theme as theme
 from sinal_arquivo import TIPOS_DIALOGO, carregar_sinal
@@ -28,6 +32,7 @@ SIGNAL_TYPES = [
     "Exponencial",
     "Retangular",
     "Arquivo",
+    "Captura do ADC",
 ]
 
 # Layout do formulário de geração. Um único grid de 2 colunas partilhado por
@@ -120,9 +125,21 @@ class SignalPanel(ttk.LabelFrame):
 
         self._row = _PARAMS_ROW0
         t = self.signal_type.get()
-        # No tipo "Arquivo", N e o tamanho do arquivo: o campo fica so leitura.
-        self._entry_N.config(state="disabled" if t == "Arquivo" else "normal")
-        if t == "Arquivo":
+        # Em "Arquivo" e "Captura do ADC", N e o tamanho do sinal: so leitura.
+        self._entry_N.config(
+            state="disabled" if t in ("Arquivo", "Captura do ADC") else "normal")
+        if t == "Captura do ADC":
+            cap = aquisicao.ultima_captura()
+            texto = (cap.como_signal().description if cap is not None else
+                     "nenhuma captura ainda — use a janela Aquisição (ADC)")
+            if cap is not None:
+                self.var_N.set(str(cap.volts.size))
+            lbl = ttk.Label(self, text=texto, style="Card.TLabel", wraplength=220)
+            lbl.grid(row=self._row, column=0, columnspan=2, sticky="w",
+                     pady=(0, 4))
+            self._param_widgets.append(lbl)
+            self._row += 1
+        elif t == "Arquivo":
             btn = ttk.Button(self, text="Escolher arquivo…",
                              style="Outline.TButton",
                              command=self._escolher_arquivo)
@@ -218,6 +235,14 @@ class SignalPanel(ttk.LabelFrame):
                 raise ValueError("Escolha um arquivo antes de gerar.")
             self._confere_tamanho(self._arquivo.x.size)
             return self._arquivo.copy()
+        if self.signal_type.get() == "Captura do ADC":
+            cap = aquisicao.ultima_captura()
+            if cap is None:
+                raise ValueError("Nenhuma captura ainda: capture um sinal na "
+                                 "janela Aquisição (ADC) antes.")
+            self._confere_tamanho(cap.volts.size)
+            self._refresh_params()        # mostra qual captura foi usada
+            return cap.como_signal()
         try:
             N = int(self.var_N.get())
         except ValueError as e:

@@ -79,6 +79,26 @@
 /* Amostras E coeficientes em Q15.16, o mesmo formato da conv1d. */
 #define MORPHE_IIR_FRAC_BITS    16
 
+/* ---- ADC (LTC2308, captura a fs fixa pelo adc_captura.v) --------------- */
+
+/* Amostras por captura: a RAM adc_buf tem 2^15 palavras de 32 bits
+ * (ADDR_BITS do Verilog). */
+#define MORPHE_ADC_N_MAX        32768
+
+/* fs = MORPHE_ADC_CLK_HZ / divisor. O divisor minimo e o DIV_MIN do
+ * Verilog (200 kHz); o maximo so limita a duracao (1 kHz: 32768 amostras
+ * levam 33 s, e o servidor fica ocupado esse tempo todo). */
+#define MORPHE_ADC_CLK_HZ       50000000
+#define MORPHE_ADC_DIV_MIN      250
+#define MORPHE_ADC_DIV_MAX      50000
+
+/* Palavra de configuracao do LTC2308 (6 bits: S/D O/S S1 S0 UNI SLP). */
+#define MORPHE_ADC_CFG_UNI      0x02U   /* 1 = unipolar, 0 = bipolar (compl. de 2) */
+#define MORPHE_ADC_CFG_SLP      0x01U   /* sleep: recusado, a referencia leva 200 ms */
+/* Bit 6 do PIO adc_config (fora da palavra do LTC2308): captura continua, com a
+ * RAM como buffer circular. Quem o liga e o servidor, no OP_ADC_CONTINUO. */
+#define MORPHE_ADC_CFG_CONTINUO 0x40U
+
 /* ---- Rede -------------------------------------------------------------- */
 
 /* Porta TCP padrao do servidor (cliente pode sobrescrever). */

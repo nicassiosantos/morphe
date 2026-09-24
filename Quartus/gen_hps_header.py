@@ -38,15 +38,16 @@ DEFAULT_MODULE = "hps_0"
 class Device:
     """Um slave mapeado em memoria, visto por um dos masters do HPS."""
 
-    __slots__ = ("module", "slave", "base", "span", "kind", "master")
+    __slots__ = ("module", "slave", "base", "span", "kind", "master", "params")
 
-    def __init__(self, module, slave, base, span, kind, master):
+    def __init__(self, module, slave, base, span, kind, master, params=None):
         self.module = module
         self.slave = slave
         self.base = base
         self.span = span
         self.kind = kind
         self.master = master
+        self.params = params or {}
 
     @property
     def prefix(self) -> str:
@@ -63,6 +64,24 @@ def collect(sopcinfo_path: str, module_name: str) -> tuple[list[Device], list[st
 
     # kind (classe do componente) de cada modulo do sistema
     kinds = {m.get("name"): m.get("kind") for m in root.iter("module")}
+
+    # O sysid guarda a impressao digital do sistema: `id` (fixo no Qsys) e
+    # `timestamp` (muda a cada Generate). Emitidos como SYSID_QSYS_ID e
+    # SYSID_QSYS_TIMESTAMP, os mesmos nomes do sopc-create-header-files, eles
+    # deixam o servidor conferir, lendo o registrador do sysid, se o
+    # bitstream carregado e o mesmo que gerou este cabecalho.
+    params: dict[str, dict[str, int]] = {}
+    for m in root.iter("module"):
+        if m.get("kind") != "altera_avalon_sysid_qsys":
+            continue
+        vals = {}
+        for p in m.findall("parameter"):
+            if p.get("name") in ("id", "timestamp"):
+                try:
+                    vals[p.get("name")] = int(p.findtext("value")) & 0xFFFFFFFF
+                except (TypeError, ValueError):
+                    pass
+        params[m.get("name")] = vals
 
     target = None
     for m in root.iter("module"):
@@ -91,6 +110,7 @@ def collect(sopcinfo_path: str, module_name: str) -> tuple[list[Device], list[st
                     span=int(b.findtext("span")),
                     kind=kinds.get(b.findtext("moduleName"), "unknown"),
                     master=master,
+                    params=params.get(b.findtext("moduleName")),
                 )
             )
 
@@ -141,6 +161,10 @@ def render(devices: list[Device], masters: list[str], sopcinfo_path: str,
         w("#define %s_BASE 0x%x" % (d.prefix, d.base))
         w("#define %s_SPAN %d" % (d.prefix, d.span))
         w("#define %s_END 0x%x" % (d.prefix, d.end))
+        if "id" in d.params:
+            w("#define %s_ID %du" % (d.prefix, d.params["id"]))
+        if "timestamp" in d.params:
+            w("#define %s_TIMESTAMP %du" % (d.prefix, d.params["timestamp"]))
         w("")
 
     w("#endif /* %s */" % guard)

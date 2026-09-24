@@ -8,9 +8,35 @@ vem da **folha de dados ou do manual da placa** está marcado como *a conferir*.
 
 O conversor é o **LTC2308**: 12 bits, 8 canais, aproximação sucessiva, interface
 serial (SPI) com quatro fios que chegam ao FPGA — `ADC_CONVST`, `ADC_SCLK`, `ADC_DIN`,
-`ADC_DOUT` (`ghrd_top.v:39-42`). As entradas analógicas ficam num conector próprio da
-placa. *A conferir no DE1-SoC User Manual: a pinagem do conector e a taxa máxima
-(500 mil amostras/s pela folha de dados do LTC2308).*
+`ADC_DOUT` (`ghrd_top.v:39-42`). Taxa máxima: 500 mil amostras/s; o relógio serial
+pode ir até 40 MHz.
+
+**Conector J15 (2x5), conferido no DE1-SoC User Manual, seção 3.6.12 e fig. 5-20
+(rev. de 28/01/2019):**
+
+| pino | sinal | pino | sinal |
+|---|---|---|---|
+| 1 | **VCC5 (5 V)** | 2 | ADC_IN0 |
+| 3 | ADC_IN1 | 4 | ADC_IN2 |
+| 5 | ADC_IN3 | 6 | ADC_IN4 |
+| 7 | ADC_IN5 | 8 | ADC_IN6 |
+| 9 | ADC_IN7 | 10 | **GND** |
+
+O pino 1 fica no canto marcado (ilhota quadrada). Ele fornece 5 V; ligá-lo por
+engano a um canal satura a leitura, e ligá-lo ao terra põe a alimentação em curto.
+
+**Tensão:** a faixa de medida é de **0 a 4,096 V** (referência interna, unipolar;
+manual 3.6.12). O limite absoluto do conversor é **de −0,3 V a AVDD + 0,3 V**, com AVDD
+= 5 V. Os valores vêm da folha de dados do LTC2309, a versão I²C do mesmo conversor,
+com a mesma entrada analógica. O manual não mostra resistor nem diodo de proteção
+entre o conector e o chip. Entre 4,096 V e ~5,3 V a leitura só satura; **abaixo de
+−0,3 V a entrada pode ser danificada**. Por isso, no gerador de funções, usar offset
+DC ≈ 2 V e amplitude ≤ 2 Vp (4 Vpp), e conferir no osciloscópio antes de ligar.
+
+**Nome do pino:** a tabela 3-22 do manual chama o pino `PIN_AJ4` de `ADC_CS_N`,
+herança das revisões antigas com outro conversor. No LTC2308 esse pino é o `CONVST`,
+e o `.qsf` do projeto já usa `ADC_CONVST` em `PIN_AJ4`. Os demais pinos batem com o
+manual: DIN em AK4, DOUT em AK3, SCLK em AK2.
 
 ## Como o controlador do projeto funciona
 
@@ -24,7 +50,7 @@ Ele **converte sem parar**, sozinho, sem ninguém pedir:
 1. Para cada canal, envia ao LTC2308 uma palavra de configuração de 6 bits —
    `{S/D=1, O/S, S1, S0, UNI=1, SLP=0}` —, ou seja, **entrada simples (contra o terra) e
    unipolar**. Com a referência interna de 4,096 V, isso dá **0 a 4,095 V, 1 mV por
-   passo** (*faixa a conferir no esquema da placa*). **Tensão negativa não é lida — e
+   passo** (confirmado no manual da placa). **Tensão negativa não é lida — e
    pode danificar a entrada.**
 2. O relógio serial é o de 50 MHz dividido por `tsclk`: **~16,7 MHz**.
 3. Entre uma conversão e a seguinte espera `tsclk × 32` ciclos, **1,92 µs**, o tempo
@@ -39,9 +65,9 @@ As saídas são, portanto, **o último valor lido de cada canal**, atualizado a 
 conversão; *a medir*). Com dois canais, cada um se renova a ~165 mil vezes por
 segundo; com oito, a ~40 mil.
 
-**Hoje nada disso está ligado.** A instância está comentada em `ghrd_top.v:571-591`, e
-mesmo quando estava ativa só `CH0` ia a algum lugar (os LEDs). Não há caminho até o
-processador, operação no protocolo nem nada no cliente.
+Esse IP nunca foi ligado no Morphe: a instância ficava comentada no `ghrd_top.v`, e
+só `CH0` ia a algum lugar (os LEDs). Em 24/09/2026 ela foi substituída pelo
+controlador próprio descrito abaixo.
 
 ## O que isso significa para capturar um sinal
 
@@ -66,12 +92,62 @@ numa compilação só, que também tira do projeto os dois arquivos listados e s
 | etapa | o que é | estado |
 |---|---|---|
 | 0 | sinal de arquivo (`.csv`, `.txt`, `.npy`, `.wav`) e processamento por blocos em todas as janelas — convolução e FIR por overlap-add, FFT e IFFT longas em quatro passos, IIR com aquecimento (`Python/blocos.py`, `Python/sinal_arquivo.py`) | **feita e validada na placa em 23/09**; a janela de espectrograma existe mas está fora do menu (comentada no `morphe_app.py`) |
-| 1 | ADC como voltímetro: reativar o controlador, levar `CH0`…`CH7` ao processador, uma operação no protocolo | guardada |
-| 2 | captura a `fs` fixa: controlador próprio + memória de captura no FPGA, operação de captura, janela "Aquisição" que salva em arquivo e alimenta as outras janelas | guardada |
+| 1 | ADC como voltímetro: média de 0,1 s de captura, na janela "Aquisição" | **escrita e verificada em simulação (24/09); falta compilar e validar na placa** |
+| 2 | captura a `fs` fixa: controlador próprio + memória de captura no FPGA, `OP_ADC`, janela "Aquisição" que salva em arquivo e alimenta as outras janelas | **escrita e verificada em simulação (24/09); falta compilar e validar na placa** |
 | 3 | codec de áudio WM8731 (entrada e saída de áudio) | opcional |
+
+O voltímetro não usa hardware separado. Ele é uma captura curta (2000 amostras a
+20 kHz) cuja média cancela o zumbido da rede, porque 0,1 s tem um número inteiro de
+ciclos de 50 Hz e de 60 Hz. Assim, as etapas 1 e 2 usam o mesmo caminho e a mesma
+compilação. O passo a passo da estação está em `docs/COMPILAR-ADC.md`.
 
 Memória livre no FPGA para a captura, pelo relatório da última compilação: 232 dos 397
 blocos de RAM (~290 KB) — cabe um buffer de 32 a 64 mil amostras de 16 bits.
+
+## Como ficou implementado (24/09/2026)
+
+**Hardware: `Quartus/adc_captura.v`.** Um contador de período zera a cada `divisor`
+ciclos de 50 MHz, e cada zero dispara uma conversão (subida do `CONVST`). O instante
+de amostragem é essa borda, sem varredura. A cada período acontece:
+
+- `CONVST` fica alto por 96 ciclos (1,92 µs, acima do tempo máximo de conversão);
+- o SCLK roda a 12,5 MHz: 12 pulsos leem B11..B0 do SDO, e nos seis primeiros sai
+  pelo SDI a palavra de configuração;
+- a amostra vai para a RAM `adc_buf`, com 32768 palavras.
+
+O primeiro quadro de cada captura é descartado, porque a palavra de configuração vale
+para a conversão seguinte. As convenções do barramento serial são as mesmas do IP do
+University Program (SCLK parado em 0, SDI muda na descida e SDO é lido antes da
+subida). A fs máxima é 200 kHz (`DIV_MIN` = 250): o quadro ocupa ~150 ciclos, e o
+resto garante o tempo de aquisição.
+
+| parâmetro | valor |
+|---|---|
+| fs | 50 MHz / divisor, de 1 kHz a 200 kHz; exata quando o divisor é inteiro (44,1 kHz vira 44 091,7 Hz) |
+| amostras por captura | 1 a 32768 de uma vez; acima disso, ou sem limite, captura contínua em blocos |
+| modos oferecidos | simples (CH0..CH7, 0 a 4,095 V) e diferencial (pares CH0−CH1..CH6−CH7, ±2,048 V) |
+| resolução | 1 mV por código nos dois modos |
+
+**Protocolo: `OP_ADC` = 7, só cabeçalho.** `n_x` = amostras, `n_h` = divisor e
+`flags` = palavra de configuração. A resposta traz os códigos em int32 (com o sinal
+já estendido no modo bipolar), e `extra` = divisor usado.
+
+**Captura contínua: `OP_ADC_CONTINUO` = 8.** É para sinais maiores que a RAM ou
+sem limite (`n_x` = 0, até o cliente parar). O bit 6 do PIO `adc_config` faz a RAM
+virar um buffer circular. O PIO `adc_contador` diz quantas amostras já estão nela
+e vale 0 em repouso. O servidor copia as novas e manda blocos
+`[n, estado, n × int32]` enquanto a captura segue. Os blocos são contínuos no
+tempo: nada para entre um e outro. Se o servidor não acompanhar (mais de 164 ms de
+atraso a 200 kHz), a captura termina com o estado "perdeu", nunca com buraco
+silencioso. A placa fica ocupada durante toda a captura. Detalhes em
+`docs/COMPILAR-ADC.md`.
+
+**Cliente.** `aquisicao.py` concentra as contas: a palavra de configuração, a fs
+real, os volts, o voltímetro, as métricas (SINAD e ENOB com janela Blackman-Harris) e
+a gravação em .csv, .npy e .wav. A janela `aquisicao_window.py` aparece no menu como
+"Aquisição (ADC da placa)". A última captura vira o tipo **"Captura do ADC"** no
+painel de sinal de todas as janelas. Para validar na placa com multímetro e gerador,
+use `ferramentas/testa_adc.py`.
 
 ## Ideias que o ADC abre
 

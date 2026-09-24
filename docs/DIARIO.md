@@ -16,6 +16,75 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 24/09/2026 — ADC: etapas 1 e 2 escritas e verificadas em simulação
+
+**Conferido no manual da placa** (DE1-SoC User Manual, seção 3.6.12): a pinagem do J15
+(pino 1 = 5 V, pinos 2 a 9 = CH0..CH7, pino 10 = terra) e a faixa de 0 a 4,096 V. O
+limite absoluto, de −0,3 V a AVDD + 0,3 V, veio da folha de dados do LTC2309, a
+versão I²C do mesmo conversor. O manual chama o pino AJ4 de `ADC_CS_N`, nome herdado
+de revisões antigas da placa; no LTC2308 ele é o `CONVST`, como o `.qsf` já dizia.
+Tudo isso ficou em `docs/ADC.md`.
+
+**Decidido:** controlador próprio, um canal por captura, modos simples (0 a 4,096 V)
+e diferencial (±2,048 V), fs de 1 a 200 kHz e até 32768 amostras.
+
+**Escrito:**
+- `Quartus/adc_captura.v`: uma conversão por período de `divisor` ciclos, com o
+  instante fixado pela subida do CONVST;
+- `.qsys`: RAM de 128 KiB e 5 PIOs, clonados dos do IIR; o diff só acrescenta;
+- `ghrd_top.v`;
+- `.qsf`: entra o `adc_captura.v` e saem dois arquivos sem uso;
+- servidor: `OP_ADC` = 7;
+- cliente: `aquisicao.py`, janela "Aquisição (ADC da placa)", tipo "Captura do
+  ADC" no painel de sinal de todas as janelas;
+- `ferramentas/testa_adc.py`, com os testes `basico`, `tensao` e `senoide` para a
+  bancada;
+- `docs/COMPILAR-ADC.md`.
+
+**Verificado sem placa:**
+- `roda_tb_adc.sh`, com um modelo do LTC2308 que confere os tempos da folha de
+  dados: 6 casos, incluindo a RAM cheia com 32768 amostras, com período exato,
+  canal certo e bits em ordem. **TUDO OK.** O testbench também achou um caso real:
+  uma captura logo depois da outra podia ter menos de 240 ns de aquisição no quadro
+  descartado. Foi corrigido com uma espera de 16 ciclos antes do primeiro CONVST.
+- Servidor C compilado para ARM com `-Wall -Wextra`, sem aviso.
+- O **servidor C real** rodando em Linux (WSL) com `/dev/mem` trocado por memória
+  e uma thread no papel do `adc_captura.v`. Deu 25 de 25 verificações: códigos
+  idênticos ao sinal emulado amostra por amostra, extensão de sinal no modo
+  bipolar, recusas, voltímetro, ida e volta por .csv, .npy e .wav. A janela foi
+  dirigida pelo mainloop do Tk, e a captura chegou à janela da FFT.
+- A SINAD de uma senoide com quantização ideal de 12 bits dá 73,7 dB (ENOB 11,95),
+  no valor teórico. Com janela de Hann dava ~53 dB, porque o vazamento mascarava o
+  conversor; por isso a métrica usa Blackman-Harris.
+
+**Proteção nova:** o servidor só compila o ADC quando o `hps_0.h` gerado o tem, e
+antes de tocar num PIO do ADC confere o timestamp do `sysid` contra o do `hps_0.h`.
+Um servidor novo num bitstream antigo recusa, em vez de travar o barramento como
+aconteceu com a placa 2 em 21/09. Para isso, o `gen_hps_header.py` passou a emitir
+`SYSID_QSYS_ID` e `SYSID_QSYS_TIMESTAMP`. Os dois cenários (bitstream antigo e
+servidor sem ADC) foram testados no emulador.
+
+**Captura contínua (pedido do mesmo dia): sinais sem o limite da RAM.** O hardware
+ganhou um modo em que a RAM é buffer circular, com um contador de amostras num PIO
+novo. O servidor ganhou o `OP_ADC_CONTINUO`, que manda blocos enquanto a captura
+segue. Na janela, 0 amostras = sem limite, até clicar em Parar. Verificado:
+- testbench com a RAM dando a volta, e o contador coerente a cada amostra;
+- no emulador, 100 mil amostras idênticas uma a uma em 29 blocos (sem buraco nem
+  repetição) e 2 milhões a 200 kHz em 10 s;
+- perda forçada: acusada como "perdeu", com o prefixo intacto.
+
+Os testes acharam, e foi corrigido, que:
+- o servidor podia ler o contador da captura anterior logo depois do start (agora
+  o contador vale 0 em repouso);
+- o `done` do modo contínuo dura um ciclo só (o servidor passou a esperar um
+  período);
+- **o servidor não ignorava `SIGPIPE`.** Um cliente que fechasse a conexão no meio
+  da resposta matava o processo; isso já valia para qualquer operação longa.
+
+**Não verificado:** `qsys-generate`, síntese, timing e o ADC na placa, e se o HPS
+acompanha 200 kHz na contínua (a leitura pela ponte nunca foi medida). É o próximo
+passo, na estação: `docs/COMPILAR-ADC.md`, branch `estagio/v1.7-adc`.
+
 ## 23/09/2026 — O Quartus 20.1 para o aluno, em todos os computadores do laboratório
 
 **O que se queria:** que a conta `alunopds` de **qualquer** computador do laboratório
