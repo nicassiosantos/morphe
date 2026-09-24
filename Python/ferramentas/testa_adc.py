@@ -29,6 +29,7 @@ Uso:
     python testa_adc.py <host> tensao  [--canal 0] [--vezes 10]
     python testa_adc.py <host> senoide --f 1000 [--canal 0]
     python testa_adc.py <host> continuo --f 1000 [--segundos 10] [--canal 0]
+    python testa_adc.py <host> canais     (diagnostico: 8 canais e 4 pares)
     (--porta 5000 em qualquer um)
 
 CUIDADO com a ligacao: pino 1 do J15 e 5 V; cada entrada aceita de 0 a
@@ -151,10 +152,58 @@ def continuo(cli: TcpClient, canal: int, f: float, segundos: float) -> None:
                 f"{limite - 3:.0f})")
 
 
+def canais(cli: TcpClient) -> None:
+    """Diagnostico: le os 8 canais e os 4 pares e diz o que isso significa.
+
+    Separa tres situacoes que parecem iguais na tela:
+      - um canal ligado ao terra le ~0 V: e ele que esta no terra;
+      - entrada solta le ~1,6 a 2,1 V: a entrada chaveada do LTC2308 puxa um
+        pino solto para perto de REFCOMP/2 = 2,048 V (folha de dados, modelo
+        da entrada com R_EQ e VREFCOMP/2), e a fuga de ate 1 uA o desloca;
+      - a palavra de configuracao nao chega ao conversor: entao mudar canal e
+        modo nao muda nada, e o par diferencial le o mesmo que o canal simples,
+        em vez de ~0 V (dois pinos soltos parecidos se cancelam).
+    """
+    print("\n== diagnostico: os 8 canais e os 4 pares ==")
+    simples = []
+    for c in range(8):
+        r = aq.ler_tensao(cli, aq.MODO_SIMPLES, c)
+        simples.append(r["media"])
+        print(f"  CH{c}  (pino {[2, 3, 4, 5, 6, 7, 8, 9][c]}): media {r['media']:.4f} V   "
+              f"desvio {r['desvio'] * 1e3:6.2f} mV   min {r['minimo']:.3f}   max {r['maximo']:.3f}")
+    difer = []
+    for p in range(4):
+        r = aq.ler_tensao(cli, aq.MODO_DIFERENCIAL, p)
+        difer.append(r["media"])
+        print(f"  {aq.PARES_DIFERENCIAIS[p]}: media {r['media']:+.4f} V   "
+              f"desvio {r['desvio'] * 1e3:6.2f} mV")
+    cap = aq.capturar(cli, 400, 20_000, aq.MODO_SIMPLES, 0, guardar=False)
+    print("  CH0, primeiras 16 amostras a 20 kHz:", " ".join(f"{v:.3f}" for v in cap.volts[:16]))
+    print("  CH0, ultimas 4:                       ", " ".join(f"{v:.3f}" for v in cap.volts[-4:]))
+
+    print("\n  conclusao:")
+    no_terra = [c for c, v in enumerate(simples) if v < 0.05]
+    if no_terra:
+        print(f"   - no terra: {', '.join(f'CH{c}' for c in no_terra)} -- a leitura do conversor funciona")
+    else:
+        print("   - nenhum canal no terra (~0 V): o jumper nao esta ligando um canal ao GND,")
+        print("     ou a configuracao nao chega ao conversor (ver o item seguinte)")
+    iguais = all(abs(d - s) < 0.2 for d, s in zip(difer, simples[0::2]))
+    if iguais:
+        print("   - os pares diferenciais leem o MESMO que os canais simples: a palavra de")
+        print("     configuracao NAO esta chegando ao conversor (problema no controlador)")
+    else:
+        print("   - os pares diferenciais leem diferente dos canais simples: a palavra de")
+        print("     configuracao chega ao conversor (canal e modo mudam a leitura)")
+    soltos = [c for c, v in enumerate(simples) if 1.2 < v < 2.6]
+    if soltos:
+        print(f"   - leitura de entrada solta (1,2 a 2,6 V): {', '.join(f'CH{c}' for c in soltos)}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("host")
-    ap.add_argument("teste", choices=("basico", "tensao", "senoide", "continuo"))
+    ap.add_argument("teste", choices=("basico", "tensao", "senoide", "continuo", "canais"))
     ap.add_argument("--porta", type=int, default=5000)
     ap.add_argument("--canal", type=int, default=0)
     ap.add_argument("--vezes", type=int, default=10)
@@ -168,6 +217,8 @@ def main() -> int:
         tensao(cli, a.canal, a.vezes)
     elif a.teste == "senoide":
         senoide(cli, a.canal, a.f)
+    elif a.teste == "canais":
+        canais(cli)
     else:
         continuo(cli, a.canal, a.f, a.segundos)
     print("\nTUDO OK" if falhas == 0 else f"\nFALHOU: {falhas} verificacao(oes)")

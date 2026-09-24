@@ -44,6 +44,10 @@ MODOS = {
     "Diferencial  (±2,048 V)": aq.MODO_DIFERENCIAL,
 }
 REPETIR_MS = 500
+# Grafico do espectro embaixo do sinal. Desligado a pedido em 24/09/2026, ate a
+# validacao do ADC terminar; as medidas (frequencia, SINAD, ENOB) continuam no
+# quadro "Medidas". Religar = True.
+MOSTRAR_ESPECTRO = False
 
 COMO_LIGAR = (
     "Conector J15 (2x5) da placa, pino 1 no furo quadrado:\n"
@@ -237,15 +241,19 @@ class AquisicaoWindow(tk.Toplevel):
                   justify="left", font=("TkFixedFont", 8)).pack(anchor="w")
 
     def _build_plots(self, parent):
-        header = theme.make_plot_header_bar(parent, items=[
-            ("x(t)",     lambda: self._popout("t")),
-            ("Espectro", lambda: self._popout("f")),
-        ])
+        itens = [("x(t)", lambda: self._popout("t"))]
+        if MOSTRAR_ESPECTRO:
+            itens.append(("Espectro", lambda: self._popout("f")))
+        header = theme.make_plot_header_bar(parent, items=itens)
         header.pack(fill="x", pady=(0, 6))
         self.fig = Figure(figsize=(7.4, 7.6), dpi=100)
         self.fig.patch.set_facecolor(theme.COLORS["bg"])
-        self.ax_t = self.fig.add_subplot(211)
-        self.ax_f = self.fig.add_subplot(212)
+        if MOSTRAR_ESPECTRO:
+            self.ax_t = self.fig.add_subplot(211)
+            self.ax_f = self.fig.add_subplot(212)
+        else:
+            self.ax_t = self.fig.add_subplot(111)
+            self.ax_f = None
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.toolbar = PlotToolbar(self.canvas)
@@ -489,7 +497,8 @@ class AquisicaoWindow(tk.Toplevel):
     # ------------------------------------------------------------------
     def _redraw(self):
         _desenha_tempo(self.ax_t, self.cap)
-        _desenha_espectro(self.ax_f, self.cap)
+        if self.ax_f is not None:
+            _desenha_espectro(self.ax_f, self.cap)
         self.fig.tight_layout()
         self.canvas.draw_idle()
         refresh_all(self._popouts)
