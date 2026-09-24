@@ -16,6 +16,45 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 24/09/2026 (estação) — Bitstream com o ADC compilado; captura contínua acompanha 200 kHz
+
+Branch `estagio/v1.7-adc` na estação (clone de desenvolvimento). Para trocar de
+branch foi preciso descartar o `Quartus/.qsys_edit/preferences.xml` local, que saiu
+do git na reorganização.
+
+- **Compilação:** Fmax 61,56 MHz (clock_50_1), 12.621/32.070 ALMs (39 %),
+  2.220.342/4.065.280 bits de memória (55 %), 30/87 DSP.
+- **`morphe-up`**, com o servidor recompilado na placa 1: 4/4.
+  `testa_ifft_roundtrip` 0 falhas, `testa_iir_hw` 4/4 bit a bit,
+  `testa_blocos --placa` TUDO OK. Nada do que existia quebrou.
+- **`testa_adc basico`, TUDO OK:** servidor anuncia o ADC, recusas certas,
+  capturas de 1, 1000, 32768 e 100 amostras inteiras. **A captura contínua trouxe
+  2.000.000 de 2.000.000 amostras a 200 kHz em 10,0 s, em 4.232 blocos, sem
+  perda: o HPS acompanha a fs máxima.**
+- Com a entrada solta, o `tensao` lê ~1,88 V, flutuando (não é medida) e sem
+  travar em 0 ou 4095; o `senoide` falha, porque não havia gerador.
+- **CH0 no terra, lido do PC Windows pela rede do laboratório (`testa_adc canais`):**
+  CH0 = **0,0000 V**, desvio de 0,03 mV, sem pico no início; os outros 7 canais,
+  soltos, em 1,89 a 1,91 V; o par CH0−CH1 em −1,914 V; os outros pares em ~−0,02 V.
+  **A leitura, a numeração dos canais e o modo diferencial estão certos.** Para
+  achar o GND, foi preciso medir com o COM na carcaça da USB: o conector estava
+  sendo visto girado 180° em relação ao desenho, e uma medida com as pontas
+  trocadas confundiu o diagnóstico no meio do caminho.
+- Entrada solta: a entrada chaveada do LTC2308 leva o pino para ~1,9 V (perto de
+  REFCOMP/2). O "pico" de ~2,45 V no início de cada captura é esse nó se
+  descarregando (τ ≈ 1,4 ms). Some com o pino ligado a uma fonte (visto no CH0
+  aterrado).
+- **CH0 no 3,3 V da placa** (VCC3P3, pino 29 do GPIO JP1): **3,3300 V**, desvio
+  de 2,6 mV (ripple da fonte; no terra era 0,03 mV), variação de 0,12 mV entre 5
+  leituras; o par CH0−CH1 em +1,41 V. A escala está certa: 3,33 V é o valor nominal
+  da fonte, dentro da tolerância. Falta o valor do multímetro no mesmo ponto para
+  comparar.
+- **Conversor confirmado na placa 1:** o chip ao lado do J15 é marcado "2308"
+  (LTC2308), e a FPGA é a 5CSEMA5F31C6N, a mesma do projeto. A placa é da revisão
+  F em diante. O manual certo é o de 2016/2019; o "rev E" de 2015 descreve o AD7928
+  e não serve.
+- **Falta:** senoide do gerador e contínua com a senoide.
+
 ## 24/09/2026 — ADC: etapas 1 e 2 escritas e verificadas em simulação
 
 **Conferido no manual da placa** (DE1-SoC User Manual, seção 3.6.12): a pinagem do J15
