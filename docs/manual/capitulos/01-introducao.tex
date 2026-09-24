@@ -1,0 +1,147 @@
+% =============================================================================
+\chapter{Introdução}
+\label{cap:introducao}
+% =============================================================================
+
+\section{O que é o Morphe}
+
+O Morphe é uma plataforma para executar operações de Processamento Digital de
+Sinais (PDS) em hardware e comparar o resultado com o que o computador calcula.
+O aluno prepara um sinal numa janela do aplicativo, escolhe a operação e recebe
+de volta duas respostas lado a lado: a que a FPGA de uma placa DE1-SoC calculou
+em ponto fixo e a que o próprio computador calculou em ponto flutuante. A
+diferença entre as duas é o objeto de estudo.
+
+São cinco as operações executadas em hardware:
+
+\begin{description}
+  \item[Convolução] linear de dois sinais de até 1024 amostras cada, com saída
+    de até 2047 amostras.
+  \item[Filtro FIR] a mesma convolução, com a resposta ao impulso vinda de um
+    projetista de filtros por especificação.
+  \item[Filtro IIR] cascata de até 16 seções de segunda ordem (ordem até 32),
+    também com projetista próprio.
+  \item[FFT] transformada de Fourier discreta de 1024 pontos.
+  \item[IFFT] a transformada inversa, no mesmo núcleo da FFT.
+\end{description}
+
+O hardware trabalha com blocos de tamanho fixo (1024 amostras), mas o
+aplicativo aceita sinais de qualquer tamanho: divide o sinal em blocos, manda
+cada um à placa e recompõe o resultado, com técnicas que dão a mesma resposta
+que uma operação única daria (capítulo~\ref{cap:cliente}).
+
+\section{Para que serve no ensino de PDS}
+
+Nas disciplinas de PDS as operações são estudadas com números reais, e o
+computador as calcula em ponto flutuante de 64 bits, que para quase todo fim
+didático é o mesmo que calcular com números reais. Um circuito digital dedicado
+não trabalha assim: usa ponto fixo, com um número pequeno de bits para a parte
+fracionária, e cada multiplicação precisa ser arredondada ou truncada.
+
+O Morphe torna essa diferença visível e mensurável. Com ele o aluno pode:
+
+\begin{itemize}
+  \item ver o erro de quantização de uma FFT em decibéis e observar que ele
+    melhora 6\,dB a cada bit de faixa aproveitada (capítulo~\ref{cap:numerica});
+  \item provocar uma saturação ou um estouro de acumulador e reconhecer o
+    sintoma na saída;
+  \item comparar um filtro IIR projetado em ponto flutuante com o mesmo filtro
+    executado em ponto fixo, e entender por que o hardware usa seções de segunda
+    ordem e não um polinômio de ordem alta;
+  \item medir quanto tempo cada operação leva na placa e relacionar esse tempo
+    com o número de operações do algoritmo.
+\end{itemize}
+
+\section{Histórico}
+
+O Morphe nasceu como Trabalho de Conclusão de Curso de Carlos Valadão na UEFS,
+\emph{Implementação de Ferramentas de Computação Numérica para o Processamento
+Digital de Sinais em Hardware Reconfigurável}. A arquitetura, o núcleo de
+convolução \texttt{conv1d}, a integração do núcleo de FFT, o servidor em C e o
+cliente gráfico em Python são dele, e o projeto é distribuído sob a licença GNU
+GPL versão~3.
+
+A partir de setembro de 2026 a plataforma foi continuada num estágio curricular
+no LabPS/UEFS, por Antonio Nicassio Santos Lima, sob supervisão do Prof.\ Armando
+S.\ Sanca. O objetivo do estágio foi tornar a plataforma reproduzível a partir do
+repositório e utilizável por uma turma de alunos que não conhece os detalhes de
+baixo nível. A Tabela~\ref{tab:historico} resume o que mudou; o registro dia a
+dia está em \arq{docs/DIARIO.md} e as correções feitas no projeto original, com
+os motivos, em \arq{docs/RESSALVAS.md}.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{O que o estágio acrescentou ao projeto original.}
+  \label{tab:historico}
+  \begin{tabularx}{\textwidth}{@{}lXX@{}}
+    \toprule
+    & \textbf{Projeto original} & \textbf{Hoje} \\
+    \midrule
+    Tamanho & 128 amostras na convolução e no FIR & 1024 amostras em todas as
+      operações, e sinais maiores por blocos \\
+    Operações & convolução, FIR, FFT & as três, mais IFFT e IIR \\
+    Filtros & sem projetista por especificação & projetistas FIR e IIR por especificação \\
+    Precisão & entrada da FFT sem normalização & normalização da entrada: de
+      50 para 92\,dB de SNR na FFT \\
+    Preparar a placa & passos manuais, conhecidos pelo autor & um comando,
+      \arq{morphe-up.sh} \\
+    Laboratório & uma estação, uma placa & duas placas, vários clientes ao mesmo
+      tempo, instalação para a turma e Quartus em todos os PCs \\
+    Reprodutibilidade & o que funcionava estava só na estação & tudo sai do
+      repositório, com manifesto de integridade \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Visão geral}
+
+A Figura~\ref{fig:visao-geral} é a figura de referência deste manual: todo o
+resto detalha uma das partes dela.
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/visao-geral}
+  \caption{Visão geral: os computadores do laboratório falam com as placas pela
+    rede (TCP, porta 5000); a estação programa a FPGA pelo USB-Blaster e sobe o
+    servidor por SSH.}
+  \label{fig:visao-geral}
+\end{figure}
+
+Cada \textbf{PC do laboratório} roda o aplicativo Morphe, escrito em Python. Ele
+não precisa de nenhum software da Intel: fala com as placas só pela rede.
+
+Cada \textbf{placa DE1-SoC} tem, no mesmo chip, um processador ARM rodando Linux
+(o HPS, \emph{Hard Processor System}) e uma FPGA. No processador roda o
+\arq{morphe_server}, que recebe as requisições pela rede na porta 5000; na FPGA
+estão os aceleradores que fazem as contas. Os dois lados conversam por pontes
+internas ao chip (seção~\ref{sec:pontes}).
+
+A \textbf{estação} é o computador ligado às placas pelo cabo USB-Blaster. É dela
+que se roda o \arq{morphe-up.sh}, que programa a FPGA pelo JTAG, compila e
+reinicia o servidor na placa por SSH e registra a placa para os clientes. A
+estação também roda o aplicativo, como qualquer outro PC.
+
+\section{Como ler este manual}
+
+Quem só vai \textbf{usar} a plataforma precisa do capítulo~\ref{cap:cliente}
+(o aplicativo) e do capítulo~\ref{cap:laboratorio} (preparar as placas). Quem vai
+\textbf{estender} a plataforma --- acrescentar uma operação, mudar um acelerador,
+recompilar o hardware --- deve ler os capítulos em ordem: a
+arquitetura~(\ref{cap:arquitetura}), o hardware~(\ref{cap:hardware}), o
+servidor~(\ref{cap:servidor}), o protocolo~(\ref{cap:protocolo}) e a
+representação numérica~(\ref{cap:numerica}) são o que se precisa saber antes de
+mexer em qualquer um deles.
+
+Convenções usadas no texto:
+
+\begin{itemize}
+  \item nomes de arquivos, comandos e sinais do hardware aparecem em
+    \arq{fonte monoespaçada}; caminhos são relativos à raiz do repositório;
+  \item endereços e constantes do hardware aparecem em hexadecimal, com o
+    prefixo \texttt{0x};
+  \item \(\mathrm{Q}m.n\) é um número em ponto fixo com sinal, \(m\) bits de
+    parte inteira e \(n\) de parte fracionária (capítulo~\ref{cap:numerica});
+  \item todo número medido vem com a condição em que foi medido. Um número sem
+    condição é de especificação, não de medida.
+\end{itemize}

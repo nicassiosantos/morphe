@@ -1,9 +1,8 @@
 % =============================================================================
-% Manual do Morphe -- ESTRUTURA PARA APROVACAO (rascunho de 23/09/2026)
+% Manual do Morphe -- RASCUNHO (23/09/2026)
 %
-% Cada secao traz, numa caixa cinza, o que ela vai conter. As figuras ja estao
-% desenhadas (TikZ, em figuras/), porque a forma delas e parte do que se
-% aprova. O texto corrido so e escrito depois da aprovacao.
+% Capitulos 1 a 3 escritos, em capitulos/. Os demais ainda trazem, numa caixa
+% cinza, o que vao conter. Figuras em TikZ, em figuras/.
 %
 % Compila no Overleaf com pdfLaTeX (padrao). Arquivo principal: main.tex.
 % =============================================================================
@@ -15,6 +14,9 @@
 \usepackage[brazil]{babel}
 \usepackage[a4paper,margin=2.5cm]{geometry}
 \usepackage{microtype}
+\usepackage{amsmath}
+% nomes de arquivo nao hifenizam: folga para a linha nao estourar a margem
+\setlength{\emergencystretch}{3em}
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{tabularx}
@@ -36,11 +38,13 @@
 % Nome de arquivo ou comando, sempre em pé (dentro das caixas em itálico,
 % o itálico da fonte monoespaçada juntaria "--" num travessão).
 \newcommand{\arq}[1]{{\upshape\ttfamily\detokenize{#1}}}
+% Opcao de linha de comando: \opt{check} escreve --check (hifens separados).
+\newcommand{\opt}[1]{{\upshape\ttfamily -{}-\detokenize{#1}}}
 
 \title{\textbf{Morphe}\\[4pt]
   \large Plataforma de Processamento Digital de Sinais em FPGA\\
   Manual do sistema: funcionamento e estrutura\\[10pt]
-  \normalsize\textcolor{red!70!black}{Estrutura para aprovação --- rascunho}}
+  \normalsize\textcolor{red!70!black}{Rascunho: capítulos 1 a 3 escritos; os demais, em estrutura}}
 \author{Antonio Nicassio Santos Lima\\
   \small Estágio no LabPS/UEFS --- supervisão: Prof.\ Armando S.\ Sanca}
 \date{23 de setembro de 2026}
@@ -63,134 +67,10 @@ sem perda de resposta.
 \tableofcontents
 \listoffigures
 
-% =============================================================================
-\chapter{Introdução}
-% =============================================================================
-
-\begin{previsto}
-O problema que o Morphe resolve no ensino de PDS: ver a mesma operação feita em
-ponto flutuante no computador e em ponto fixo no hardware, e medir a
-diferença. A visão geral da Figura~\ref{fig:visao-geral}, que é a figura de
-referência do manual inteiro. Como o manual está organizado e como ler: quem
-só vai usar lê os capítulos~\ref{cap:cliente} e~\ref{cap:laboratorio}; quem
-vai mexer no hardware lê tudo. Convenções tipográficas. Histórico curto:
-TCC original, o que foi corrigido (remete a \arq{docs/RESSALVAS.md}), o que o
-estágio acrescentou.
-\end{previsto}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/visao-geral}
-  \caption{Visão geral: os computadores do laboratório falam com as placas pela
-    rede (TCP, porta 5000); a estação programa a FPGA pelo USB-Blaster e sobe o
-    servidor por SSH.}
-  \label{fig:visao-geral}
-\end{figure}
-
-% =============================================================================
-\chapter{Arquitetura em três camadas}
-\label{cap:arquitetura}
-% =============================================================================
-
-\begin{previsto}
-As três camadas (cliente em Python no PC, servidor em C no processador ARM da
-placa, aceleradores em Verilog na FPGA) e a responsabilidade de cada uma: quem
-codifica em ponto fixo, quem copia para a memória, quem calcula. A regra de que
-o cliente é o único lugar com estado do usuário e o servidor não guarda nada
-entre requisições. O percurso completo de uma operação, passo a passo, sobre a
-Figura~\ref{fig:sequencia}, com os tempos medidos (convolução de 1024 pontos
-\(\approx\)\,214\,ms; FFT de 1024 \(\approx\)\,21\,ms).
-\end{previsto}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/camadas}
-  \caption{As três camadas e os módulos de cada uma.}
-  \label{fig:camadas}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/sequencia}
-  \caption{O caminho de uma operação, do clique na janela ao gráfico.}
-  \label{fig:sequencia}
-\end{figure}
-
-% =============================================================================
-\chapter{O hardware}
-\label{cap:hardware}
-% =============================================================================
-
-\section{A placa DE1-SoC}
-\begin{previsto}
-O Cyclone~V SoC: HPS (dois ARM Cortex-A9 com Linux) e FPGA no mesmo chip,
-ligados por pontes AXI. O que o Morphe usa de cada lado. Recursos ocupados
-hoje: 35\,\% das ALMs, 34\,\% dos blocos DSP, 42\,\% da RAM (165 de 397
-M10K). O relógio de 50\,MHz e a folga de tempo (Fmax 60,99\,MHz).
-\end{previsto}
-
-\section{Pontes e mapa de memória}
-\begin{previsto}
-Como o HPS enxerga a FPGA: a ponte HPS\(\to\)FPGA em \texttt{0xC0000000} para
-as memórias de dados e a ponte leve em \texttt{0xFF200000} para os
-registradores de controle (PIOs de \emph{start}, \emph{done}, erro). O
-\arq{hps_0.h} gerado do Platform Designer e o \arq{gen_hps_header.py --check}
-que impede o servidor de usar endereços velhos.
-\end{previsto}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/mapa-memoria}
-  \caption{Mapa de memória visto pelo servidor: memórias de dados atrás da
-    ponte HPS\(\to\)FPGA e registradores de controle atrás da ponte leve.}
-  \label{fig:mapa-memoria}
-\end{figure}
-
-\section{Os aceleradores}
-\begin{previsto}
-O protocolo comum a todos (escreve entradas, pulsa \emph{start}, espera
-\emph{done}, lê a saída) e cada acelerador: \texttt{conv1d} (máquina de
-estados MAC em Q15.16, duas instâncias --- convolução e FIR usam o mesmo RTL);
-FFT (IP \emph{FFT~II} da Intel, \emph{Buffered Burst}, N\,=\,1024, com o
-\texttt{fft\_wrapper} e o expoente de bloco); IIR (cascata de até 16 seções de
-segunda ordem com um único MAC compartilhado). Por que só a FFT usa IP licenciada
-e por que, mesmo assim, o bitstream inteiro depende do \emph{tether}.
-\end{previsto}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/fpga-topo}
-  \caption{O que há dentro da FPGA: quatro aceleradores, cada um com as suas
-    memórias e os seus registradores de controle.}
-  \label{fig:fpga-topo}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/iir-cascata}
-  \caption{O bloco IIR: cascata de seções de segunda ordem (acima) e a seção em
-    forma direta~I (abaixo). Um só multiplicador-acumulador atende todas as
-    seções, dois ciclos por seção.}
-  \label{fig:iir-cascata}
-\end{figure}
-
-\section{Periféricos ainda não usados: ADC e codec}
-\begin{previsto}
-O LTC2308 (8 canais, 12 bits, entrada unipolar 0--4,095\,V) e o controlador do
-\emph{University Program} que está no projeto com a instância comentada; por
-que ele não serve para amostrar a uma taxa fixa. O codec de áudio WM8731,
-roteado ao FPGA e nunca usado. Este capítulo descreve o estado de
-\textbf{hoje}; quando a aquisição for implementada, a seção ganha a parte
-tracejada da figura. Resume \arq{docs/ADC.md}.
-\end{previsto}
-
-\begin{figure}[htbp]
-  \centering
-  \input{figuras/adc}
-  \caption{O ADC da placa: o que existe (linha cheia) e o que falta para
-    capturar sinais a uma taxa fixa (tracejado).}
-  \label{fig:adc}
-\end{figure}
+% Capitulos ja escritos: um arquivo por capitulo.
+\input{capitulos/01-introducao}
+\input{capitulos/02-arquitetura}
+\input{capitulos/03-hardware}
 
 % =============================================================================
 \chapter{O servidor na placa}
@@ -327,8 +207,8 @@ descoberta sem varredura. Resume \arq{docs/GERENCIAMENTO-PLACAS.md}.
 
 \begin{previsto}
 O \arq{morphe-up.sh} passo a passo (Figura~\ref{fig:morphe-up}) e as suas
-opções (\arq{--board}, \arq{--skip-fpga}, \arq{--down},
-\arq{--setup-ssh}); o \emph{tether} da licença, um por cabo e por conta. A
+opções (\opt{board}, \opt{skip-fpga}, \opt{down},
+\opt{setup-ssh}); o \emph{tether} da licença, um por cabo e por conta. A
 instalação de turma em \arq{/opt/morphe} (conta do coordenador e conta dos
 alunos). O \arq{instala-quartus.sh} e o Quartus~20.1 em todos os PCs.
 Incorporar uma placa nova (\arq{docs/NOVA-PLACA.md}). Tabela sintoma
@@ -371,6 +251,7 @@ de avaliação da FFT (o \emph{tether}); tamanho fixo de 1024 no hardware.
 % =============================================================================
 \appendix
 \chapter{Estrutura do repositório}
+\label{ap:repositorio}
 % =============================================================================
 
 \begin{previsto}

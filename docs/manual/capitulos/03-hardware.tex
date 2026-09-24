@@ -1,0 +1,342 @@
+% =============================================================================
+\chapter{O hardware}
+\label{cap:hardware}
+% =============================================================================
+
+\section{A placa DE1-SoC}
+
+A DE1-SoC, da Terasic, é construída em torno de um Cyclone~V SoC da Intel
+(\texttt{5CSEMA5F31C6}). O ``SoC'' do nome quer dizer que o chip reúne duas
+coisas bem diferentes:
+
+\begin{description}
+  \item[HPS] (\emph{Hard Processor System}): um processador ARM Cortex-A9 de
+    dois núcleos, com memória e periféricos próprios, que roda um Linux gravado
+    no cartão SD da placa. No Morphe ele cuida da rede e roda o servidor.
+  \item[FPGA] lógica programável, configurada pelo bitstream que o Quartus gera.
+    No Morphe ela contém os aceleradores e as memórias em que eles trabalham.
+\end{description}
+
+Os dois lados estão no mesmo chip e se comunicam por pontes internas, sem
+passar por nenhum fio da placa. É essa proximidade que permite ao servidor
+escrever mil amostras numa memória da FPGA como se escrevesse num vetor em C.
+
+A lógica da FPGA roda com o relógio de 50\,MHz da placa (\texttt{CLOCK\_50}).
+A análise de tempo da última compilação (15/09/2026) mede uma frequência máxima
+de 60,99\,MHz para esse domínio: há folga de cerca de 20\,\%. A
+Tabela~\ref{tab:recursos} mostra quanto do chip o projeto ocupa.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Recursos da FPGA ocupados pelo projeto (compilação de 15/09/2026).}
+  \label{tab:recursos}
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    \textbf{Recurso} & \textbf{Usado} & \textbf{Disponível} & \textbf{Ocupação} \\
+    \midrule
+    Elementos lógicos (ALMs)      & 11\,140 & 32\,070 & 35\,\% \\
+    Blocos DSP (multiplicadores)  & 30      & 87      & 34\,\% \\
+    Blocos de memória M10K        & 165     & 397     & 42\,\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+O que sobra é bastante: cerca de 230 blocos M10K livres, pouco menos de
+300\,KB, o suficiente para uma memória de captura de dezenas de milhares de
+amostras quando a aquisição pelo ADC for implementada (seção~\ref{sec:adc}).
+
+\subsection*{O bitstream e a licença da FFT}
+
+O bitstream versionado é \arq{Quartus/output_files/soc_system_time_limited.sof},
+compilado com o Quartus Prime Lite 20.1. O núcleo de FFT é um IP da Intel que a
+edição Lite só permite usar em modo de avaliação: o bitstream funciona
+\textbf{enquanto o programador JTAG continuar conectado} à placa --- o
+\emph{tether} --- e para depois de cerca de uma hora sem ele. Isso vale para o
+bitstream inteiro, não só para a FFT: sem o \emph{tether}, a convolução também
+passa a esgotar o tempo. O \arq{morphe-up.sh} mantém o \emph{tether} vivo
+(capítulo~\ref{cap:laboratorio}).
+
+\section{Pontes e mapa de memória}
+\label{sec:pontes}
+
+O HPS enxerga a FPGA como faixas de endereços. O Morphe usa duas pontes
+(Figura~\ref{fig:mapa-memoria}):
+
+\begin{description}
+  \item[Ponte HPS\(\to\)FPGA] (\texttt{h2f\_axi\_master}), a partir de
+    \texttt{0xC000\,0000}. Larga e rápida, é por onde passam os dados: as
+    memórias de entrada e de saída de cada acelerador.
+  \item[Ponte leve] (\emph{lightweight}), a partir de \texttt{0xFF20\,0000}.
+    Estreita, feita para registradores de controle: os PIOs de
+    \texttt{start}, \texttt{done} e de parâmetros.
+\end{description}
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/mapa-memoria}
+  \caption{Mapa de memória visto pelo servidor: memórias de dados atrás da
+    ponte HPS\(\to\)FPGA e registradores de controle atrás da ponte leve.
+    Os endereços são deslocamentos a partir da base de cada ponte.}
+  \label{fig:mapa-memoria}
+\end{figure}
+
+\paragraph{As memórias têm duas portas.} Cada uma das treze memórias de dados
+é uma RAM interna da FPGA de porta dupla: uma porta está ligada à ponte, para o
+HPS, e a outra ao acelerador. O servidor e o acelerador nunca disputam a mesma
+porta; o que os separa no tempo é o protocolo de \texttt{start} e \texttt{done}
+(seção~\ref{sec:aceleradores}). As memórias de entrada guardam 1024 palavras de
+32 bits (4\,KB); as de saída da convolução e do FIR, 2047 (8\,KB); a de
+coeficientes do IIR, 5 palavras por seção para até 16 seções.
+
+\paragraph{Como o servidor chega lá.} O servidor abre \arq{/dev/mem} e mapeia
+as duas faixas no próprio espaço de endereços com \texttt{mmap}; a partir daí,
+escrever \texttt{g\_conv\_xn[i]} é escrever na memória da FPGA. Por isso ele
+precisa rodar como \texttt{root}. O tamanho da faixa mapeada é calculado em
+tempo de compilação a partir do \arq{hps_0.h}, e verificações estáticas no
+código recusam compilar se alguma memória for menor do que os limites de
+\arq{morphe_config.h} exigem.
+
+\paragraph{O \arq{hps_0.h} é gerado, nunca editado.} Os endereços da
+Figura~\ref{fig:mapa-memoria} são decididos no Platform Designer, a ferramenta
+do Quartus que monta o sistema, e ficam registrados no arquivo
+\arq{soc_system.sopcinfo}. O \arq{Quartus/gen_hps_header.py} lê esse arquivo e
+escreve o \arq{C/hps_0.h}; com \opt{check}, apenas confere se o cabeçalho
+versionado ainda corresponde ao projeto. Um servidor compilado com endereços
+velhos escreve nos lugares errados sem dar erro nenhum; a conferência existe
+para que isso não aconteça.
+
+\medskip
+\noindent\fbox{\parbox{\dimexpr\textwidth-2\fboxsep-2\fboxrule}{\small
+\textbf{Cuidado com o mapa do ``DE1-SoC Computer''.} Os exemplos da Intel
+para a placa usam \texttt{0xC800\,0000} como base da memória da FPGA. No
+Morphe a base é \texttt{0xC000\,0000}. Código copiado desses exemplos lê e
+escreve fora das memórias do projeto (\arq{docs/RESSALVAS.md}, item 11).}}
+
+\section{Os aceleradores}
+\label{sec:aceleradores}
+
+A Figura~\ref{fig:fpga-topo} mostra o que há dentro da FPGA: quatro
+aceleradores, cada um com as suas memórias e os seus registradores de
+controle, todos ligados ao HPS pela interconexão que o Platform Designer gera.
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/fpga-topo}
+  \caption{O que há dentro da FPGA: quatro aceleradores, cada um com as suas
+    memórias e os seus registradores de controle.}
+  \label{fig:fpga-topo}
+\end{figure}
+
+\subsection{O protocolo comum}
+
+Todos os aceleradores obedecem ao mesmo combinado com o servidor:
+
+\begin{enumerate}
+  \item com \texttt{start} em 0, o servidor escreve as entradas nas memórias;
+  \item o servidor leva \texttt{start} a 1; o acelerador detecta a
+    \emph{subida} do sinal, zera o \texttt{done} e começa;
+  \item o acelerador lê as entradas, calcula, escreve as saídas e leva
+    \texttt{done} a 1;
+  \item o servidor, que lê \texttt{done} a cada 50\,\textmu s, lê as saídas e devolve
+    \texttt{start} a 0.
+\end{enumerate}
+
+Como o acelerador reage à subida e não ao nível, um \texttt{start} esquecido em
+1 não dispara uma segunda execução. E como o servidor zera todos os
+\texttt{start} na primeira requisição depois de a FPGA ser preparada, um valor
+que tenha sobrado de antes do bitstream do Morphe também não dispara nada.
+
+Os aceleradores acessam as memórias por pequenos controladores que gastam
+alguns ciclos por acesso. É um custo deliberado de simplicidade: numa
+convolução, o tempo é dominado por esses acessos, não pela multiplicação. Os
+controladores estão em \arq{memory_read_controller.v} e em
+\arq{memory_write_controller.v}.
+
+\paragraph{O tempo como sinal de saúde.} Uma convolução de 1024 por 1024
+amostras executa cerca de 8,4 milhões de ciclos, uns 168\,ms a 50\,MHz; de ponta
+a ponta, com a rede, o cliente mede 214\,ms. Uma resposta muito mais rápida que
+isso é sinal de defeito, não de sorte: um bitstream mal compilado já foi visto
+levantar o \texttt{done} em 3,3\,ms sem ter calculado nada
+(\arq{docs/RESSALVAS.md}, item 13).
+
+\subsection{Convolução e FIR: o \texttt{conv1d}}
+\label{sec:acel-conv}
+
+O \arq{conv1d.v} calcula a convolução linear
+\[
+  y[n] = \sum_{k} x[k]\,h[n-k], \qquad n = 0, 1, \dots, 2046,
+\]
+com os limites da soma ajustados a cada \(n\) para não ler fora dos vetores. É
+uma máquina de estados com um único multiplicador-acumulador: para cada \(n\),
+lê \(x[k]\) e \(h[n-k]\), multiplica, acumula e, ao fim da soma, escreve
+\(y[n]\).
+
+A aritmética é em Q15.16. O produto de dois números de 32 bits tem 64 bits;
+o \texttt{conv1d} guarda os bits 47 a 16, o que realinha o ponto fracionário
+\emph{truncando} os 16 bits de baixo. O acumulador tem 32 bits e \emph{não
+satura}: quando a soma passa de \(\pm 32768\) ela dá a volta e aparece com o
+sinal trocado. Duas consequências práticas:
+
+\begin{itemize}
+  \item o erro de truncamento se acumula com o número de termos: numa
+    convolução de 1024 por 1024 ele chega a centenas de LSB. É esperado;
+  \item com sinais de amplitude \(A\) e \(N\) termos, a saída estoura quando
+    \(N A^2 \ge 32768\) --- com \(N = 1024\), a partir de \(A \approx 5{,}7\).
+    Uma saída negativa para sinais positivos é esse estouro, não um defeito.
+\end{itemize}
+
+Trocar o truncamento por arredondamento reduziria o erro máximo medido de 521
+para 25 LSB. A troca foi avaliada e \textbf{deliberadamente não feita}
+(14/09/2026): o comportamento numérico do \texttt{conv1d} é o que o TCC
+original descreve, e ele fica registrado em \arq{docs/RESSALVAS.md} como
+escolha, não como defeito esquecido.
+
+\paragraph{O FIR é o mesmo circuito.} O filtro FIR é uma segunda instância do
+\texttt{conv1d} (\texttt{fir\_inst}), com memórias próprias. Filtrar um sinal
+por um FIR é convoluí-lo com a resposta ao impulso do filtro, e é exatamente
+isso que acontece; a diferença entre as duas operações está no aplicativo, que
+oferece para o FIR um projetista de filtros. O projeto ainda contém um IP de FIR
+da Intel (\texttt{fir\_ii}) e o seu adaptador, \arq{fir_wrapper.v}, mas a
+instância está comentada no \arq{ghrd_top.v}. O registrador
+\texttt{fir\_error} sobrou desse adaptador e o \texttt{conv1d} não o aciona.
+
+\subsection{FFT e IFFT: o núcleo da Intel}
+\label{sec:acel-fft}
+
+A transformada usa o IP \emph{FFT~II} da Intel, configurado para 1024 pontos
+em modo \emph{Buffered Burst}, com entrada de 24 bits e fatores de giro de
+18 bits. O \arq{fft_wrapper.v} faz a ponte entre as memórias e o IP: lê as
+partes real e imaginária da entrada, entrega-as ao IP amostra por amostra
+respeitando o \emph{handshake} do barramento de fluxo, recebe o resultado e o
+escreve nas memórias de saída. O registrador \texttt{fft\_inverse} escolhe entre
+a transformada direta e a inversa; o resto do caminho é o mesmo.
+
+Duas particularidades desse núcleo aparecem no resultado:
+
+\begin{description}
+  \item[Expoente de bloco.] A cada estágio, o IP detecta se os valores
+    cresceram e, se preciso, desloca as 1024 amostras \emph{juntas},
+    acumulando um expoente único para o bloco (\emph{block floating point}). O
+    adaptador captura esse expoente no registrador \texttt{fft\_bfp\_exponent},
+    e o servidor o aplica, junto com o fator \(2^{-8}\) do formato Q15.8, antes
+    de devolver o resultado em ponto flutuante. É a única conversão numérica
+    feita no servidor.
+  \item[IFFT sem o fator \(1/N\).] O núcleo entrega a inversa não normalizada,
+    \(N\) vezes a IDFT matemática. O cliente aplica o \(1/1024\).
+\end{description}
+
+O capítulo~\ref{cap:numerica} explica o que o expoente de bloco e os 24 bits
+de entrada significam para a precisão, e por que ela para em torno de 92\,dB.
+
+\subsection{IIR: a cascata de seções de segunda ordem}
+\label{sec:acel-iir}
+
+O filtro IIR é a única operação em que a saída depende das saídas anteriores,
+e isso muda o que importa no projeto do circuito. Ele é implementado como uma
+cascata de até 16 seções de segunda ordem (\emph{biquads}), cada uma em forma
+direta~I (Figura~\ref{fig:iir-cascata}):
+\[
+  y_s[n] = b_0\,x_s[n] + b_1\,x_s[n-1] + b_2\,x_s[n-2]
+           - a_1\,y_s[n-1] - a_2\,y_s[n-2],
+\]
+com a saída de cada seção servindo de entrada para a seguinte. Os coeficientes
+vêm da memória \texttt{iir\_coef}, cinco por seção, na ordem
+\(b_0, b_1, b_2, a_1, a_2\) (\(a_0 = 1\) fica implícito); o número de seções,
+do registrador \texttt{iir\_nsecoes}.
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/iir-cascata}
+  \caption{O bloco IIR: cascata de seções de segunda ordem (acima) e a seção em
+    forma direta~I (abaixo). Um só multiplicador-acumulador atende todas as
+    seções, dois ciclos por seção.}
+  \label{fig:iir-cascata}
+\end{figure}
+
+Cada escolha desse projeto foi medida antes de ser feita:
+
+\begin{description}
+  \item[Seções de segunda ordem, e não um polinômio de ordem \(N\).] A posição
+    dos polos de um polinômio de ordem alta é extremamente sensível aos
+    coeficientes. Um Butterworth de ordem 22, estável por construção, volta do
+    próprio MATLAB com um polo de módulo 1,278 --- instável --- porque achar as
+    raízes daquele polinômio já é mal condicionado em ponto flutuante de 64
+    bits. A mesma especificação em seções de segunda ordem tem o maior polo em
+    0,988.
+  \item[Forma direta I.] Tem um acumulador único e largo e arredonda uma vez
+    só, na saída da seção. A forma direta II transposta, melhor em ponto
+    flutuante, guarda estados já arredondados, e numa realimentação esse erro
+    circula.
+  \item[Arredondar, e não truncar.] Truncar introduz um viés de meio LSB
+    negativo por amostra. Num filtro realimentado esse viés não some: vira um
+    deslocamento DC de \(-0{,}5/(1 + a_1 + a_2)\) LSB na saída. No FIR não
+    importa, e por isso o \texttt{conv1d} pôde manter o truncamento.
+  \item[Q15.16, o mesmo formato do \texttt{conv1d}.] É suficiente: o raio dos
+    polos se desloca no máximo cerca de \(10^{-6}\) ao quantizar, mesmo com
+    polos em \(|p| = 0{,}9984\).
+  \item[Uma amostra atravessa todas as seções antes da próxima.] Assim bastam
+    quatro registradores de estado por seção e uma única passagem pela
+    memória. O resultado é idêntico, bit a bit, ao de processar seção por
+    seção, porque cada seção só vê a saída já arredondada da anterior.
+  \item[Um só multiplicador-acumulador, compartilhado.] As cinco multiplicações
+    de 32 por 32 bits de uma seção são feitas juntas, e o mesmo circuito
+    atende as 16 seções em sequência. O custo em blocos DSP (15, porque cada
+    multiplicação de 32 bits ocupa três multiplicadores de 27 bits) não depende
+    do número de seções. Cada seção leva dois ciclos: um para selecionar os
+    operandos, outro para calcular. Com um ciclo só, o circuito não fechava a
+    50\,MHz (49,11\,MHz medidos em 14/09/2026); com dois, fecha a 60,99\,MHz.
+\end{description}
+
+Se alguma amostra satura, o registrador \texttt{iir\_error} sobe; o resultado
+é devolvido mesmo assim, saturado, e o cliente avisa o aluno. O estado interno é
+zerado a cada execução, para que o mesmo sinal dê sempre a mesma saída.
+
+\paragraph{Verificado bit a bit.} O RTL do IIR tem um modelo de referência em
+Python que usa inteiros de precisão arbitrária (o acumulador de uma seção
+chega a \(2^{65}\), além do que um \texttt{float64} representa exatamente). O
+testbench em Icarus Verilog (\arq{Quartus/roda_tb_iir.sh}) e a placa
+(\arq{testa_iir_hw.py}) são comparados com esse modelo e precisam coincidir
+em todas as amostras: num filtro realimentado, divergir um LSB numa amostra é
+divergir para sempre dali em diante, então ``parecido'' não serve de critério.
+
+\section{Periféricos ainda não usados: ADC e codec}
+\label{sec:adc}
+
+A placa tem dois conversores que o Morphe ainda não usa. Esta seção descreve o
+estado de hoje e o que falta; a Figura~\ref{fig:adc} resume as duas coisas.
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/adc}
+  \caption{O ADC da placa: o que existe (linha cheia) e o que falta para
+    capturar sinais a uma taxa fixa (tracejado).}
+  \label{fig:adc}
+\end{figure}
+
+\paragraph{O ADC.} O conversor analógico-digital da DE1-SoC é o LTC2308: 12
+bits, 8 canais, por aproximações sucessivas, ligado à FPGA por uma interface
+serial de quatro fios (\texttt{ADC\_CONVST}, \texttt{ADC\_SCLK},
+\texttt{ADC\_DIN}, \texttt{ADC\_DOUT}). As entradas analógicas chegam por um
+conector próprio da placa. O projeto contém o controlador do \emph{University
+Program} da Intel para esse conversor, configurado para entrada simples e
+unipolar: com a referência interna, a faixa é de 0 a 4,095\,V, 1\,mV por passo.
+\textbf{Tensão negativa não é lida e pode danificar a entrada}; um sinal
+alternado precisa de um deslocamento DC antes de chegar ao conector.
+
+Hoje a instância desse controlador está comentada no \arq{ghrd_top.v}: o ADC
+não faz parte do bitstream. E mesmo ativo, ele não serviria para amostrar um
+sinal: converte sem parar, sozinho, e entrega apenas o último valor lido de
+cada canal, sem controle do instante da conversão. Uma incerteza de alguns
+microssegundos no instante da amostra limita a medida de um tom de 5\,kHz a
+cerca de 25\,dB. Capturar a uma taxa de amostragem fixa exige um controlador
+próprio, que dispare a conversão a cada \(1/f_s\) e guarde as amostras numa
+memória da FPGA. O plano, em duas etapas --- uma leitura avulsa, como um
+voltímetro, e depois a captura temporizada --- está em \arq{docs/ADC.md}.
+
+\paragraph{O codec de áudio.} A placa tem também um codec de áudio (o WM8731,
+segundo a documentação da DE1-SoC), com entrada e saída de linha, ligado à FPGA
+por uma interface de áudio serial e configurado por I\textsuperscript{2}C. Os
+pinos estão declarados no \arq{ghrd_top.v} e mais nada: nenhum sinal do codec é
+usado pelo projeto. Seria o caminho natural para uma saída de áudio --- ouvir o
+sinal filtrado --- e fica como trabalho futuro.

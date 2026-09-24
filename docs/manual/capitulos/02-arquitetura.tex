@@ -1,0 +1,168 @@
+% =============================================================================
+\chapter{Arquitetura em três camadas}
+\label{cap:arquitetura}
+% =============================================================================
+
+\section{As camadas e o que cabe a cada uma}
+
+O Morphe se divide em três camadas, uma por máquina ou por tipo de circuito
+(Figura~\ref{fig:camadas}). Cada uma é escrita numa linguagem e tem uma
+responsabilidade que as outras não repetem.
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/camadas}
+  \caption{As três camadas e os módulos de cada uma.}
+  \label{fig:camadas}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Responsabilidades de cada camada.}
+  \label{tab:camadas}
+  \begin{tabularx}{\textwidth}{@{}lXX@{}}
+    \toprule
+    & \textbf{Faz} & \textbf{Não faz} \\
+    \midrule
+    \textbf{Cliente} \newline \footnotesize Python, no PC
+      & gera ou lê o sinal; projeta filtros; converte para ponto fixo; divide
+        sinais longos em blocos; calcula a referência em ponto flutuante;
+        compara e mostra
+      & não sabe endereços de memória nem detalhes da FPGA \\
+    \addlinespace
+    \textbf{Servidor} \newline \footnotesize C, no HPS da placa
+      & valida a requisição; copia os dados para as memórias da FPGA; dispara o
+        acelerador; espera; devolve o resultado
+      & não converte formatos numéricos (com uma exceção na FFT, seção
+        \ref{sec:acel-fft}); não guarda nada entre requisições \\
+    \addlinespace
+    \textbf{Aceleradores} \newline \footnotesize Verilog, na FPGA
+      & fazem a conta, em ponto fixo, sobre blocos de tamanho fixo
+      & não conhecem a rede nem o tamanho do sinal que o aluno pediu \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection*{Três princípios que atravessam as camadas}
+
+\paragraph{O servidor não guarda estado.} Cada operação chega completa --- os
+dados e todos os parâmetros --- e sai completa. Não há sessão, reserva de placa
+nem memória da requisição anterior. É isso que permite que vários clientes usem
+a mesma placa intercalando operações, e que um cliente possa mudar de placa de
+uma operação para a outra sem nada a transferir.
+
+\paragraph{O ponto fixo é decidido no cliente.} O cliente converte o sinal para
+o formato do acelerador (Q15.16 ou Q15.8) antes de enviar, e converte o
+resultado de volta. O servidor copia inteiros de 32 bits sem interpretá-los,
+com uma única exceção: aplicar o expoente de bloco da FFT, que só ele conhece
+(seção~\ref{sec:acel-fft}). Fora isso, toda decisão numérica --- normalizar a
+entrada, onde saturar, que fator aplicar à IFFT --- mora num lugar só, em
+Python, onde é fácil de ler e de testar.
+
+\paragraph{O hardware tem tamanho fixo; o software se adapta.} Os aceleradores
+foram sintetizados para 1024 amostras. O servidor completa com zeros o que o
+cliente não mandou e devolve só as amostras que fazem sentido; o cliente, por
+sua vez, divide sinais maiores em blocos de 1024. Nenhum dos dois lados exige
+que o aluno pense em 1024.
+
+\subsection*{Os números de configuração existem em dois lugares}
+
+Os limites do hardware --- 1024 amostras, 16 seções de IIR, os bits
+fracionários de cada formato --- estão escritos em \arq{C/morphe_config.h}, para
+o servidor, e repetidos em \arq{Python/morphe_config.py}, para o cliente. Os
+dois arquivos precisam mudar juntos. Os endereços das memórias e registradores,
+ao contrário, não são escritos à mão: vêm do \arq{C/hps_0.h}, gerado a partir do
+projeto do hardware (seção~\ref{sec:pontes}).
+
+\section{O caminho de uma operação}
+\label{sec:caminho}
+
+A Figura~\ref{fig:sequencia} acompanha uma convolução do clique na janela até o
+gráfico. As outras operações seguem o mesmo roteiro, mudando só as memórias e o
+formato numérico.
+
+\begin{figure}[htbp]
+  \centering
+  \input{figuras/sequencia}
+  \caption{O caminho de uma operação, do clique na janela ao gráfico.}
+  \label{fig:sequencia}
+\end{figure}
+
+\begin{enumerate}
+  \item \textbf{A janela entrega os sinais.} \(x[n]\) e \(h[n]\) chegam ao
+    módulo de protocolo como vetores em ponto flutuante, do tamanho que o aluno
+    escolheu.
+
+  \item \textbf{O cliente codifica.} Cada amostra vira um inteiro de 32 bits em
+    Q15.16: \(q = \operatorname{round}(v \cdot 2^{16})\), saturado na faixa do
+    formato. Se o sinal passa de 1024 amostras, a divisão em blocos acontece
+    antes deste passo, e os passos seguintes se repetem por bloco.
+
+  \item \textbf{Uma conexão por operação.} O cliente abre uma conexão TCP com a
+    placa, envia um cabeçalho de 20 bytes (operação, tipo dos dados, tamanhos) e
+    os dados logo em seguida (capítulo~\ref{cap:protocolo}).
+
+  \item \textbf{O servidor valida.} Confere a assinatura e a versão do
+    protocolo, a operação, os tamanhos contra os limites do hardware e se a FPGA
+    foi preparada pelo \arq{morphe-up.sh} (capítulo~\ref{cap:servidor}). Qualquer
+    falha vira uma resposta de erro com uma mensagem legível, e a FPGA não é
+    tocada.
+
+  \item \textbf{O servidor escreve nas memórias.} Copia \(x\) e \(h\) para as
+    memórias de entrada do acelerador, através da ponte HPS\(\to\)FPGA,
+    completando com zeros até 1024 amostras.
+
+  \item \textbf{O servidor dispara.} Escreve 1 no registrador \texttt{start}
+    do acelerador, através da ponte leve. O acelerador detecta a subida desse
+    sinal e começa.
+
+  \item \textbf{O acelerador calcula} e, ao terminar, leva o sinal
+    \texttt{done} a 1. A convolução de 1024 por 1024 amostras leva cerca de
+    214\,ms; a FFT de 1024 pontos, cerca de 21\,ms (tempos de ida e volta
+    medidos pelo \arq{morphe_ping} em 15/09/2026, com a placa sem outros
+    clientes).
+
+  \item \textbf{O servidor espera.} Lê o \texttt{done} a cada 50\,\textmu s. Se ele
+    não subir em 5\,s, a operação é abandonada com o erro de tempo esgotado ---
+    o sintoma típico de um bitstream que parou de funcionar
+    (seção~\ref{sec:aceleradores}).
+
+  \item \textbf{O servidor lê e responde.} Copia as \(n_x + n_h - 1\) amostras
+    úteis da memória de saída, devolve o \texttt{start} a 0 e envia o cabeçalho
+    de resposta e os dados. Fecha a conexão.
+
+  \item \textbf{O cliente decodifica e compara.} Converte de volta para ponto
+    flutuante, descarta o que for enchimento de zeros e calcula a referência em
+    ponto flutuante com o NumPy. A janela mostra as duas e o erro entre elas.
+\end{enumerate}
+
+Dois fatos decorrem desse roteiro e aparecem na prática.
+
+O tempo de uma operação \textbf{não depende do tamanho do sinal pedido}: o
+acelerador sempre processa os blocos completos de 1024 amostras, e os zeros de
+enchimento custam o mesmo que amostras de verdade. Pela construção do
+\texttt{conv1d}, uma convolução de 10 por 10 amostras custa o mesmo que uma de
+1024 por 1024.
+
+Como o servidor atende \textbf{uma conexão de cada vez}, duas pessoas na mesma
+placa não recebem erro: a segunda espera a primeira terminar, e o tempo de cada
+uma soma. O capítulo~\ref{cap:placas} trata disso.
+
+\section{Onde está cada camada no repositório}
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+  \toprule
+  \textbf{Camada} & \textbf{Onde} \\
+  \midrule
+  Cliente      & \arq{Python/} (aplicativo e módulos); testes em \arq{Python/ferramentas/} \\
+  Servidor     & \arq{C/} (\arq{morphe_server.c} e cabeçalhos) \\
+  Aceleradores & \arq{Quartus/} (RTL, projeto do Platform Designer, bitstream) \\
+  Operação     & \arq{morphe-up.sh}, \arq{instala-quartus.sh}, \arq{deploy.sh}, na raiz \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\noindent A árvore completa está no apêndice~\ref{ap:repositorio}.
