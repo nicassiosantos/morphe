@@ -247,20 +247,33 @@ Morphe substitui o bitstream da plataforma para todos os que a usam. Depois,
 \section{O aplicativo nos outros computadores}
 
 O aplicativo não depende de nada da estação: basta uma cópia do repositório e o
-\texttt{python3} do sistema com NumPy e Matplotlib. Em cada computador, numa
-conta com \texttt{sudo}:
+\texttt{python3} do sistema com NumPy e Matplotlib. O
+\arq{instala-morphe.sh}, rodado com \texttt{sudo} numa conta que o tenha, faz
+tudo, na ordem, pulando o que já estiver feito:
 
 \begin{enumerate}
-  \item clonar o repositório em \arq{/opt/morphe} e dar a leitura ao grupo dos
-    alunos, como na estação;
-  \item abrir o aplicativo da conta do aluno e conferir que ele acha as placas.
-    Não é preciso escrever lista nenhuma: o aplicativo lê o
-    \arq{placas.conf}, que vem com o repositório (seção~\ref{sec:porta-estado}
-    e anterior).
+  \item clona o repositório em \arq{/opt/morphe}, na branch principal, ou o
+    atualiza com \texttt{git pull} --- sem sobrescrever arquivo modificado à mão;
+  \item deixa como dono quem chamou o \texttt{sudo}, para atualizar depois sem
+    \texttt{sudo}, e a leitura para todas as contas; abre o
+    \arq{.morphe-estado} para escrita, onde o aplicativo guarda as placas que a
+    varredura achar;
+  \item instala, se faltarem, os pacotes do Python do sistema (tkinter, NumPy,
+    Matplotlib, SciPy) e confere que nenhum pacote do \texttt{pip -{}-user} do
+    aluno esconde os do sistema;
+  \item cria o atalho ``Morphe'' no menu de aplicativos;
+  \item testa da conta do aluno: importa o aplicativo e pergunta às placas, pela
+    porta de estado, o que estão fazendo.
 \end{enumerate}
 
-Não é preciso rodar o \arq{morphe-up.sh} nesses computadores: as placas são
-preparadas pela estação, e os outros computadores só usam.
+Não há lista de placas para escrever: o aplicativo lê o \arq{placas.conf}, que
+vem com o repositório. Também não é preciso rodar o \arq{morphe-up.sh} nesses
+computadores: as placas são preparadas pela estação, e os outros computadores só
+usam. Com \opt{verificar}, o instalador só confere, sem mudar nada; rodado de
+novo, atualiza. Num computador sem clone, o jeito mais simples é clonar numa
+pasta temporária e rodar o instalador de dentro dela: ele clona para o
+\arq{/opt/morphe} a partir dessa cópia, sem rede, e aponta o
+\arq{/opt/morphe} para o GitHub.
 
 \paragraph{A armadilha do \texttt{pip -{}-user}.} Duas vezes o aplicativo
 quebrou numa conta por um NumPy ou Matplotlib instalado com

@@ -31,7 +31,7 @@ turma inteira, está em `PREPARACAO.md`.
 | `Python/` | o aplicativo (`morphe_app.py` e as janelas) e os módulos que ele usa: protocolo, projeto de filtros, núcleo de DSP |
 | `C/` | o servidor que roda no processador ARM da placa e fala com a FPGA (`morphe_server.c`), mais o `autostart/` que o sobe no boot |
 | `Quartus/` | o projeto de hardware da FPGA e o bitstream pronto, em `output_files/soc_system_time_limited.sof` |
-| raiz | `morphe-up.sh` (prepara a placa), `deploy.sh` (envia o servidor), `instala-quartus.sh` (Quartus 20.1 para todas as contas de um computador) |
+| raiz | `morphe-up.sh` (prepara a placa), `deploy.sh` (envia o servidor), `instala-quartus.sh` (Quartus 20.1 para todas as contas de um computador), `instala-morphe.sh` (o aplicativo em `/opt/morphe`, com atalho no menu), `placas.conf` (as placas do laboratório) |
 
 **O que não é produto:**
 
