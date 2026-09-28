@@ -16,6 +16,22 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 28/09/2026 (estação, noite) — ADC mesclado na principal e levado à turma
+
+- **`morphe-up.sh` pergunta antes de mexer numa placa em uso** (`c8b0137`): consulta a
+  porta de estado, mostra operação, cliente e computadores do último minuto, e pede
+  confirmação; `--forca` pula.
+- **Bitstream com o ADC versionado** (`2bcaf38`, commit feito na estação): `.sof`,
+  `.sopcinfo`, `hps_0.h` e o sistema gerado pelo Platform Designer, sem `db/`.
+  `gera_proveniencia.sh` regerou a lista (14 arquivos) com a frase de validação.
+- **Principal `estagio/v1.1-1024pontos`: `7cb6940` → `2bcaf38`**, por *fast-forward*.
+- **`/opt/morphe` (a instalação da turma): `de9bc41` → `2bcaf38`.** `morphe-up --deploy`
+  das duas placas a partir dele: 4/4 nas duas (conv 215 e 214 ms, FFT 22 ms).
+  **`sha256sum -c PROVENIENCIA.sha256`: 14/14 OK** — a primeira vez sem falha desde
+  21/09: o que está nas placas é o que está no repositório.
+- **Conta `alunopds`:** o aplicativo abriu do `/opt/morphe` e funcionou.
+- **Ainda falta:** a senoide do gerador e o modo "ao vivo" da janela de aquisição.
+
 ## 28/09/2026 (estação, tarde) — Lista de placas versionada e painel novo, validados
 
 - **`placas.conf` (`3ac8a8e`, `80db34e`):** um clone novo em `/tmp`, sem lista local,
