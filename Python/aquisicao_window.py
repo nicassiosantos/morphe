@@ -6,12 +6,17 @@ Duas coisas na mesma janela, as etapas 1 e 2 do docs/ADC.md:
   - voltimetro: a tensao media de 0,1 s na entrada escolhida, com o desvio,
     o minimo e o maximo; pode repetir sozinho, para acompanhar um
     potenciometro ou uma fonte sendo ajustada;
-  - captura: n amostras a fs fixa, com o instante de cada amostra dado pelo
-    hardware. O grafico mostra o sinal em volts e o espectro, com as medidas
-    de uma senoide (frequencia, SINAD, ENOB) -- e a forma de conferir o ADC
-    com um gerador de funcoes. Ate 32768 amostras a captura e de uma vez; acima
-    disso, ou com 0 (sem limite, ate clicar em Parar), e continua, em blocos,
-    sem buraco no tempo (aquisicao.capturar_continuo).
+  - captura, a fs escolhida, com o instante de cada amostra dado pelo
+    hardware, de tres jeitos (campo "Como"):
+      * numero de amostras: ate 32768 de uma vez; acima disso, ou 0 (sem
+        limite), continua, em blocos, sem buraco no tempo;
+      * gravar por um tempo (ms, s ou min): sempre continua, com a tela
+        mostrando o sinal enquanto chega; Parar antes guarda o que veio;
+      * ao vivo (so observar): continua ate Parar, com a tela atualizada 10
+        vezes por segundo e as amostras descartadas -- a memoria nao cresce.
+    Nos dois ultimos a tela mostra uma janela de tempo escolhida e pode
+    sincronizar na subida, como um osciloscopio. As medidas de uma senoide
+    (frequencia, SINAD, ENOB) sao a forma de conferir o ADC com um gerador.
 
 A ultima captura vira o tipo "Captura do ADC" no painel de sinal de todas as
 outras janelas (convolucao, FFT, FIR, IIR), e pode ser salva em .csv, .npy ou
@@ -43,6 +48,23 @@ MODOS = {
     "Simples  (0 a 4,096 V)": aq.MODO_SIMPLES,
     "Diferencial  (±2,048 V)": aq.MODO_DIFERENCIAL,
 }
+
+# Os tres jeitos de capturar
+COMO_AMOSTRAS = "Número de amostras"
+COMO_DURACAO = "Gravar por um tempo"
+COMO_AO_VIVO = "Ao vivo (só observar)"
+COMOS = (COMO_AMOSTRAS, COMO_DURACAO, COMO_AO_VIVO)
+ROTULO_BOTAO = {COMO_AMOSTRAS: "Capturar", COMO_DURACAO: "Gravar",
+                COMO_AO_VIVO: "Iniciar ao vivo"}
+# A tela ao vivo e redesenhada a cada QUADRO_MS; as medidas, a cada MEDIDAS_MS.
+QUADRO_MS = 100
+MEDIDAS_MS = 500
+# Acima disto a tela ao vivo desenha a envoltoria (min e max por coluna).
+PONTOS_TELA = 4000
+# Medidas ao vivo nas ultimas N amostras recebidas
+N_MEDIDAS_VIVO = 16384
+# Gravacao longa: ~10 bytes por amostra no PC. Acima disto, pedir confirmacao.
+AMOSTRAS_AVISO = 30_000_000
 REPETIR_MS = 500
 # Grafico do espectro embaixo do sinal. Desligado a pedido em 24/09/2026, ate a
 # validacao do ADC terminar; as medidas (frequencia, SINAD, ENOB) continuam no
@@ -135,6 +157,9 @@ class AquisicaoWindow(tk.Toplevel):
         self.cap: Optional[aq.Captura] = aq.ultima_captura()
         self._ocupado = False
         self._parar: Optional[threading.Event] = None    # captura continua em curso
+        self._viva: Optional[aq.JanelaViva] = None        # o que a tela ao vivo mostra
+        self._viva_info: dict = {}
+        self._linha_viva = None
         self._popouts: dict = {}
         self.protocol("WM_DELETE_WINDOW", self._on_fechar)
 
@@ -150,7 +175,7 @@ class AquisicaoWindow(tk.Toplevel):
         area = ttk.Frame(root, style="Main.TFrame")
         area.pack(side="right", fill="both", expand=True)
         self._build_plots(area)
-        self._atualiza_fs()
+        self._troca_como()
         self._redraw()
         if self.cap is not None:
             self._mostra_metricas()
@@ -210,16 +235,66 @@ class AquisicaoWindow(tk.Toplevel):
         self.var_fs = tk.StringVar(value="10000")
         e = ttk.Entry(self._linha(cap, "fs (Hz)"), textvariable=self.var_fs, width=12)
         e.pack(side="left", fill="x", expand=True)
+        e.bind("<KeyRelease>", lambda ev: self._atualiza_fs())
+
+        self.var_como = tk.StringVar(value=COMO_AMOSTRAS)
+        cb_como = ttk.Combobox(self._linha(cap, "Como"), textvariable=self.var_como,
+                               values=list(COMOS), state="readonly", width=22)
+        cb_como.pack(side="left", fill="x", expand=True)
+        cb_como.bind("<<ComboboxSelected>>", lambda ev: self._troca_como())
+
+        # os campos de cada modo; so os do modo escolhido ficam visiveis
+        self._campos = ttk.Frame(cap, style="Card.TFrame")
+        self._campos.pack(fill="x")
         self.var_n = tk.StringVar(value="8192")
-        e2 = ttk.Entry(self._linha(cap, "Amostras"), textvariable=self.var_n, width=12)
-        e2.pack(side="left", fill="x", expand=True)
-        for w in (e, e2):
-            w.bind("<KeyRelease>", lambda ev: self._atualiza_fs())
-        ttk.Label(cap, text=f"Até {ADC_N_MAX} amostras: captura de uma vez. Mais que "
-                            "isso, ou 0 (sem limite), é contínua, em blocos, até "
-                            "completar ou você clicar em Parar.",
+        self.var_dur = tk.StringVar(value="10")
+        self.var_dur_un = tk.StringVar(value="s")
+        self.var_tela = tk.StringVar(value="20")
+        self.var_tela_un = tk.StringVar(value="ms")
+        self.var_sinc = tk.BooleanVar(value=True)
+        self.var_yauto = tk.BooleanVar(value=False)
+
+        f_n = ttk.Frame(self._campos, style="Card.TFrame")
+        ttk.Entry(self._linha(f_n, "Amostras"), textvariable=self.var_n,
+                  width=12).pack(side="left", fill="x", expand=True)
+        ttk.Label(f_n, text=f"Até {ADC_N_MAX} amostras: de uma vez. Mais que isso, "
+                            "ou 0 (sem limite), é contínua, até completar ou você "
+                            "clicar em Parar.",
                   style="SectionHint.TLabel", wraplength=300,
                   justify="left").pack(anchor="w", pady=(0, 4))
+
+        f_d = ttk.Frame(self._campos, style="Card.TFrame")
+        l_d = self._linha(f_d, "Duração")
+        ttk.Entry(l_d, textvariable=self.var_dur, width=8).pack(side="left", fill="x",
+                                                                 expand=True)
+        ttk.Combobox(l_d, textvariable=self.var_dur_un, values=list(aq.UNIDADES_TEMPO),
+                     state="readonly", width=5).pack(side="left", padx=(6, 0))
+        ttk.Label(f_d, text="Grava esse tempo de sinal, mostrando-o enquanto chega. "
+                            "Parar antes guarda o que já foi gravado.",
+                  style="SectionHint.TLabel", wraplength=300,
+                  justify="left").pack(anchor="w", pady=(0, 4))
+
+        f_v = ttk.Frame(self._campos, style="Card.TFrame")
+        ttk.Label(f_v, text="Mostra o sinal sem parar e descarta as amostras: "
+                            "é só para observar. Nada é guardado.",
+                  style="SectionHint.TLabel", wraplength=300,
+                  justify="left").pack(anchor="w", pady=(0, 4))
+
+        # a janela de tela vale para a duracao e para o ao vivo
+        self._f_tela = ttk.Frame(self._campos, style="Card.TFrame")
+        l_t = self._linha(self._f_tela, "Tela")
+        ttk.Entry(l_t, textvariable=self.var_tela, width=8).pack(side="left", fill="x",
+                                                                  expand=True)
+        ttk.Combobox(l_t, textvariable=self.var_tela_un, values=["ms", "s"],
+                     state="readonly", width=5).pack(side="left", padx=(6, 0))
+        ttk.Checkbutton(self._f_tela, text="Sincronizar na subida (onda parada)",
+                        variable=self.var_sinc, style="Card.TCheckbutton").pack(anchor="w")
+        ttk.Checkbutton(self._f_tela, text="Escala vertical automática",
+                        variable=self.var_yauto, style="Card.TCheckbutton").pack(
+                            anchor="w", pady=(0, 4))
+        self._frames_como = {COMO_AMOSTRAS: f_n, COMO_DURACAO: f_d, COMO_AO_VIVO: f_v}
+        for var in (self.var_n, self.var_dur, self.var_dur_un):
+            var.trace_add("write", lambda *a: self._atualiza_fs())
         self.var_fs_info = tk.StringVar()
         ttk.Label(cap, textvariable=self.var_fs_info, style="SectionHint.TLabel",
                   wraplength=300, justify="left").pack(anchor="w", pady=(0, 8))
@@ -271,20 +346,53 @@ class AquisicaoWindow(tk.Toplevel):
         self.var_canal.set(lista[0])
         self.var_tensao.set("— V")
 
-    def _le_campos(self) -> tuple[float, int]:
-        try:
-            fs = float(self.var_fs.get().replace(",", "."))
-            n = int(self.var_n.get())
-        except ValueError as e:
-            raise ValueError("fs e amostras devem ser numéricos") from e
-        if not 0 <= n < 2 ** 32:
-            raise ValueError("amostras deve ser 0 (sem limite) ou positivo")
-        aq.divisor_para(fs)                 # confere a faixa
-        return fs, n
+    def _troca_como(self):
+        como = self.var_como.get()
+        for f in self._frames_como.values():
+            f.pack_forget()
+        self._f_tela.pack_forget()
+        self._frames_como[como].pack(fill="x")
+        if como in (COMO_DURACAO, COMO_AO_VIVO):
+            self._f_tela.pack(fill="x")
+        if not self._ocupado:
+            self.btn_capt.configure(text=ROTULO_BOTAO[como])
+        self._atualiza_fs()
 
     @staticmethod
-    def _continua(n: int) -> bool:
-        return n == 0 or n > ADC_N_MAX
+    def _numero(texto: str, nome: str) -> float:
+        try:
+            return float(texto.replace(",", "."))
+        except ValueError as e:
+            raise ValueError(f"{nome} deve ser um número") from e
+
+    def _le_campos(self) -> tuple[float, int]:
+        """(fs pedida, amostras). Amostras: 0 = sem limite (ao vivo, ou o
+        modo por amostras com 0); na gravação por tempo, o tempo convertido."""
+        fs = self._numero(self.var_fs.get(), "fs")
+        div = aq.divisor_para(fs)           # confere a faixa
+        como = self.var_como.get()
+        if como == COMO_AO_VIVO:
+            return fs, 0
+        if como == COMO_DURACAO:
+            dur = self._numero(self.var_dur.get(), "a duração")
+            return fs, aq.amostras_para(dur * aq.UNIDADES_TEMPO[self.var_dur_un.get()],
+                                        aq.fs_de(div))
+        try:
+            n = int(self.var_n.get())
+        except ValueError as e:
+            raise ValueError("amostras deve ser um número inteiro") from e
+        if not 0 <= n < 2 ** 32:
+            raise ValueError("amostras deve ser 0 (sem limite) ou positivo")
+        return fs, n
+
+    def _tela_s(self) -> float:
+        t = self._numero(self.var_tela.get(), "a tela")
+        if t <= 0:
+            raise ValueError("a tela deve ser maior que zero")
+        return t * aq.UNIDADES_TEMPO[self.var_tela_un.get()]
+
+    def _continua(self, n: int) -> bool:
+        return (self.var_como.get() != COMO_AMOSTRAS) or n == 0 or n > ADC_N_MAX
 
     def _atualiza_fs(self):
         try:
@@ -297,13 +405,16 @@ class AquisicaoWindow(tk.Toplevel):
         txt = f"fs real: {fs_real:.3f} Hz  (50 MHz ÷ {div})"
         if abs(fs_real - fs) > 1e-9:
             txt += " — a mais próxima que o divisor inteiro permite"
-        if n == 0:
+        como = self.var_como.get()
+        if como == COMO_AO_VIVO:
+            txt += "\nao vivo até Parar; nada é guardado, a memória não cresce"
+        elif n == 0:
             txt += (f"\ncontínua até Parar; memória no PC: "
                     f"~{10 * fs_real * 60 / 1e6:.0f} MB por minuto")
         else:
-            txt += f"\nduração: {aq.duracao_s(n, div):.3g} s"
+            txt += f"\n{n} amostras = {aq.duracao_s(n, div):.4g} s"
             if self._continua(n):
-                txt += f" (contínua); memória no PC: ~{10 * n / 1e6:.0f} MB"
+                txt += f"; memória no PC: ~{10 * n / 1e6:.0f} MB"
         self.var_fs_info.set(txt)
 
     def _cliente(self):
@@ -317,7 +428,7 @@ class AquisicaoWindow(tk.Toplevel):
             self.btn_capt.configure(state="normal", text="Parar",
                                     command=self._on_parar)
         else:
-            self.btn_capt.configure(state=estado, text="Capturar",
+            self.btn_capt.configure(state=estado, text=ROTULO_BOTAO[self.var_como.get()],
                                     command=self._on_capturar)
 
     # ------------------------------------------------------------------
@@ -375,7 +486,18 @@ class AquisicaoWindow(tk.Toplevel):
         self.var_repetir.set(False)
         div = aq.divisor_para(fs)
         if self._continua(n):
-            self._captura_continua(client, n, fs, modo, canal)
+            ao_vivo = self.var_como.get() == COMO_AO_VIVO
+            if not ao_vivo and n > AMOSTRAS_AVISO and not messagebox.askyesno(
+                    "Gravação longa",
+                    f"{n} amostras ocupam ~{10 * n / 1e6:.0f} MB de memória neste "
+                    "computador. Continuar?"):
+                return
+            try:
+                n_tela = aq.amostras_para(self._tela_s(), aq.fs_de(div))
+            except ValueError as e:
+                messagebox.showerror("Configuração", str(e))
+                return
+            self._captura_continua(client, n, fs, modo, canal, n_tela, ao_vivo)
             return
         self._trava(True)
         self.status.set(f"Capturando {n} amostras a {aq.fs_de(div):g} Hz "
@@ -390,33 +512,126 @@ class AquisicaoWindow(tk.Toplevel):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _captura_continua(self, client, n: int, fs: float, modo: str, canal: int):
+    def _captura_continua(self, client, n: int, fs: float, modo: str, canal: int,
+                          n_tela: int, ao_vivo: bool):
+        """Captura contínua mostrando o sinal enquanto chega.
+
+        ao_vivo: só observar -- os blocos vão para a tela e são descartados.
+        Senão, grava tudo (n amostras, ou até Parar com n = 0) e, no fim, a
+        gravação vira a "Captura do ADC"; a tela mostra só as últimas n_tela
+        amostras enquanto isso."""
         parar = threading.Event()
         self._parar = parar
         self._trava(True, continua=True)
         fs_real = aq.fs_de(aq.divisor_para(fs))
-        alvo = "até você clicar em Parar" if n == 0 else f"{n} amostras"
-        self.status.set(f"Captura contínua a {fs_real:g} Hz, {alvo}...")
-        ultimo = [0.0]
+        viva = aq.JanelaViva(n_tela)
+        self._viva = viva
+        self._viva_info = {"fs": fs_real, "n": n, "ao_vivo": ao_vivo, "modo": modo,
+                           "entrada": (aq.CANAIS_SIMPLES if modo == aq.MODO_SIMPLES
+                                       else aq.PARES_DIFERENCIAIS)[canal],
+                           "medidas_em": 0.0, "inicio": time.monotonic()}
+        self._prepara_tela_viva()
+        if ao_vivo:
+            self.status.set(f"Ao vivo a {fs_real:g} Hz: só observação, nada é guardado. "
+                            "Clique em Parar para encerrar.")
+        else:
+            alvo = "até você clicar em Parar" if n == 0 else f"{n / fs_real:.4g} s"
+            self.status.set(f"Gravando a {fs_real:g} Hz, {alvo}...")
 
-        def ao_bloco(total, _bloco):
-            agora = time.monotonic()
-            if agora - ultimo[0] >= 0.3:            # a tela nao precisa de mais
-                ultimo[0] = agora
-                self.after(0, lambda: self.status.set(
-                    f"Capturando: {total / fs_real:.1f} s ({total} amostras, "
-                    f"~{10 * total / 1e6:.0f} MB)" + (f" de {n}" if n else "")
-                    + ". Clique em Parar para encerrar."))
+        def ao_bloco(_total, bloco):
+            viva.empurra(bloco)
 
         def worker():
             try:
                 cap = aq.capturar_continuo(client, n, fs, modo, canal,
-                                           parar=parar, ao_bloco=ao_bloco)
-                self.after(0, lambda: self._on_capturado(cap))
+                                           parar=parar, ao_bloco=ao_bloco,
+                                           guardar=not ao_vivo, acumular=not ao_vivo)
+                if ao_vivo:
+                    self.after(0, lambda: self._on_ao_vivo_fim(cap))
+                else:
+                    self.after(0, lambda: self._on_capturado(cap))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_erro("Erro na captura", err))
 
         threading.Thread(target=worker, daemon=True).start()
+        self.after(QUADRO_MS, self._quadro_vivo)
+
+    # --- a tela ao vivo -------------------------------------------------
+    def _prepara_tela_viva(self):
+        ax = self.ax_t
+        ax.clear()
+        info = self._viva_info
+        (self._linha_viva,) = ax.plot([], [], color=dsp.COLOR_X, linewidth=0.8)
+        tela_s = self._viva.n_tela / info["fs"]
+        self._tela_escala, un = (1e3, "ms") if tela_s < 2.0 else (1.0, "s")
+        ax.set_xlim(0, tela_s * self._tela_escala)
+        ax.set_xlabel(f"t ({un})")
+        ax.set_ylabel("tensão (V)")
+        ax.set_ylim(*self._faixa_y(info["modo"]))
+        theme.style_plot_axes(ax)
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+
+    @staticmethod
+    def _faixa_y(modo: str) -> tuple[float, float]:
+        return (-0.1, 4.2) if modo == aq.MODO_SIMPLES else (-2.15, 2.15)
+
+    def _quadro_vivo(self):
+        """Redesenha a tela ao vivo; roda a cada QUADRO_MS enquanto dura."""
+        viva, info = self._viva, self._viva_info
+        if viva is None or not self.winfo_exists():
+            return
+        x = viva.quadro(self.var_sinc.get())
+        fs, esc = info["fs"], self._tela_escala
+        if x.size > PONTOS_TELA:
+            # envoltória: mínimo e máximo por coluna, numa linha só em zigue-zague
+            col = x.size // (PONTOS_TELA // 2)
+            m = x.size // col
+            blocos = x[:m * col].reshape(m, col)
+            t = np.repeat((np.arange(m) * col) / fs * esc, 2)
+            y = np.column_stack([blocos.min(axis=1), blocos.max(axis=1)]).ravel()
+        else:
+            t, y = np.arange(x.size) / fs * esc, x
+        self._linha_viva.set_data(t, y)
+        if self.var_yauto.get() and x.size:
+            lo, hi = float(np.min(x)), float(np.max(x))
+            folga = max(0.05 * (hi - lo), 0.005)
+            self.ax_t.set_ylim(lo - folga, hi + folga)
+        else:
+            self.ax_t.set_ylim(*self._faixa_y(info["modo"]))
+        decorrido = time.monotonic() - info["inicio"]
+        if info["ao_vivo"]:
+            titulo = (f"AO VIVO — {info['entrada']} a {fs:g} Hz — {viva.total} amostras "
+                      f"vistas em {decorrido:.0f} s, nenhuma guardada")
+        else:
+            gravado = viva.total / fs
+            alvo = f" de {info['n'] / fs:.4g} s" if info["n"] else ""
+            titulo = (f"GRAVANDO — {info['entrada']} a {fs:g} Hz — {gravado:.1f} s"
+                      f"{alvo} ({viva.total} amostras, ~{10 * viva.total / 1e6:.0f} MB)")
+            self.status.set(f"Gravando: {gravado:.1f} s{alvo}. "
+                            "Clique em Parar para encerrar e guardar o que veio.")
+        self.ax_t.set_title(titulo + ("  [envoltória]" if x.size > PONTOS_TELA else ""),
+                            fontsize=9)
+        agora = time.monotonic()
+        if agora - info["medidas_em"] >= MEDIDAS_MS / 1000 and viva.total >= 64:
+            info["medidas_em"] = agora
+            self._mostra_metricas_de(viva.recentes(N_MEDIDAS_VIVO), fs,
+                                     "(ao vivo, últimas amostras)")
+        self.canvas.draw_idle()
+        self.after(QUADRO_MS, self._quadro_vivo)
+
+    def _on_ao_vivo_fim(self, cap: aq.Captura):
+        viva = self._viva
+        self._viva = None
+        self._parar = None
+        self._trava(False)
+        vistas = viva.total if viva else 0
+        fim = {"perdeu": " — a placa não acompanhou",
+               "timeout": " — o hardware parou de mandar amostras",
+               "conexao": " — a conexão caiu"}.get(cap.termino, "")
+        self.status.set(f"Observação encerrada{fim}: {vistas} amostras vistas, nenhuma "
+                        "guardada. A tela mostra o último quadro. Para guardar, use "
+                        f"“{COMO_DURACAO}” ou “{COMO_AMOSTRAS}”.")
 
     def _on_parar(self):
         if self._parar is not None:
@@ -430,6 +645,7 @@ class AquisicaoWindow(tk.Toplevel):
 
     def _on_capturado(self, cap: aq.Captura):
         self._parar = None
+        self._viva = None                   # encerra a tela ao vivo, se havia
         self._trava(False)
         if cap.volts.size == 0:
             self.status.set("A captura terminou sem nenhuma amostra.")
@@ -452,6 +668,20 @@ class AquisicaoWindow(tk.Toplevel):
         if cap.termino in ("perdeu", "timeout", "conexao"):
             messagebox.showwarning("Captura interrompida", self.status.get())
 
+    def _mostra_metricas_de(self, x: np.ndarray, fs: float, nota: str):
+        """As medidas de um trecho qualquer (a tela ao vivo usa isto)."""
+        m = aq.metricas(x, fs)
+        linhas = [f"nível DC:     {m['dc']:.4f} V",
+                  f"pico a pico:  {m['vpp']:.4f} V",
+                  f"RMS da AC:    {m['rms_ac'] * 1e3:.2f} mV"]
+        if np.isfinite(m["f_pico"]):
+            linhas.append(f"freq. do pico: {m['f_pico']:.2f} Hz")
+        if np.isfinite(m["sinad_db"]):
+            linhas.append(f"SINAD:        {m['sinad_db']:.1f} dB")
+            linhas.append(f"ENOB:         {m['enob']:.2f} bits")
+        linhas.append(nota)
+        self.var_metricas.set("\n".join(linhas))
+
     def _mostra_metricas(self):
         m = aq.metricas(_trecho_espectro(self.cap), self.cap.fs)
         linhas = [
@@ -473,6 +703,7 @@ class AquisicaoWindow(tk.Toplevel):
 
     def _on_erro(self, titulo: str, err: Exception):
         self._parar = None
+        self._viva = None
         self._trava(False)
         self.var_repetir.set(False)
         messagebox.showerror(titulo, str(err))

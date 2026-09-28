@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import socket
 import struct
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -563,6 +564,91 @@ class ServerInfo:
         mandam o campo; para eles assume-se preparada, como sempre foi.
         """
         return self.info.get("fpga_preparada", "1") != "0"
+
+
+# ---------------------------------------------------------------------------
+# Porta de estado (UDP, porta TCP + 1)
+# ---------------------------------------------------------------------------
+#
+# O servidor atende uma conexao por vez, entao uma placa ocupada nao responde
+# nem ao OP_PING ate terminar. Desde 28/09/2026 ele tem uma thread que responde
+# por UDP, na hora, o que esta fazendo. Servidores anteriores nao respondem:
+# consultar_estado devolve None e quem chama cai no metodo antigo.
+
+ESTADO_PEDIDO = b"MRPS?"
+
+NOMES_OPERACAO = {
+    "convolucao": "convolução", "fft": "FFT", "ifft": "IFFT", "fir": "FIR",
+    "iir": "IIR", "adc": "captura do ADC", "adc_continuo": "captura contínua do ADC",
+}
+
+
+@dataclass
+class EstadoPlaca:
+    """O que a porta de estado respondeu, mais o tempo da resposta."""
+    ip: str
+    info: dict
+    rtt_s: float
+
+    @property
+    def ocupada(self) -> bool:
+        return self.info.get("estado") == "ocupada"
+
+    @property
+    def operacao(self) -> str:
+        op = self.info.get("operacao", "")
+        return NOMES_OPERACAO.get(op, op)
+
+    @property
+    def ha_s(self) -> float:
+        return int(self.info.get("ha_ms", "0") or 0) / 1000.0
+
+    @property
+    def clientes_recentes(self) -> int:
+        return int(self.info.get("clientes_recentes", "0") or 0)
+
+    @property
+    def preparada(self) -> bool:
+        return self.info.get("fpga_preparada", "1") != "0"
+
+    @property
+    def hostname(self) -> str:
+        return self.info.get("hostname", "?")
+
+    def descricao(self) -> str:
+        """Uma linha para a interface: 'livre, 2 alunos no último minuto'."""
+        if not self.preparada:
+            return "ligada, mas a FPGA não foi preparada (rode ./morphe-up.sh)"
+        n = self.clientes_recentes
+        uso = ("ninguém no último minuto" if n == 0 else
+               "1 computador no último minuto" if n == 1 else
+               f"{n} computadores no último minuto")
+        if self.ocupada:
+            return f"ocupada: {self.operacao} há {self.ha_s:.1f} s; {uso}"
+        return f"livre; {uso}"
+
+
+def consultar_estado(host: str, porta_tcp: int = 5000,
+                     timeout: float = 0.5) -> EstadoPlaca | None:
+    """Pergunta a placa, por UDP, o que ela esta fazendo. Nao toca a FPGA e
+    nao entra na fila do servidor. None = sem resposta (placa fora do ar ou
+    servidor anterior a porta de estado)."""
+    t0 = time.monotonic()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(timeout)
+            s.sendto(ESTADO_PEDIDO, (host, porta_tcp + 1))
+            dados, _ = s.recvfrom(2048)
+    except OSError:
+        return None
+    info: dict = {}
+    for linha in dados.decode("utf-8", "replace").splitlines():
+        chave, sep, valor = linha.partition("=")
+        if sep:
+            info[chave.strip()] = valor.strip()
+    if info.get("service") != "morphe-status":
+        return None
+    return EstadoPlaca(ip=host, info=info, rtt_s=time.monotonic() - t0)
 
 
 def get_local_ip() -> str | None:

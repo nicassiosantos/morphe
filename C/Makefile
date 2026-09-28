@@ -43,7 +43,7 @@ endif
 # CFLAGS += -fopt-info-vec (-ftree-vectorizer-verbose=2 por causa da versão do gcc)
 
 LDFLAGS  :=
-LDLIBS   := -lm -lrt
+LDLIBS   := -lm -lrt -lpthread
 
 TARGET       := morphe_server
 TESTSERVER   := morphe_testserver

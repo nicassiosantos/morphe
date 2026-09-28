@@ -33,9 +33,13 @@ from typing import List, Optional, Tuple
 
 import morphe_theme as theme
 from morphe_protocol import (
-    TcpClient, ServerInfo, discover_servers,
+    TcpClient, ServerInfo, EstadoPlaca, consultar_estado, discover_servers,
     subredes_provaveis, build_ping_request, decode_ping_response,
 )
+
+# De quanto em quanto tempo o painel pergunta à placa conectada o que ela está
+# fazendo (porta de estado, UDP: não entra na fila da placa).
+ESTADO_INTERVALO_MS = 4000
 
 
 # ======================================================================
@@ -182,14 +186,26 @@ class TcpConfigPanel(ttk.LabelFrame):
         self.lbl_status.grid(row=4, column=0, columnspan=2,
                              sticky="w", pady=(4, 0))
 
-        # Linha 5: banner informativo (Conectar + Autoconnect)
+        # Linha 5: o que a placa conectada está fazendo agora (porta de estado).
+        # Fica vazia com servidor anterior a 28/09/2026, que não tem a porta.
+        self.var_estado = tk.StringVar(value="")
+        tk.Label(
+            self, textvariable=self.var_estado,
+            background=theme.COLORS["card_bg"],
+            foreground=theme.COLORS["text_muted"],
+            font=("TkDefaultFont", 9),
+            justify="left", anchor="w",
+        ).grid(row=5, column=0, columnspan=2, sticky="w")
+        self._estado_agendado = False
+
+        # Linha 6: banner informativo (Conectar + Autoconnect)
         theme.make_banner(
             self, kind="info",
             text=("A placa é procurada sozinha ao abrir. Conectar valida um "
                   "servidor informado à mão; Autoconnect refaz a busca — "
                   "primeiro o /24 da última placa usada, depois o da estação, "
                   "depois os /24 históricos do laboratório."),
-        ).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ).grid(row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
         if autoconectar:
             # Depois que a janela existe, para o status já ter onde aparecer.
@@ -233,8 +249,8 @@ class TcpConfigPanel(ttk.LabelFrame):
             if len(conhecidas) > 1:
                 livre = self._escolher_placa_livre(conhecidas, porta)
                 if livre is not None:
-                    srv, quantas = livre
-                    self.after(0, self._on_search_success, srv, quantas)
+                    srv, quantas, outras = livre
+                    self.after(0, self._on_search_success, srv, quantas, outras)
                     return
             elif lembrada:
                 srv = self._sondar(lembrada, porta)
@@ -260,8 +276,37 @@ class TcpConfigPanel(ttk.LabelFrame):
 
     @classmethod
     def _escolher_placa_livre(cls, ips: List[str], porta: int
-                              ) -> Optional[Tuple[ServerInfo, int]]:
-        """Sonda todas em paralelo e devolve a que respondeu mais rápido.
+                              ) -> Optional[Tuple[ServerInfo, int, str]]:
+        """Escolhe a placa para este computador. Devolve (placa, quantas
+        responderam, uma linha sobre as outras) ou None.
+
+        Com a porta de estado (servidor de 28/09/2026 em diante), cada placa
+        diz na hora se está livre e quantos computadores a usaram no último
+        minuto. Fica-se com a livre e menos usada: isso divide a turma entre
+        as placas, em vez de todos caírem na que respondeu primeiro. Sem a
+        porta de estado em nenhuma, vale o método antigo, abaixo.
+        """
+        import concurrent.futures as cf
+
+        with cf.ThreadPoolExecutor(max_workers=max(2, len(ips))) as pool:
+            estados = [e for e in pool.map(lambda ip: consultar_estado(ip, porta), ips)
+                       if e is not None]
+        candidatas = sorted((e for e in estados if e.preparada),
+                            key=lambda e: (e.ocupada, e.clientes_recentes, e.rtt_s))
+        for escolhida in candidatas:
+            srv = cls._sondar(escolhida.ip, porta)
+            if srv is not None and srv.preparada:
+                outras = "; ".join(f"{e.ip}: {e.descricao()}"
+                                   for e in estados if e.ip != escolhida.ip)
+                return (srv, len(estados), outras)
+        antigo = cls._escolher_pelo_ping(ips, porta)
+        return None if antigo is None else (antigo[0], antigo[1], "")
+
+    @classmethod
+    def _escolher_pelo_ping(cls, ips: List[str], porta: int
+                            ) -> Optional[Tuple[ServerInfo, int]]:
+        """Método antigo: sonda todas em paralelo e devolve a que respondeu
+        mais rápido.
 
         Por que o tempo do OP_PING mede ocupação: o servidor da placa é um
         laço accept/atende/fecha sem thread nenhuma, então um cliente no
@@ -375,6 +420,7 @@ class TcpConfigPanel(ttk.LabelFrame):
             f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max})"
         )
         self.lbl_status.configure(foreground=theme.COLORS["ok_fg"])
+        self._agenda_estado()
 
     def _on_connect_error(self, host: str, port, e: Exception):
         self._set_connect_busy(False)
@@ -459,7 +505,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._search_thread = threading.Thread(target=run, daemon=True)
         self._search_thread.start()
 
-    def _on_search_success(self, srv: ServerInfo, entre: int = 1):
+    def _on_search_success(self, srv: ServerInfo, entre: int = 1, outras: str = ""):
         if self._success_handled:
             return
         self._success_handled = True
@@ -472,11 +518,60 @@ class TcpConfigPanel(ttk.LabelFrame):
             gravar_placa_lembrada(srv.ip)
         self._set_busy(False)
         sufixo = f" — a mais livre entre {entre} placas" if entre > 1 else ""
+        if outras:
+            sufixo += f"\nOutras placas: {outras}"
         self.var_status.set(
             f"Conectado a {srv.ip} — {srv.hostname} "
             f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max}){sufixo}"
         )
         self.lbl_status.configure(foreground=theme.COLORS["ok_fg"])
+        self._agenda_estado()
+
+    # ==================================================================
+    # Estado da placa conectada, de tempos em tempos (porta de estado)
+    # ==================================================================
+
+    def _agenda_estado(self):
+        if not self._estado_agendado:
+            self._estado_agendado = True
+            self.after(200, self._atualiza_estado)
+
+    def _atualiza_estado(self):
+        """Pergunta à placa conectada o que ela está fazendo e mostra numa
+        linha. Em outra thread: um UDP sem resposta leva meio segundo."""
+        if not self.winfo_exists():
+            return
+        host = self.var_host.get().strip()
+        try:
+            porta = int(self.var_port.get())
+        except ValueError:
+            porta = 5000
+
+        def run():
+            e = consultar_estado(host, porta) if host else None
+            try:
+                self.after(0, self._mostra_estado, host, e)
+            except RuntimeError:        # a janela fechou
+                pass
+
+        threading.Thread(target=run, daemon=True).start()
+        self.after(ESTADO_INTERVALO_MS, self._atualiza_estado)
+
+    def _mostra_estado(self, host: str, e: Optional[EstadoPlaca]):
+        if e is None:
+            # servidor antigo, ou placa fora do ar: nada a dizer aqui
+            self.var_estado.set("")
+            return
+        self.var_estado.set(f"Placa {host} agora: {e.descricao()}")
+
+    def estado_placa(self, timeout: float = 0.5) -> Optional[EstadoPlaca]:
+        """Para as janelas explicarem uma espera: o que a placa conectada está
+        fazendo agora (None se ela não tem a porta de estado)."""
+        try:
+            return consultar_estado(self.var_host.get().strip(),
+                                    int(self.var_port.get()), timeout)
+        except ValueError:
+            return None
 
     def _on_search_not_found(self):
         self._set_busy(False)

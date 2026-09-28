@@ -32,6 +32,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <pthread.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 
@@ -220,6 +221,130 @@ static int g_fft_force_inverse = 0;
 #define LOG(fmt, ...) do { \
     fprintf(stderr, "[morphe] " fmt "\n", ##__VA_ARGS__); \
 } while (0)
+
+/* =======================================================================
+ * Estado da placa, para a porta de estado (UDP, porta TCP + 1)
+ *
+ * O laco principal atende uma conexao por vez, entao uma placa ocupada nao
+ * responde nem ao OP_PING ate terminar -- e o cliente nao distinguia "placa
+ * ocupada" de "placa fora do ar". Uma thread a parte responde por UDP, NA
+ * HORA, o que a placa esta fazendo: livre ou ocupada, qual operacao, ha
+ * quanto tempo, e quantos computadores a usaram no ultimo minuto. O cliente
+ * usa isso para escolher a placa e para explicar uma espera.
+ *
+ * A thread NAO toca a FPGA (nem le PIO): so estas variaveis e o stat() da
+ * marca. Nao ha como ela travar o barramento do HPS.
+ * ======================================================================= */
+#define MORPHE_ESTADO_RECENTES     32     /* computadores distintos lembrados */
+#define MORPHE_ESTADO_JANELA_S     60     /* "recentes" = ultimo minuto */
+
+static pthread_mutex_t g_est_mtx = PTHREAD_MUTEX_INITIALIZER;
+static const char     *g_est_op = NULL;            /* NULL = livre */
+static struct timespec g_est_desde;                /* inicio da operacao atual */
+static char            g_est_cliente[INET_ADDRSTRLEN] = "";
+static unsigned long   g_est_atendidas = 0;        /* operacoes (sem PING) */
+static struct { uint32_t ip; time_t quando; } g_est_recentes[MORPHE_ESTADO_RECENTES];
+
+static const char *nome_op(uint16_t op) {
+    switch (op) {
+        case MORPHE_OP_CONV: return "convolucao";
+        case MORPHE_OP_FFT:  return "fft";
+        case MORPHE_OP_FIR:  return "fir";
+        case MORPHE_OP_IFFT: return "ifft";
+        case MORPHE_OP_IIR:  return "iir";
+        case MORPHE_OP_ADC:  return "adc";
+        case MORPHE_OP_ADC_CONTINUO: return "adc_continuo";
+        default:             return "desconhecida";
+    }
+}
+
+/* Chamado pelo laco principal antes de atender uma operacao (nao PING). */
+static void estado_inicio(uint16_t op, const struct sockaddr_in *peer) {
+    struct timespec agora;
+    clock_gettime(CLOCK_MONOTONIC, &agora);
+    pthread_mutex_lock(&g_est_mtx);
+    g_est_op = nome_op(op);
+    g_est_desde = agora;
+    inet_ntop(AF_INET, &peer->sin_addr, g_est_cliente, sizeof g_est_cliente);
+    g_est_atendidas++;
+    /* o mesmo computador atualiza a propria entrada; um novo ocupa a mais velha */
+    uint32_t ip = peer->sin_addr.s_addr;
+    int alvo = 0;
+    for (int i = 0; i < MORPHE_ESTADO_RECENTES; i++) {
+        if (g_est_recentes[i].ip == ip) { alvo = i; break; }
+        if (g_est_recentes[i].quando < g_est_recentes[alvo].quando) alvo = i;
+    }
+    g_est_recentes[alvo].ip = ip;
+    g_est_recentes[alvo].quando = agora.tv_sec;
+    pthread_mutex_unlock(&g_est_mtx);
+}
+
+static void estado_fim(void) {
+    pthread_mutex_lock(&g_est_mtx);
+    g_est_op = NULL;
+    pthread_mutex_unlock(&g_est_mtx);
+}
+
+static int estado_texto(char *buf, size_t tam, int porta_tcp) {
+    struct timespec agora;
+    clock_gettime(CLOCK_MONOTONIC, &agora);
+    struct stat st;
+    int preparada = stat(MORPHE_MARCA_FPGA, &st) == 0;
+
+    pthread_mutex_lock(&g_est_mtx);
+    int recentes = 0;
+    for (int i = 0; i < MORPHE_ESTADO_RECENTES; i++)
+        if (g_est_recentes[i].ip != 0
+            && agora.tv_sec - g_est_recentes[i].quando <= MORPHE_ESTADO_JANELA_S)
+            recentes++;
+    long ha_ms = g_est_op
+        ? (agora.tv_sec - g_est_desde.tv_sec) * 1000L
+          + (agora.tv_nsec - g_est_desde.tv_nsec) / 1000000L
+        : 0;
+    int n = snprintf(buf, tam,
+        "service=morphe-status\nversion=1\nhostname=%s\nporta_tcp=%d\n"
+        "estado=%s\noperacao=%s\nha_ms=%ld\ncliente=%s\n"
+        "clientes_recentes=%d\njanela_s=%d\natendidas=%lu\n"
+        "uptime_s=%ld\nfpga_preparada=%d\n",
+        g_hostname, porta_tcp,
+        g_est_op ? "ocupada" : "livre", g_est_op ? g_est_op : "",
+        ha_ms, g_est_op ? g_est_cliente : "",
+        recentes, MORPHE_ESTADO_JANELA_S, g_est_atendidas,
+        (long) (agora.tv_sec - g_start_time.tv_sec), preparada);
+    pthread_mutex_unlock(&g_est_mtx);
+    return n;
+}
+
+/* A thread da porta de estado. Responde a qualquer datagrama que comece com
+ * "MRPS"; ignora o resto. Se a porta nao abrir, o servidor segue sem ela --
+ * o cliente cai no metodo antigo (tempo do OP_PING). */
+static void *thread_estado(void *arg) {
+    int porta_tcp = *(int *) arg;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) { LOG("porta de estado: socket falhou (%s)", strerror(errno)); return NULL; }
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_ANY);
+    a.sin_port = htons((uint16_t) (porta_tcp + 1));
+    if (bind(s, (struct sockaddr *) &a, sizeof a) < 0) {
+        LOG("porta de estado: bind na UDP %d falhou (%s) -- seguindo sem ela",
+            porta_tcp + 1, strerror(errno));
+        close(s);
+        return NULL;
+    }
+    LOG("porta de estado: UDP %d", porta_tcp + 1);
+    for (;;) {
+        char pedido[64], resp[512];
+        struct sockaddr_in de;
+        socklen_t lde = sizeof de;
+        ssize_t r = recvfrom(s, pedido, sizeof pedido, 0, (struct sockaddr *) &de, &lde);
+        if (r < 4 || memcmp(pedido, "MRPS", 4) != 0) continue;
+        int n = estado_texto(resp, sizeof resp, porta_tcp);
+        if (n > 0) sendto(s, resp, (size_t) n, 0, (struct sockaddr *) &de, lde);
+    }
+    return NULL;
+}
 
 /* =======================================================================
  * I/O de socket
@@ -1396,7 +1521,7 @@ static int handle_ping(int sock) {
     return 0;
 }
 
-static void serve_connection(int sock) {
+static void serve_connection(int sock, const struct sockaddr_in *peer) {
     uint8_t hdr[MORPHE_HEADER_SIZE];
     if (recv_exact(sock, hdr, sizeof hdr) < 0) return;
 
@@ -1418,6 +1543,10 @@ static void serve_connection(int sock) {
         return;
     }
 
+    /* O PING nao conta como uso: todo cliente sonda todas as placas ao abrir. */
+    const int conta = opcode != MORPHE_OP_PING;
+    if (conta) estado_inicio(opcode, peer);
+
     switch (opcode) {
         case MORPHE_OP_CONV: handle_conv(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
@@ -1431,6 +1560,7 @@ static void serve_connection(int sock) {
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");
             break;
     }
+    if (conta) estado_fim();
 }
 
 int main(int argc, char **argv) {
@@ -1479,6 +1609,15 @@ int main(int argc, char **argv) {
     if (bind(srv, (struct sockaddr *)&addr, sizeof addr) < 0) return 1;
     if (listen(srv, 4) < 0) return 1;
 
+    /* Porta de estado (UDP, porta + 1). Falhar aqui nao impede o servico. */
+    static int porta_estado;
+    porta_estado = port;
+    pthread_t th_estado;
+    if (pthread_create(&th_estado, NULL, thread_estado, &porta_estado) == 0)
+        pthread_detach(th_estado);
+    else
+        LOG("porta de estado: a thread nao subiu -- seguindo sem ela");
+
     LOG("servidor ouvindo na porta %d", port);
 
     for (;;) {
@@ -1487,7 +1626,7 @@ int main(int argc, char **argv) {
         int cli = accept(srv, (struct sockaddr *)&peer, &plen);
         if (cli < 0) continue;
         setsockopt(cli, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-        serve_connection(cli);
+        serve_connection(cli, &peer);
         close(cli);
     }
     return 0;

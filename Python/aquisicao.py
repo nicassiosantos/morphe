@@ -179,13 +179,17 @@ def _recv_exato(s: socket.socket, n: int) -> bytes:
 def capturar_continuo(client: TcpClient, n: int, fs: float, modo: str, canal: int,
                       parar: Optional[threading.Event] = None,
                       ao_bloco: Optional[Callable[[int, np.ndarray], None]] = None,
-                      guardar: bool = True) -> Captura:
+                      guardar: bool = True, acumular: bool = True) -> Captura:
     """Captura continua, em blocos, sem o limite da RAM da placa.
 
     n = 0: sem limite, ate `parar` ser acionado. Com n > 0 termina sozinha em
     n amostras (e `parar` interrompe antes). `ao_bloco(total, bloco)` e
     chamado a cada bloco recebido (na thread de quem chamou), para a tela
     acompanhar.
+
+    acumular=False e o modo "ao vivo": cada bloco vai para `ao_bloco` e e
+    descartado em seguida. A captura pode durar horas sem gastar memoria, e a
+    Captura devolvida vem vazia (so o termino importa).
 
     Nunca devolve buraco silencioso: se o servidor nao acompanhou, a captura
     termina com termino = "perdeu" e contem so a parte continua anterior.
@@ -218,8 +222,9 @@ def capturar_continuo(client: TcpClient, n: int, fs: float, modo: str, canal: in
                 k, est = struct.unpack(">II", _recv_exato(s, 8))
                 if k:
                     bloco = np.frombuffer(_recv_exato(s, 4 * k), dtype=">i4").astype(np.int16)
-                    fronteiras.append(total)
-                    blocos.append(bloco)
+                    if acumular:
+                        fronteiras.append(total)
+                        blocos.append(bloco)
                     total += k
                     if ao_bloco is not None:
                         ao_bloco(total, bloco)
@@ -230,7 +235,7 @@ def capturar_continuo(client: TcpClient, n: int, fs: float, modo: str, canal: in
             # A conexao caiu no meio (o servidor desiste de um cliente que nao
             # le por 5 s). Os blocos inteiros ja recebidos sao continuos e
             # valem; o que falta e so o fim.
-            if not blocos:
+            if not total:
                 raise
             estado = "conexao"
     codigos = (np.concatenate(blocos) if blocos else np.zeros(0, np.int16)).astype(np.int16)
@@ -243,6 +248,97 @@ def capturar_continuo(client: TcpClient, n: int, fs: float, modo: str, canal: in
     if guardar and codigos.size:
         _ULTIMA = cap
     return cap
+
+
+# ---------------------------------------------------------------------------
+# Ver o sinal enquanto ele chega
+# ---------------------------------------------------------------------------
+
+UNIDADES_TEMPO = {"ms": 1e-3, "s": 1.0, "min": 60.0}
+
+
+def amostras_para(duracao_s: float, fs_real: float) -> int:
+    """Quantas amostras cobrem `duracao_s` segundos a fs_real (ao menos 1)."""
+    if duracao_s <= 0:
+        raise ValueError("a duração deve ser maior que zero")
+    return max(1, int(round(duracao_s * fs_real)))
+
+
+class JanelaViva:
+    """As ultimas amostras de uma captura continua, para desenhar na tela.
+
+    Guarda o dobro da janela pedida, em volts, num buffer circular: a metade a
+    mais e o que permite sincronizar (achar uma subida e mostrar a janela a
+    partir dela, como o disparo de um osciloscopio), para uma onda periodica
+    ficar parada na tela em vez de escorregar. O resto do sinal e descartado:
+    a memoria nao cresce com a duracao.
+
+    `empurra` roda na thread da captura; `quadro` e `recentes`, na da tela.
+    """
+
+    def __init__(self, n_tela: int):
+        self.n_tela = max(2, int(n_tela))
+        self._buf = np.zeros(2 * self.n_tela, dtype=np.float32)
+        self._pos = 0              # onde entra a proxima amostra
+        self._cheio = 0            # quantas posicoes validas (ate len(_buf))
+        self.total = 0             # amostras recebidas desde o inicio
+        self._trava = threading.Lock()
+
+    def empurra(self, codigos: np.ndarray) -> None:
+        v = codigos.astype(np.float32) * np.float32(ADC_LSB_V)
+        m = self._buf.size
+        with self._trava:
+            self.total += v.size
+            if v.size >= m:
+                self._buf[:] = v[-m:]
+                self._pos, self._cheio = 0, m
+                return
+            fim = self._pos + v.size
+            if fim <= m:
+                self._buf[self._pos:fim] = v
+            else:
+                k = m - self._pos
+                self._buf[self._pos:] = v[:k]
+                self._buf[:fim - m] = v[k:]
+            self._pos = fim % m
+            self._cheio = min(m, self._cheio + v.size)
+
+    def recentes(self, n: Optional[int] = None) -> np.ndarray:
+        """As ultimas n amostras (todas as guardadas sem n), em ordem."""
+        with self._trava:
+            m = self._buf.size
+            x = np.roll(self._buf, -self._pos) if self._cheio == m \
+                else self._buf[:self._cheio].copy()
+        return x if n is None else x[-n:]
+
+    def quadro(self, sincronizar: bool) -> np.ndarray:
+        """O que desenhar: as ultimas n_tela amostras ou, sincronizando, as
+        n_tela a partir da ultima subida pelo meio da excursao que ainda cabe
+        inteira na tela. Sem subida (sinal parado, ruido), as ultimas."""
+        x = self.recentes()
+        n = self.n_tela
+        if not sincronizar or x.size < n + 2:
+            return x[-n:]
+        lo, hi = float(np.min(x)), float(np.max(x))
+        if hi - lo < 4 * ADC_LSB_V:              # sem excursao: nada a sincronizar
+            return x[-n:]
+        meio, h = (lo + hi) / 2, 0.1 * (hi - lo)   # histerese contra o ruido
+        lado = np.where(x > meio + h, 1, np.where(x < meio - h, -1, 0))
+        # cada amostra herda o ultimo lado definido (a faixa do meio nao conta)
+        idx = np.where(lado != 0, np.arange(lado.size), 0)
+        np.maximum.accumulate(idx, out=idx)
+        lado = lado[idx]
+        subidas = np.flatnonzero((lado[1:] == 1) & (lado[:-1] == -1)) + 1
+        subidas = subidas[subidas <= x.size - n]
+        if subidas.size == 0:
+            return x[-n:]
+        c = int(subidas[-1])
+        # a subida foi detectada ao passar do limiar de cima; o disparo e onde
+        # ela cruzou o meio, a ultima amostra ainda abaixo dele
+        abaixo = np.flatnonzero(x[:c + 1] <= meio)
+        if abaixo.size:
+            c = int(abaixo[-1])
+        return x[c:c + n]
 
 
 def ler_tensao(client: TcpClient, modo: str, canal: int) -> dict:
