@@ -273,7 +273,20 @@ usam. Com \opt{verificar}, o instalador só confere, sem mudar nada; rodado de
 novo, atualiza. Num computador sem clone, o jeito mais simples é clonar numa
 pasta temporária e rodar o instalador de dentro dela: ele clona para o
 \arq{/opt/morphe} a partir dessa cópia, sem rede, e aponta o
-\arq{/opt/morphe} para o GitHub.
+\arq{/opt/morphe} para o GitHub. Em 28/09/2026 o aplicativo foi instalado assim
+em todos os computadores do laboratório.
+
+\paragraph{Atualizar os computadores.} \textbf{O aplicativo não se atualiza
+sozinho.} Ele roda na conta do aluno, que não escreve no \arq{/opt/morphe}, e é
+bom que não escreva. Depois de uma mudança no repositório, cada computador
+precisa de um \texttt{git pull}, feito pela conta dona do \arq{/opt/morphe} (a
+que rodou o \texttt{sudo} na instalação), ou de uma nova execução do
+instalador, que também atualiza. Um aplicativo já aberto continua com a versão
+antiga até ser fechado. Mudanças no servidor ou no bitstream, além disso,
+exigem o \arq{morphe-up.sh} na estação: o \texttt{git pull} nos computadores
+só atualiza o aplicativo. Um temporizador do sistema que fizesse o
+\texttt{git pull} ao ligar o computador está proposto no
+capítulo~\ref{cap:limitacoes}.
 
 \paragraph{A armadilha do \texttt{pip -{}-user}.} Duas vezes o aplicativo
 quebrou numa conta por um NumPy ou Matplotlib instalado com

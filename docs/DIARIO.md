@@ -16,6 +16,19 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 28/09/2026 (fim do dia) — O aplicativo em todos os computadores
+
+- **`instala-morphe.sh`** (`308a948`, `3babe17`): clona ou atualiza o `/opt/morphe` na
+  principal sem sobrescrever arquivo mexido à mão, dono = quem chamou o `sudo`,
+  leitura para todos, `.morphe-estado` aberto; pacotes do Python do sistema e a
+  armadilha do `pip --user`; atalho "Morphe" no menu; teste da conta do aluno contra
+  as placas. Testado no WSL com uma pasta de teste; `--verificar` só confere.
+- **Rodado pelo estagiário em todos os computadores do laboratório: funcionou.**
+- **Não há atualização automática:** cada computador precisa de `git pull` (conta
+  dona) depois de uma mudança. Proposto: temporizador do sistema instalado pelo
+  próprio instalador. Manual (caps. 1, 9, 11 e apêndice B) atualizado.
+- O SSH da estação, instalado em 23/09 só para copiar o Quartus, já pode ser desligado.
+
 ## 28/09/2026 (estação, noite) — ADC mesclado na principal e levado à turma
 
 - **`morphe-up.sh` pergunta antes de mexer numa placa em uso** (`c8b0137`): consulta a

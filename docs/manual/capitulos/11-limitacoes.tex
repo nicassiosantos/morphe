@@ -82,10 +82,23 @@ continuar quando a placa está em uso. Mas a pergunta só funciona para quem rod
 o script; nada impede, por exemplo, alguém de gravar um projeto próprio pelo
 Quartus numa placa que está servindo a turma.
 
-\paragraph{Instalação nos computadores.} O Quartus tem um instalador
-(\arq{instala-quartus.sh}); o aplicativo, não: a instalação nos outros
-computadores é o procedimento manual da seção~\ref{sec:turma} e seguintes. Um
-script, com um atalho no menu de aplicativos, seria o próximo passo natural.
+\paragraph{Atualização dos computadores.} Em 28/09/2026 o Quartus e o
+aplicativo estavam em todos os computadores, cada um instalado pelo seu script
+(\arq{instala-quartus.sh} e \arq{instala-morphe.sh}). Mas o aplicativo não se
+atualiza sozinho: cada computador precisa de um \texttt{git pull} depois de uma
+mudança (seção~\ref{sec:turma} e seguintes), e com vários computadores isso
+acaba esquecido. A proposta é um temporizador do sistema (\emph{systemd timer}),
+instalado pelo próprio \arq{instala-morphe.sh}, que atualize o
+\arq{/opt/morphe} como a conta dona, ao ligar o computador e a cada hora, só
+por avanço simples (\opt{ff-only}): um arquivo modificado à mão continua
+protegido, porque nesse caso a atualização é recusada.
+
+\paragraph{A estação.} Três coisas dependem dela: o \emph{tether} da licença
+(ela precisa ficar ligada durante a aula, e o \arq{morphe-up.sh} tem de rodar
+depois de cada boot), os cabos JTAG das placas, e a compilação do bitstream. O
+servidor SSH que ela ganhou em 23/09/2026 só servia para os outros computadores
+copiarem o Quartus, e pode ser desligado
+(\texttt{sudo systemctl disable -{}-now ssh}).
 
 \section{Ideias que a plataforma já permite}
 

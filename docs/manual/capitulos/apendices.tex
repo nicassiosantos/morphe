@@ -89,6 +89,23 @@ Ver o que está no ar, e se os \emph{tethers} estão vivos:
 
 \noindent e, se o servidor ou o bitstream mudaram, \arq{./morphe-up.sh} de novo.
 
+\section*{Os outros computadores}
+
+Instalar, numa conta com \texttt{sudo} (uma vez por computador):
+
+\cmd{git clone -b estagio/v1.1-1024pontos https://github.com/nicassiosantos/morphe.git /tmp/morphe-inst}
+\cmd{sudo /tmp/morphe-inst/instala-morphe.sh}
+
+Atualizar, na conta que instalou:
+
+\cmd{git -C /opt/morphe pull}
+
+\noindent Só conferir, sem mudar nada: \texttt{sudo /opt/morphe/instala-morphe.sh -{}-verificar}.
+
+\section*{O que cada placa está fazendo}
+
+\cmd{python3 /opt/morphe/Python/ferramentas/estado\_placas.py -{}-seguir}
+
 \section*{Conferir um clone}
 
 \cmd{sha256sum -c PROVENIENCIA.sha256}
