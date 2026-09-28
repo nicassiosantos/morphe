@@ -38,7 +38,7 @@
 % depois de mudar uma figura, ou regere o PDF ou apague-o.
 \newcommand{\figura}[1]{%
   \IfFileExists{figuras/pdf/#1.pdf}%
-    {\includegraphics{figuras/pdf/#1.pdf}}%
+    {\makebox[\linewidth]{\includegraphics{figuras/pdf/#1.pdf}}}%
     {\input{figuras/#1}}}
 
 % Nome de arquivo ou comando, sempre em pé (dentro de texto em itálico,

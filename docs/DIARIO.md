@@ -16,6 +16,33 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 28/09/2026 (estação) — Porta de estado das placas validada nas duas
+
+Branch `estagio/v1.7-adc`, commit `4df101a`. O servidor ganhou uma thread que
+responde por UDP, na porta 5001, o que a placa está fazendo (livre ou ocupada,
+qual operação, há quanto tempo, de qual computador, quantos computadores no último
+minuto), sem tocar a FPGA. O cliente passa a escolher a placa livre e menos usada.
+
+- **`morphe-up --deploy` nas duas placas** (o servidor novo compilou na placa com
+  `-lpthread`), 4/4 nas duas. A placa 2 passou a ter o bitstream com o ADC.
+- **`testa_porta_estado.py`, TUDO OK nas duas:** resposta em 1,1 ms livre e 1,4 ms
+  durante uma captura contínua do ADC, com "ocupada: captura contínua do ADC há
+  1,5 s" e o IP da estação como cliente, **enquanto um OP_PING no mesmo instante
+  ficava 1 s sem resposta na fila**. Era o que o cliente não sabia distinguir:
+  "placa ocupada" de "placa fora do ar". O UDP passa entre 172.16.101.x (estação) e
+  172.16.230.x (placas).
+- **Nada mudou no que já existia:** `testa_concorrencia --modo mesma --clientes 6`,
+  duas vezes: 48/48 conferidas, 8,4 req/s, mediana 684 e 713 ms (22/09: ~8 req/s,
+  604 ms).
+- **`estado_placas.py --seguir`** mostrou ao vivo a placa 1 "ocupada: convolução /
+  FFT, de 172.16.101.237" durante o teste de concorrência, e "livre" depois.
+- **Incidente de rede:** a placa 2 subiu com `192.168.0.108`, de outra rede. O cabo
+  estava num ponto de outra rede; trocado, voltou à `.52`. O manual ganhou a seção
+  "A placa na rede certa" (cap. 9).
+- **Ainda não validado na placa:** os modos "gravar por um tempo" e "ao vivo" da
+  janela de aquisição (validados só contra o servidor emulado) e a senoide do
+  gerador.
+
 ## 24/09/2026 (estação) — Bitstream com o ADC compilado; captura contínua acompanha 200 kHz
 
 Branch `estagio/v1.7-adc` na estação (clone de desenvolvimento). Para trocar de

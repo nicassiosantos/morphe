@@ -256,6 +256,43 @@ aplicativo não abrir com um erro de importação, remova \textbf{os dois juntos
 voltaram a vir de \arq{/usr/lib/python3/dist-packages}. Remover só um deles
 deixa o outro incompatível e mantém o erro.
 
+\section{A placa na rede certa}
+\label{sec:rede-placa}
+
+As placas pegam endereço por DHCP, da rede do laboratório: hoje, a faixa
+\texttt{172.16.230.x}. Se o cabo de rede de uma placa for ligado num ponto de
+outra rede --- outro switch, uma tomada de outra sala, um roteador pequeno na
+bancada ---, ela recebe o endereço \emph{daquela} rede e some para a estação e
+para os alunos. Foi o que aconteceu em 28/09/2026: a placa~2 subiu com
+\texttt{192.168.0.108}.
+
+O \arq{morphe-up.sh} mostra esse caso sem ambiguidade: a FPGA é programada
+(``\emph{Configuration succeeded}'', porque o JTAG não depende da rede) e em
+seguida ele para com ``não há caminho de rede até'' a placa. O \emph{tether}
+fica vivo, então não há pressa. Para resolver:
+
+\begin{enumerate}
+  \item \textbf{Ver o endereço que a placa pegou}, pelo console serial
+    (\texttt{screen /dev/ttyUSB0 115200}, conta \texttt{root}):
+    \texttt{ip addr show eth0}. Se não for \texttt{172.16.x.x}, é a rede
+    errada. Quem entregou o endereço aparece em
+    \texttt{grep -h dhcp-server-identifier /var/lib/dhcp/dhclient*.leases}.
+  \item \textbf{Trocar o cabo de lugar}: ligá-lo no mesmo switch ou ponto de
+    rede da outra placa, que está funcionando.
+  \item \textbf{Pedir um endereço novo, sem reiniciar a placa}, no console
+    serial: \texttt{ifdown eth0} e depois \texttt{ifup eth0}. Conferir de novo
+    com \texttt{ip addr show eth0}.
+  \item \textbf{Terminar a preparação sem reprogramar a FPGA}, na estação:
+    \texttt{./morphe-up.sh -{}-skip-fpga -{}-board <ip>}. O \opt{skip-fpga}
+    preserva o \emph{tether}, que já está contando desde a programação.
+\end{enumerate}
+
+Se o endereço novo for diferente do anterior dentro da rede certa (o DHCP
+pode trocá-lo), o \arq{morphe-up.sh} com o \opt{board} novo o registra, e os
+clientes o encontram na próxima vez que abrirem. Um endereço que não muda
+exige pedir à TI uma reserva de DHCP para o MAC de cada placa
+(\texttt{02:00:00:6d:70:01} e \texttt{:02}).
+
 \section{Uma placa nova}
 
 Todas as DE1-SoC saem de fábrica com \textbf{o mesmo endereço MAC}
@@ -317,6 +354,10 @@ só ligá-la. Os passos, detalhados em \arq{docs/NOVA-PLACA.md}:
     \addlinespace
     O aplicativo não abre, com erro de importação & pacote instalado com
       \texttt{pip -{}-user} & remover NumPy e Matplotlib juntos \\
+    \addlinespace
+    ``não há caminho de rede até'' a placa, logo depois de programar a FPGA
+      & o cabo de rede da placa está em outra rede (endereço fora de
+        \texttt{172.16.x.x}) & seção~\ref{sec:rede-placa} \\
     \addlinespace
     A placa some da rede depois de ligada & cartão com servidor anterior a
       21/09/2026 no início automático & atualizar o servidor da placa \\
