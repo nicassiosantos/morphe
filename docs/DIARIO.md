@@ -16,6 +16,19 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 28/09/2026 (estação, tarde) — Lista de placas versionada e painel novo, validados
+
+- **`placas.conf` (`3ac8a8e`, `80db34e`):** um clone novo em `/tmp`, sem lista local,
+  achou as duas placas só pela lista versionada (`estado_placas.py` sem argumentos).
+  Com a `.52` retirada da lista daquele clone, a varredura de fundo a achou, gravou em
+  `.morphe-estado/placas` e o painel avisou; na abertura seguinte ela entrou na
+  escolha.
+- **Painel "Placas do laboratório" (`88fa78f`):** uma linha por placa com ponto de cor
+  e estado pela porta de estado, resumo, "você está aqui" e botão Usar. Testado pelo
+  estagiário na estação.
+- **Aquisição, modo "gravar por um tempo":** testado na placa pelo estagiário, deu
+  certo. Falta a senoide do gerador e o modo "ao vivo".
+
 ## 28/09/2026 (estação) — Porta de estado das placas validada nas duas
 
 Branch `estagio/v1.7-adc`, commit `4df101a`. O servidor ganhou uma thread que
