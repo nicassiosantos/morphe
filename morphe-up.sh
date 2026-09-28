@@ -16,6 +16,7 @@
 #   ./morphe-up.sh --cable 'DE-SoC [1-2]'   # quando ha mais de uma placa na estacao
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
+#   ./morphe-up.sh --forca              # nao pergunta se a placa esta em uso
 #   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
 #   ./morphe-up.sh --status             # o que esta no ar agora, placa a placa
 #   ./morphe-up.sh --down               # encerra os tethers de TODAS as placas
@@ -84,6 +85,7 @@ PORTA="$PORTA_PADRAO"
 CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
+FORCA=0             # --forca: reprograma mesmo com a placa em uso, sem perguntar
 FPGA_PROGRAMADA=0   # vira 1 quando o quartus_pgm confirmar, nesta execucao
 PARAR_SERVIDOR=0
 ACAO=up
@@ -95,6 +97,7 @@ while [[ $# -gt 0 ]]; do
         --cable|-c) CABO_PEDIDO="${2:-}"; shift 2 ;;
         --deploy)   FORCA_DEPLOY=1; shift ;;
         --skip-fpga) PULA_FPGA=1; shift ;;
+        --forca|--force) FORCA=1; shift ;;
         --down)     ACAO=down; shift ;;
         --stop-server) PARAR_SERVIDOR=1; shift ;;
         --status)   ACAO=status; shift ;;
@@ -833,8 +836,87 @@ acao_down() {
     ok "pronto"
 }
 
+# ---------------------------------------------------------------------------
+# Antes de mexer: alguem esta usando a placa?
+# ---------------------------------------------------------------------------
+# Reprogramar a FPGA, ou so reiniciar o servidor, interrompe quem estiver no
+# meio de uma operacao -- e em aula isso e um aluno perdendo o exercicio sem
+# saber por que. A porta de estado (UDP, porta+1) diz, sem tocar a FPGA nem
+# entrar na fila, se a placa esta ocupada e quantos computadores a usaram no
+# ultimo minuto. Com uso, o script mostra o que ha e pergunta; --forca pula.
+
+# A placa que este comando vai mexer, ANTES de programar: --board, $MORPHE_BOARD,
+# a do cabo pedido segundo o placas.conf (a linha do cabo traz o nome dele), ou
+# a lembrada. Vazio = nao da para saber; entao nao ha o que conferir.
+placa_alvo_previa() {
+    [[ -n "$PLACA" ]] && { printf '%s' "$PLACA"; return; }
+    [[ -n "${MORPHE_BOARD:-}" ]] && { printf '%s' "$MORPHE_BOARD"; return; }
+    if [[ -n "$CABO_PEDIDO" && -f "$RAIZ/placas.conf" ]]; then
+        local ip
+        ip="$(grep -v '^[[:space:]]*#' "$RAIZ/placas.conf" | grep -F -- "$CABO_PEDIDO" \
+              | awk 'NR==1 {print $1}')"
+        [[ -n "$ip" ]] && { printf '%s' "$ip"; return; }
+    fi
+    [[ -f "$CONF_PLACA" ]] && cat "$CONF_PLACA"
+}
+
+conferir_em_uso() {
+    (( FORCA )) && return 0
+    local ip; ip="$(placa_alvo_previa || true)"
+    [[ -n "$ip" ]] || return 0
+    local py; py="$(achar_python || true)"
+    [[ -n "$py" ]] || return 0
+
+    # Uma linha: livre|ocupada, operacao, ha_s, cliente, recentes, meu IP.
+    # Nenhuma resposta (placa desligada, servidor antigo): nada a conferir.
+    local r
+    r="$(MORPHE_IP="$ip" MORPHE_PORTA="$PORTA" "$py" -c "
+import os, socket
+ip, porta = os.environ['MORPHE_IP'], int(os.environ['MORPHE_PORTA'])
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(1.0)
+try:
+    s.connect((ip, porta + 1))          # conectado: getsockname da o IP de saida
+    s.send(b'MRPS?'); d = s.recv(2048).decode('utf-8', 'replace')
+    eu = s.getsockname()[0]
+except OSError:
+    raise SystemExit(0)
+e = dict(l.split('=', 1) for l in d.splitlines() if '=' in l)
+print('|'.join([e.get('estado', ''), e.get('operacao', ''),
+                '%.1f' % (int(e.get('ha_ms', '0') or 0) / 1000.0), e.get('cliente', ''),
+                e.get('clientes_recentes', '0'), eu]))
+" 2>/dev/null || true)"
+    [[ -n "$r" ]] || return 0
+
+    local estado op ha cliente recentes eu
+    IFS='|' read -r estado op ha cliente recentes eu <<< "$r"
+    [[ "$recentes" =~ ^[0-9]+$ ]] || recentes=0
+    local ocupada_por_outro=0
+    [[ "$estado" == "ocupada" && "$cliente" != "$eu" ]] && ocupada_por_outro=1
+    (( ocupada_por_outro || recentes > 0 )) || return 0
+
+    aviso "a placa $ip esta em uso:"
+    if (( ocupada_por_outro )); then
+        printf '         agora: %s ha %s s, pedida por %s\n' "$op" "$ha" "$cliente"
+    fi
+    if (( recentes > 0 )); then
+        printf '         %s computador(es) a usaram no ultimo minuto (pode incluir este, %s)\n' \
+               "$recentes" "$eu"
+    fi
+    printf '         continuar interrompe quem estiver no meio de uma operacao.\n'
+    if [[ ! -t 0 ]]; then
+        morrer "placa em uso e sem terminal para perguntar." \
+               "espere ficar livre, ou rode de novo com --forca."
+    fi
+    local resposta=""
+    read -r -p "    continuar mesmo assim? [s/N] " resposta || true
+    [[ "$resposta" == [sS]* ]] || morrer "cancelado: nada foi mexido na placa $ip." \
+        "para ver quando ela fica livre: python3 Python/ferramentas/estado_placas.py --seguir"
+}
+
 acao_up() {
     passo "preparando a plataforma Morphe"
+
+    conferir_em_uso
 
     if (( PULA_FPGA )); then
         aviso "--skip-fpga: a FPGA nao sera tocada"

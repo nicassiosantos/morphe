@@ -76,10 +76,11 @@ placa (a escolha divide a turma, mas não impede duas pessoas na mesma placa),
 \textbf{troca automática de placa} durante o uso, e \textbf{IP fixo} para as
 placas (reserva de DHCP na TI).
 
-Um passo pequeno e útil que ficou para depois: o \arq{morphe-up.sh} consultar a
-porta de estado antes de reprogramar uma placa e avisar se alguém a usou no
-último minuto --- hoje ele reprograma sem perguntar, e interrompe quem estiver
-usando.
+A mesma porta de estado protege quem está usando uma placa: o
+\arq{morphe-up.sh} a consulta antes de reprogramar e pergunta se deve
+continuar quando a placa está em uso. Mas a pergunta só funciona para quem roda
+o script; nada impede, por exemplo, alguém de gravar um projeto próprio pelo
+Quartus numa placa que está servindo a turma.
 
 \paragraph{Instalação nos computadores.} O Quartus tem um instalador
 (\arq{instala-quartus.sh}); o aplicativo, não: a instalação nos outros

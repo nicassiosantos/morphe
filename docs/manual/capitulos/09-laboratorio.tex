@@ -59,6 +59,17 @@ se não houver a 20.1 em lugar nenhum. Ele também \textbf{recusa rodar como
 \texttt{root}, que nenhuma outra conta consegue encerrar, e pediu a senha da
 placa três vezes.
 
+\paragraph{Conferir se a placa está em uso.} Antes de mexer em qualquer coisa,
+o script pergunta à porta de estado da placa (seção~\ref{sec:porta-estado}) se
+ela está ocupada e quantos computadores a usaram no último minuto. Havendo uso,
+mostra o que é (``agora: convolução há 0,3\,s, pedida por 172.16.101.40'') e
+pergunta se deve continuar, porque reprogramar a FPGA, ou só reiniciar o
+servidor, interrompe quem estiver no meio de uma operação. Sem terminal para
+perguntar, ele para. A placa conferida é a do \opt{board}; com só o
+\opt{cable}, a que o \arq{placas.conf} associa àquele cabo; senão, a lembrada.
+Placa que não responde na porta de estado (desligada, ou com servidor antigo)
+não é conferida. O \opt{forca} pula a pergunta.
+
 \paragraph{Descobrir o cabo.} O nome do cabo JTAG (\texttt{DE-SoC [1-1]},
 \texttt{[1-2]}, \ldots) depende da porta USB. O script o lê do
 \texttt{jtagconfig}, em vez de supor.
@@ -94,6 +105,7 @@ que os clientes leem (capítulo~\ref{cap:placas}).
     \opt{cable} \textit{nome} & usa este cabo JTAG, quando há mais de um \\
     \opt{deploy} & reenvia e recompila o servidor mesmo sem mudança \\
     \opt{skip-fpga} & só o servidor, sem reprogramar a FPGA \\
+    \opt{forca} & não pergunta, mesmo com a placa em uso \\
     \opt{setup-ssh} & uma vez por placa e por conta: instala a chave SSH
       (seção~\ref{sec:ssh}) \\
     \opt{status} & mostra, placa a placa, o que está no ar e se o
@@ -161,8 +173,9 @@ servidor ou o bitstream, rode o \arq{morphe-up.sh} de novo.
 \paragraph{Qualquer conta prepara a placa.} Com o Quartus em \arq{/opt} e a
 regra do USB-Blaster liberando o cabo para todos, o aluno também roda o
 \arq{morphe-up.sh}. O preço: o \arq{morphe-up.sh} de uma pessoa reprograma a
-FPGA e interrompe quem estiver usando aquela placa. A regra de bolso é rodá-lo
-para \textbf{começar a aula ou consertar uma placa parada}, não durante.
+FPGA e interrompe quem estiver usando aquela placa. Desde 28/09/2026 ele avisa
+e pergunta antes, quando a placa está em uso; ainda assim, a regra de bolso é
+rodá-lo para \textbf{começar a aula ou consertar uma placa parada}, não durante.
 
 \paragraph{As duas contas no mesmo estado.} O \arq{.morphe-estado} é
 compartilhado; o script deixa as pastas com permissão 777 e os arquivos com 666
