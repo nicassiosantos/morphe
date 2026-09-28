@@ -67,13 +67,19 @@ durante a captura, são decisões ainda em aberto.
 
 \section{Infraestrutura}
 
-Descritas no capítulo~\ref{cap:placas}: \textbf{não há alocação de placas}
-(duas pessoas podem cair na mesma placa sem saber), \textbf{o servidor não
-atende em paralelo} nem diz ao cliente que está ocupado, \textbf{a descoberta
-depende de varredura} e \textbf{o estado de cada instalação não é
-compartilhado}. As quatro se resolvem juntas com um serviço que gerencie as
-placas, com reserva por prazo e resposta explícita de ocupação --- o que o plano
-do estágio chamou de versão 1.4.
+Descritas no capítulo~\ref{cap:placas}. Duas melhorias de 28/09/2026 resolveram
+a maior parte do que faltava: a \textbf{porta de estado} diz a qualquer
+momento o que cada placa está fazendo, e o cliente escolhe a placa livre e menos
+usada; o \textbf{\arq{placas.conf}} versionado dá a todos os computadores a mesma
+lista de placas, sem varredura. O que continua faltando: \textbf{reserva} de
+placa (a escolha divide a turma, mas não impede duas pessoas na mesma placa),
+\textbf{troca automática de placa} durante o uso, e \textbf{IP fixo} para as
+placas (reserva de DHCP na TI).
+
+Um passo pequeno e útil que ficou para depois: o \arq{morphe-up.sh} consultar a
+porta de estado antes de reprogramar uma placa e avisar se alguém a usou no
+último minuto --- hoje ele reprograma sem perguntar, e interrompe quem estiver
+usando.
 
 \paragraph{Instalação nos computadores.} O Quartus tem um instalador
 (\arq{instala-quartus.sh}); o aplicativo, não: a instalação nos outros

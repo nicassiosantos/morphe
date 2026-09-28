@@ -72,12 +72,40 @@ def _caminho_placas_conhecidas() -> str:
     return os.path.join(raiz, ".morphe-estado", "placas")
 
 
-def ler_placas_conhecidas() -> List[str]:
-    """Todas as placas preparadas nesta estação, sem repetir.
+def _caminho_placas_laboratorio() -> str:
+    """<raiz>/placas.conf — a lista versionada, igual em todo computador."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(raiz, "placas.conf")
 
-    O morphe-up.sh acumula uma por linha. A placa "lembrada" entra
-    também: num clone que só rodou antes desta lista existir, ela é a
-    única que há.
+
+def ler_placas_laboratorio() -> List[str]:
+    """Os IPs do placas.conf: o primeiro campo de cada linha que não é
+    comentário. Linha que não começa com um IPv4 é ignorada."""
+    ips: List[str] = []
+    try:
+        with open(_caminho_placas_laboratorio(), encoding="utf-8") as f:
+            for linha in f:
+                campo = linha.split("#", 1)[0].split()
+                if not campo:
+                    continue
+                partes = campo[0].split(".")
+                if len(partes) == 4 and all(p.isdigit() and int(p) < 256 for p in partes):
+                    ips.append(campo[0])
+    except OSError:
+        pass
+    return ips
+
+
+def ler_placas_conhecidas() -> List[str]:
+    """Todas as placas que este computador conhece, sem repetir.
+
+    Três fontes, nesta ordem:
+      - .morphe-estado/placas, que o morphe-up.sh acumula na máquina onde
+        roda (a estação);
+      - a placa "lembrada": num clone que só rodou antes desta lista
+        existir, ela é a única que há;
+      - placas.conf, versionado: é o que faz um computador recém-instalado
+        achar as placas sem varrer a rede (desde 28/09/2026).
     """
     ips: List[str] = []
     try:
@@ -86,8 +114,9 @@ def ler_placas_conhecidas() -> List[str]:
     except OSError:
         pass
     lembrada = ler_placa_lembrada()
-    if lembrada and lembrada not in ips:
-        ips.append(lembrada)
+    for ip in ([lembrada] if lembrada else []) + ler_placas_laboratorio():
+        if ip not in ips:
+            ips.append(ip)
     return ips
 
 
@@ -134,7 +163,9 @@ class TcpConfigPanel(ttk.LabelFrame):
             row=0, column=0, sticky="w", pady=(0, 6))
         # A placa preparada pelo morphe-up.sh tem precedência sobre o
         # default fixo — que, no laboratório, nunca é o endereço certo.
-        self.var_host = tk.StringVar(value=ler_placa_lembrada() or default_host)
+        conhecidas = ler_placas_conhecidas()
+        self.var_host = tk.StringVar(value=ler_placa_lembrada()
+                                     or (conhecidas[0] if conhecidas else default_host))
         ttk.Entry(self, textvariable=self.var_host).grid(
             row=0, column=1, sticky="ew", pady=(0, 6))
 
@@ -252,14 +283,14 @@ class TcpConfigPanel(ttk.LabelFrame):
                     srv, quantas, outras = livre
                     self.after(0, self._on_search_success, srv, quantas, outras)
                     return
-            elif lembrada:
-                srv = self._sondar(lembrada, porta)
+            elif conhecidas:
+                srv = self._sondar(conhecidas[0], porta)
                 if srv is not None and srv.preparada:
                     self.after(0, self._on_search_success, srv)
                     return
             try:
                 achados = discover_servers(
-                    subnets=subredes_provaveis(lembrada), port=porta,
+                    subnets=subredes_provaveis(lembrada or (conhecidas[0] if conhecidas else None)), port=porta,
                     connect_timeout=0.3, read_timeout=0.5, max_workers=64,
                     cancel_event=self._cancel_event, stop_on_first=True,
                 )
@@ -471,7 +502,8 @@ class TcpConfigPanel(ttk.LabelFrame):
 
         # Comeca pelo /24 da placa lembrada: as placas trocam de IP por DHCP
         # e ja foram vistas fora dos 101/102/103.
-        subnets = subredes_provaveis(ler_placa_lembrada())
+        conhecidas = ler_placas_conhecidas()
+        subnets = subredes_provaveis(ler_placa_lembrada() or (conhecidas[0] if conhecidas else None))
         port = 5000  # constante do hardware
 
         self._set_busy(True)

@@ -10,7 +10,7 @@ toca a FPGA: pode rodar a qualquer momento, com a turma usando.
     python3 ferramentas/estado_placas.py 172.16.230.24   # so esta
     python3 ferramentas/estado_placas.py --seguir        # atualiza a cada 1 s
 
-Sem argumentos, usa .morphe-estado/placas (o que o morphe-up.sh registrou).
+Sem argumentos, usa o placas.conf (versionado) e o .morphe-estado/placas.
 Placa que nao responde: fora do ar, ou com servidor anterior a 28/09/2026
 (sem a porta de estado) -- nesse caso o OP_PING diz qual das duas.
 """
@@ -47,7 +47,7 @@ def linha(ip: str, porta: int) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("placas", nargs="*", help="IPs; sem nada, .morphe-estado/placas")
+    ap.add_argument("placas", nargs="*", help="IPs; sem nada, placas.conf e .morphe-estado/placas")
     ap.add_argument("--porta", type=int, default=5000)
     ap.add_argument("--seguir", action="store_true", help="repete a cada 1 s (Ctrl+C sai)")
     a = ap.parse_args()

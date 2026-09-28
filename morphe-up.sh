@@ -348,6 +348,12 @@ lembrar_placa() {
     local atuais=""
     [[ -f "$CONF_PLACAS" ]] && atuais="$(grep -v -x -F "$ip" "$CONF_PLACAS" || true)"
     { [[ -n "$atuais" ]] && printf '%s\n' "$atuais"; printf '%s\n' "$ip"; } | grava_estado "$CONF_PLACAS"
+    # A lista versionada e o que os outros computadores leem. Placa fora dela
+    # so e achada la por varredura -- quase sempre porque o DHCP trocou o IP.
+    if [[ -f "$RAIZ/placas.conf" ]] && ! grep -q "^[[:space:]]*${ip//./\\.}[[:space:]]" "$RAIZ/placas.conf"; then
+        aviso "$ip nao esta em placas.conf: os outros computadores nao a acham sem varrer a rede."
+        aviso "corrija o placas.conf (o IP pode ter mudado por DHCP), faca commit e git pull nos PCs."
+    fi
 }
 
 programar_fpga() {

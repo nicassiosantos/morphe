@@ -29,13 +29,22 @@ versão, e despachar pelo campo \texttt{opcode} para uma função por operação
 \texttt{handle\_adc\_continuo} e \texttt{handle\_ping}. Um opcode desconhecido
 recebe o status \texttt{BAD\_OPCODE}.
 
-Não há \emph{fork}, \emph{threads} nem fila própria. Quem espera é o sistema
-operacional: enquanto uma operação está sendo atendida, as conexões seguintes
-ficam na fila do \texttt{listen}. Essa escolha é do projeto original e foi
-mantida porque é correta: a FPGA tem um acelerador de cada tipo, e duas
-operações ao mesmo tempo no mesmo acelerador seriam um erro. O que ela custa em
-latência quando vários alunos usam a mesma placa está medido no
+As operações não correm em paralelo: não há \emph{fork} nem fila própria. Quem
+espera é o sistema operacional: enquanto uma operação está sendo atendida, as
+conexões seguintes ficam na fila do \texttt{listen}. Essa escolha é do projeto
+original e foi mantida porque é correta: a FPGA tem um acelerador de cada tipo,
+e duas operações ao mesmo tempo no mesmo acelerador seriam um erro. O que ela
+custa em latência quando vários alunos usam a mesma placa está medido no
 capítulo~\ref{cap:placas}.
+
+A única outra \emph{thread} é a da \textbf{porta de estado} (UDP, porta 5001,
+desde 28/09/2026). O laço principal anota, ao começar e ao terminar cada
+operação, qual é, desde quando e de qual computador; a \emph{thread} responde
+isso a quem perguntar, na hora, mesmo com a placa ocupada. Ela não toca a FPGA
+--- só essas anotações, protegidas por um \emph{mutex}, e a marca de FPGA
+preparada --- e, se a porta não abrir, o servidor segue sem ela. O
+capítulo~\ref{cap:placas} (seção~\ref{sec:porta-estado}) descreve o que ela
+responde e quem usa.
 
 \subsection*{Uma função por operação, todas com o mesmo roteiro}
 

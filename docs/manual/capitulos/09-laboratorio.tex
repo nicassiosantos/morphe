@@ -240,9 +240,10 @@ conta com \texttt{sudo}:
 \begin{enumerate}
   \item clonar o repositório em \arq{/opt/morphe} e dar a leitura ao grupo dos
     alunos, como na estação;
-  \item escrever \arq{/opt/morphe/.morphe-estado/placas} com os endereços das
-    placas, um por linha, para o aplicativo não depender da varredura;
   \item abrir o aplicativo da conta do aluno e conferir que ele acha as placas.
+    Não é preciso escrever lista nenhuma: o aplicativo lê o
+    \arq{placas.conf}, que vem com o repositório (seção~\ref{sec:porta-estado}
+    e anterior).
 \end{enumerate}
 
 Não é preciso rodar o \arq{morphe-up.sh} nesses computadores: as placas são
@@ -337,9 +338,9 @@ só ligá-la. Os passos, detalhados em \arq{docs/NOVA-PLACA.md}:
       & servidor novo com bitstream antigo & \arq{./morphe-up.sh} com o
         bitstream que tem o ADC \\
     \addlinespace
-    O aplicativo abre e não acha placa & o \arq{morphe-up.sh} rodou de outra
-      pasta, ou a lista está vazia & rodar de \arq{/opt/morphe}; escrever a
-      lista \\
+    O aplicativo abre e não acha placa & o IP de uma placa mudou e o
+      \arq{placas.conf} está velho, ou as placas não foram preparadas
+      & \texttt{git pull}; \arq{estado_placas.py}; \arq{./morphe-up.sh} \\
     \addlinespace
     \texttt{Permission denied} no \arq{.morphe-estado} & arquivo antigo gravado
       por outra conta & corrigir dono e permissões uma vez (\arq{PREPARACAO.md});
