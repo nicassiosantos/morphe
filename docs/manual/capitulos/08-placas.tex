@@ -25,11 +25,25 @@ O cliente junta as placas que conhece de três fontes, sem repetir:
   \item[\arq{.morphe-estado/placas}] local: toda placa que o
     \arq{morphe-up.sh} já preparou naquela instalação; a última fica também
     em \arq{.morphe-estado/placa}.
-  \item[a varredura] só quando as duas listas estão vazias: o cliente envia um
-    \texttt{PING} a cada endereço das sub-redes prováveis, com até 64
-    conexões em paralelo e prazos curtos, e \textbf{para na primeira placa
-    que achar}.
+  \item[a varredura da rede] um \texttt{PING} a cada endereço das sub-redes
+    prováveis (a da placa conhecida, a do próprio computador e as usadas
+    historicamente no laboratório), com até 64 conexões em paralelo e prazos
+    curtos. Leva alguns segundos.
 \end{description}
+
+As listas e a varredura trabalham juntas:
+
+\begin{itemize}
+  \item \textbf{ao abrir}, o aplicativo conecta pela lista, na hora, e varre a
+    rede em segundo plano. Uma placa preparada que apareça fora da lista ---
+    quase sempre uma que trocou de IP por DHCP --- entra na lista local, passa a
+    disputar a escolha a partir da próxima abertura, e o painel avisa para
+    corrigir o \arq{placas.conf};
+  \item \textbf{se nenhuma placa da lista responder}, a varredura decide: o
+    aplicativo escolhe entre todas as que ela achar;
+  \item \textbf{o botão \emph{Autoconnect}} junta a lista e uma varredura
+    completa, e escolhe entre todas.
+\end{itemize}
 
 Não se deve usar o \arq{morphe-up.sh} só para registrar uma placa: mesmo sem
 reprogramar a FPGA, ele reinicia o servidor e interrompe quem estiver no meio de

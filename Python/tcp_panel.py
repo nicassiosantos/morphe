@@ -120,6 +120,21 @@ def ler_placas_conhecidas() -> List[str]:
     return ips
 
 
+def acrescentar_placa_local(ip: str) -> bool:
+    """Acrescenta ao .morphe-estado/placas uma placa achada pela varredura.
+    Melhor esforço, como o gravar_placa_lembrada. True se acrescentou."""
+    if ip in ler_placas_conhecidas():
+        return False
+    try:
+        caminho = _caminho_placas_conhecidas()
+        os.makedirs(os.path.dirname(caminho), exist_ok=True)
+        with open(caminho, "a", encoding="utf-8") as f:
+            f.write(ip + "\n")
+        return True
+    except OSError:
+        return False
+
+
 def gravar_placa_lembrada(ip: str) -> None:
     """Melhor esforço: um clone somente-leitura não é motivo para falhar."""
     try:
@@ -273,37 +288,76 @@ class TcpConfigPanel(ttk.LabelFrame):
         conhecidas = ler_placas_conhecidas()
 
         def run():
-            # Com mais de uma placa preparada nesta estação, escolher sozinho
-            # a menos ocupada: o servidor atende um cliente por vez, então o
-            # tempo do handshake é uma medida direta de fila. O aluno não
-            # precisa saber que existem duas placas, nem qual é a dele.
+            # As duas fontes, nesta ordem: primeiro a lista (placas.conf e a
+            # local), que responde na hora; a varredura da rede vem depois, em
+            # segundo plano, para achar placa que ficou fora da lista -- quase
+            # sempre uma que trocou de IP por DHCP. Só sem nenhuma placa da
+            # lista respondendo a varredura decide a conexão.
+            escolha = None
             if len(conhecidas) > 1:
-                livre = self._escolher_placa_livre(conhecidas, porta)
-                if livre is not None:
-                    srv, quantas, outras = livre
-                    self.after(0, self._on_search_success, srv, quantas, outras)
-                    return
+                escolha = self._escolher_placa_livre(conhecidas, porta)
             elif conhecidas:
                 srv = self._sondar(conhecidas[0], porta)
                 if srv is not None and srv.preparada:
-                    self.after(0, self._on_search_success, srv)
-                    return
-            try:
-                achados = discover_servers(
-                    subnets=subredes_provaveis(lembrada or (conhecidas[0] if conhecidas else None)), port=porta,
-                    connect_timeout=0.3, read_timeout=0.5, max_workers=64,
-                    cancel_event=self._cancel_event, stop_on_first=True,
-                )
-            except Exception:
-                achados = []
-            achados = [a for a in achados if a.preparada]
-            if achados:
-                self.after(0, self._on_search_success, achados[0])
+                    escolha = (srv, 1, "")
+            if escolha is not None:
+                self.after(0, self._on_search_success, *escolha)
+                threading.Thread(target=self._varrer_fora_da_lista,
+                                 args=(conhecidas, escolha[0].ip, porta),
+                                 daemon=True).start()
+                return
+            achados = self._varrer(lembrada or (conhecidas[0] if conhecidas else None),
+                                   porta)
+            escolha = self._escolher_entre(achados, porta)
+            if escolha is not None:
+                for a in achados:
+                    acrescentar_placa_local(a.ip)
+                self.after(0, self._on_search_success, *escolha)
             else:
                 self.after(0, self._autoconexao_sem_placa, lembrada)
 
         self._search_thread = threading.Thread(target=run, daemon=True)
         self._search_thread.start()
+
+    def _varrer(self, ip_referencia: Optional[str], porta: int) -> List[ServerInfo]:
+        """Varre as sub-redes prováveis INTEIRAS (não para na primeira) e
+        devolve as placas preparadas. Uns poucos segundos."""
+        try:
+            achados = discover_servers(
+                subnets=subredes_provaveis(ip_referencia), port=porta,
+                connect_timeout=0.3, read_timeout=0.5, max_workers=64,
+                cancel_event=self._cancel_event, stop_on_first=False,
+            )
+        except Exception:
+            achados = []
+        return [a for a in achados if a.preparada]
+
+    def _escolher_entre(self, achados: List[ServerInfo], porta: int
+                        ) -> Optional[Tuple[ServerInfo, int, str]]:
+        if not achados:
+            return None
+        if len(achados) == 1:
+            return (achados[0], 1, "")
+        return self._escolher_placa_livre([a.ip for a in achados], porta)
+
+    def _varrer_fora_da_lista(self, conhecidas: List[str], perto_de: str, porta: int):
+        """Depois de conectar pela lista: procura na rede placas que não estão
+        nela. As que achar entram na lista local (valem a partir da próxima
+        abertura) e o painel avisa para corrigir o placas.conf."""
+        novas = [a.ip for a in self._varrer(perto_de, porta) if a.ip not in conhecidas]
+        for ip in novas:
+            acrescentar_placa_local(ip)
+        if novas:
+            try:
+                self.after(0, self._avisa_placas_novas, novas)
+            except RuntimeError:            # a janela fechou
+                pass
+
+    def _avisa_placas_novas(self, novas: List[str]):
+        self.var_status.set(
+            self.var_status.get()
+            + f"\nAchei na rede, fora do placas.conf: {', '.join(novas)}. Já entram "
+              "na escolha a partir da próxima abertura; peça para corrigir o placas.conf.")
 
     @classmethod
     def _escolher_placa_livre(cls, ips: List[str], porta: int
@@ -500,39 +554,37 @@ class TcpConfigPanel(ttk.LabelFrame):
         if self._busy():
             return
 
-        # Comeca pelo /24 da placa lembrada: as placas trocam de IP por DHCP
-        # e ja foram vistas fora dos 101/102/103.
+        # As duas fontes juntas: a lista (placas.conf e a local) e a varredura
+        # completa das sub-redes prováveis -- a da placa lembrada primeiro, porque
+        # as placas trocam de IP por DHCP. Escolhe entre todas as que responderem,
+        # pela porta de estado, e não mais a primeira que a varredura achar.
         conhecidas = ler_placas_conhecidas()
-        subnets = subredes_provaveis(ler_placa_lembrada() or (conhecidas[0] if conhecidas else None))
+        referencia = ler_placa_lembrada() or (conhecidas[0] if conhecidas else None)
         port = 5000  # constante do hardware
 
         self._set_busy(True)
-        self.var_status.set("Buscando servidor Morphe na LAN...")
+        self.var_status.set("Procurando placas: a lista e a rede (alguns segundos)...")
         self.lbl_status.configure(foreground=theme.COLORS["info_fg"])
         self._cancel_event = threading.Event()
         self._success_handled = False
 
-        def on_found(srv: ServerInfo):
-            self.after(0, self._on_search_success, srv)
-
         def run():
-            try:
-                discover_servers(
-                    subnets=subnets, port=port,
-                    connect_timeout=0.3, read_timeout=0.5,
-                    max_workers=64,
-                    on_found=on_found,
-                    cancel_event=self._cancel_event,
-                    stop_on_first=True,
-                )
-            except Exception as e:
-                self.after(0, self._on_search_error, str(e))
-                return
-            if not self._success_handled:
-                if self._cancel_event.is_set():
-                    self.after(0, self._on_search_cancelled)
-                else:
-                    self.after(0, self._on_search_not_found)
+            achados = self._varrer(referencia, port)
+            novas = [a.ip for a in achados if a.ip not in conhecidas]
+            for ip in novas:
+                acrescentar_placa_local(ip)
+            todas = conhecidas + novas
+            escolha = self._escolher_placa_livre(todas, port) if todas else None
+            if escolha is not None:
+                srv, quantas, outras = escolha
+                if novas:
+                    outras = (outras + "; " if outras else "") + \
+                        f"fora do placas.conf: {', '.join(novas)}"
+                self.after(0, self._on_search_success, srv, quantas, outras)
+            elif self._cancel_event.is_set():
+                self.after(0, self._on_search_cancelled)
+            else:
+                self.after(0, self._on_search_not_found)
 
         self._search_thread = threading.Thread(target=run, daemon=True)
         self._search_thread.start()
