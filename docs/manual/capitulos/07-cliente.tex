@@ -1,0 +1,322 @@
+% =============================================================================
+\chapter{O aplicativo cliente}
+\label{cap:cliente}
+% =============================================================================
+
+O aplicativo é o que o aluno vê. Escrito em Python, com Tkinter para as janelas
+e Matplotlib para os gráficos, roda em qualquer PC do laboratório e não precisa
+de nenhum software da Intel. As dependências são o NumPy e o Matplotlib; o SciPy
+é opcional e só é usado pelo projeto de filtros IIR elípticos.
+
+\section{Abrir o aplicativo}
+
+Na instalação de turma (capítulo~\ref{cap:laboratorio}):
+
+\begin{center}
+\ttfamily cd /opt/morphe/Python \&\& python3 morphe\_app.py
+\end{center}
+
+A janela principal abre já procurando a placa. Primeiro tenta as placas que o
+\arq{morphe-up.sh} registrou em \arq{.morphe-estado/placas}; se houver mais de
+uma, sonda todas e fica com a menos ocupada (capítulo~\ref{cap:placas}). Sem
+lista, varre a rede local. O painel de conexão no topo mostra a placa escolhida
+ou, depois de uns seis segundos sem achar nenhuma, diz isso em silêncio, sem
+janela de erro: o gerador de sinais, o comparador e os projetistas de filtro
+funcionam sem placa. O mesmo painel permite digitar um endereço à mão.
+
+\section{As janelas}
+
+A janela principal é um menu de botões, um por ferramenta:
+
+\begin{description}
+  \item[Gerador de Sinais] monta um sinal e o mostra, sem placa. Serve para
+    explorar e para salvar sinais em arquivo.
+  \item[Aquisição (ADC da placa)] lê tensões e captura sinais pela entrada
+    analógica da placa (seção~\ref{sec:janela-aquisicao}).
+  \item[Convolução] dois sinais, \(x[n]\) e \(h[n]\), convoluídos na FPGA. Mostra
+    as entradas, a saída da placa, a referência do NumPy e o erro entre elas.
+  \item[FFT] um sinal, transformado na FPGA; mostra magnitude e fase, compara com
+    o NumPy e permite voltar ao tempo pela IFFT da própria placa.
+  \item[IFFT] um espectro lido de arquivo (\arq{.mrph}, \arq{.npy} complexo ou
+    texto com colunas real e imaginária), transformado de volta na FPGA. Serve
+    para testar a inversa isolada do erro da direta.
+  \item[Filtro FIR] um sinal montado por superposição de componentes, filtrado
+    na FPGA por um FIR que vem do projetista ou de um arquivo de coeficientes.
+  \item[Filtro IIR] a mesma ideia, com um IIR em seções de segunda ordem. O
+    gráfico do meio é a resposta em frequência do projeto e do filtro
+    quantizado. A saída da placa é conferida na hora, bit a bit, contra o
+    modelo em ponto fixo, e a barra de status diz se bateu.
+  \item[Comparar .mrph] abre um pacote salvo (seção~\ref{sec:mrph}) e refaz a
+    conta no computador, sem placa.
+\end{description}
+
+Todas as janelas que usam a placa têm a mesma estrutura: um painel para o sinal
+de entrada, um botão que envia à FPGA, os gráficos (com barra de ferramentas
+para ampliar, deslocar e destacar o gráfico numa janela própria) e uma barra de
+status que diz o que aconteceu, inclusive o tempo que a placa levou.
+
+Existe também uma janela de espectrograma, pronta e validada, que ficou fora do
+menu por decisão do supervisor; as linhas que a ligam estão comentadas no
+\arq{morphe_app.py}, com a marca \texttt{ESPECTROGRAMA}.
+
+\subsection*{De onde vem o sinal}
+
+O painel de sinal de todas as janelas oferece sete tipos:
+
+\begin{itemize}
+  \item cinco gerados: degrau, impulso, senoide, exponencial e retangular, com
+    os seus parâmetros e o número de amostras \(N\);
+  \item \textbf{Arquivo}: um sinal qualquer, lido de \arq{.csv}, \arq{.txt},
+    \arq{.npy} ou \arq{.wav}. Texto com uma coluna (as amostras) ou duas
+    (índice ou tempo, amostra), com vírgula, ponto e vírgula, tabulação ou
+    espaços; aceita a vírgula decimal de planilhas em português. Do
+    \arq{.wav} vem também a taxa de amostragem. O leitor está em
+    \arq{Python/sinal_arquivo.py};
+  \item \textbf{Captura do ADC}: a última captura feita na janela de aquisição.
+\end{itemize}
+
+Com os dois últimos o tamanho do sinal é o do arquivo ou da captura, e pode
+passar muito de 1024 amostras: as janelas então processam por blocos
+(seção~\ref{sec:blocos}). Quando o sinal vem com uma taxa de amostragem e o
+filtro foi projetado com outra, as janelas do FIR e do IIR avisam.
+\arq{exemplos/sinais/} tem arquivos de exemplo para cada janela, com um
+\arq{README.md}.
+
+\subsection*{Os projetistas de filtros}
+
+\paragraph{FIR.} O projetista (\arq{fir_design.py}) tem dois modos. \emph{Por
+especificação}, o padrão: o aluno dá o tipo (passa-baixa, passa-alta,
+passa-banda, rejeita-banda), a borda da banda passante, a largura da transição,
+o \emph{ripple} e a atenuação; o programa escolhe a janela (retangular, Hann,
+Hamming, Blackman ou Kaiser) e calcula quantos coeficientes são necessários. É
+o método do \arq{dsp_fir_filter.m} do Prof.\ Sanca, portado para Python. No modo
+\emph{avançado}, o aluno escolhe o número de coeficientes e a janela. Nos dois,
+o projetista mostra o que o filtro entrega \emph{depois} da quantização em
+Q15.16. Validado na placa em 22/09/2026: 63,0\,dB de rejeição medida contra
+63,3\,dB da referência.
+
+\paragraph{IIR.} O projetista (\arq{iir_design.py}) segue o
+\arq{dsp_iir_filter.m} do Prof.\ Sanca: Butterworth, Chebyshev~I, Chebyshev~II
+e elíptico, nos quatro tipos. A diferença deliberada é a saída: em vez de um
+polinômio de ordem \(N\), ela é uma cascata de seções de segunda ordem, pelos
+motivos da seção~\ref{sec:acel-iir}. O Butterworth e os dois Chebyshev são
+calculados só com NumPy; o elíptico usa o SciPy e só aparece se ele estiver
+instalado. Quatro erros encontrados no \arq{.m} original estão corrigidos no
+módulo Python e documentados nele.
+
+\section{A janela de aquisição}
+\label{sec:janela-aquisicao}
+
+A janela ``Aquisição (ADC da placa)'' depende de a placa ter o bitstream com o
+ADC; se não tiver, a própria mensagem de recusa do servidor aparece na barra de
+status (seção~\ref{sec:marca}). Ela faz duas coisas.
+
+\paragraph{Voltímetro.} Lê a tensão média de 0,1\,s na entrada escolhida, com
+desvio, mínimo e máximo, e pode repetir sozinho para acompanhar um ajuste. Não
+há hardware separado para isso: é uma captura de 2000 amostras a 20\,kHz. O
+intervalo de 0,1\,s contém um número inteiro de ciclos de 50\,Hz e de 60\,Hz,
+então a média cancela o zumbido da rede elétrica.
+
+\paragraph{Captura.} O aluno escolhe a entrada (um dos oito canais contra o
+terra, de 0 a 4,095\,V, ou um dos quatro pares diferenciais, de
+\(\pm 2{,}048\)\,V), a taxa de amostragem (de 1 a 200\,kHz) e o número de
+amostras:
+
+\begin{itemize}
+  \item até 32\,768, a captura é de uma vez, na memória da FPGA;
+  \item acima disso, ou com 0 amostras (sem limite, até clicar em
+    \emph{Parar}), é contínua: a placa envia em blocos enquanto captura
+    (seção~\ref{sec:adc-continuo}).
+\end{itemize}
+
+O gráfico mostra o sinal em volts; acima de 200\,mil pontos, a envoltória. Para
+uma senoide, a janela mede frequência, SINAD e ENOB, que é o jeito de conferir o
+conversor com um gerador de funções (seção~\ref{sec:adc}). A captura pode ser
+salva em \arq{.csv}, \arq{.npy} ou \arq{.wav} e passa a estar disponível como o
+tipo ``Captura do ADC'' em todas as outras janelas. As contas --- a palavra de
+configuração, a taxa real, a conversão para volts, as métricas e a gravação ---
+estão em \arq{Python/aquisicao.py}, separadas da janela.
+
+A taxa real é \(50\,\text{MHz}/\text{divisor}\), com divisor inteiro. Ela é
+exata para as taxas que dividem 50\,MHz; as outras são arredondadas, e a janela
+mostra a taxa real usada (44,1\,kHz, por exemplo, vira 44\,091,7\,Hz).
+
+\section{Os módulos}
+
+As janelas são finas; o que importa está nos módulos que elas usam.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Os módulos do cliente, em \arq{Python/}.}
+  \label{tab:modulos}
+  \begin{tabularx}{\textwidth}{@{}lX@{}}
+    \toprule
+    \textbf{Módulo} & \textbf{O que faz} \\
+    \midrule
+    \arq{morphe_app.py} & a janela principal e o menu \\
+    \arq{*_window.py} & uma janela por ferramenta \\
+    \arq{signal_panel.py} & o painel de sinal comum a todas as janelas \\
+    \arq{tcp_panel.py} & o painel de conexão: descoberta e escolha da placa \\
+    \arq{morphe_protocol.py} & o protocolo (capítulo~\ref{cap:protocolo}):
+      monta e decodifica as mensagens, abre as conexões, varre a rede \\
+    \arq{morphe_config.py} & os limites do hardware, espelho do
+      \arq{C/morphe_config.h} \\
+    \arq{dsp_core.py} & geração de sinais, conversão para ponto fixo, a
+      referência em ponto flutuante e a leitura e escrita de \arq{.mrph} \\
+    \arq{blocos.py} & o processamento de sinais maiores que o hardware
+      (seção~\ref{sec:blocos}) \\
+    \arq{sinal_arquivo.py} & a leitura de sinais de arquivo \\
+    \arq{aquisicao.py} & as contas do ADC \\
+    \arq{fir_design.py}, \arq{iir_design.py} & os projetistas, e o modelo em
+      ponto fixo do IIR que reproduz a placa bit a bit \\
+    \arq{morphe_theme.py}, \arq{plot_toolbar.py}, \arq{popout_helper.py}
+      & aparência, barra dos gráficos, gráficos em janela própria \\
+    \arq{morphe_export.py} & exporta uma janela aberta para SVG vetorial, para
+      figuras de artigos e deste manual \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{O pacote \texttt{.mrph} e o comparador}
+\label{sec:mrph}
+
+O \arq{.mrph} é o formato de arquivo do Morphe: texto puro, legível em
+qualquer editor. Um arquivo simples tem um cabeçalho com linhas iniciadas por
+\texttt{\#} (data, tipo numérico, tamanho, taxa de amostragem, descrição) e uma
+tabela de valores, com duas colunas para sinais reais (\(n\), valor) e três para
+complexos (\(k\), real, imaginário). Um \emph{pacote} reúne vários sinais num
+arquivo só, em seções iniciadas por \texttt{\#\# section:}, cada uma com o seu
+cabeçalho: numa convolução, \(x\), \(h\) e \(y\); numa FFT, \(x\) e \(X\).
+
+Os pacotes vêm de dois lugares: as janelas salvam o que o aluno fez, e o
+servidor grava um a cada operação na placa (seção~\ref{sec:marca} e seguinte).
+O comparador abre qualquer um deles, identifica a operação, refaz a conta em
+NumPy (no IIR, no modelo em ponto fixo) sobre a mesma entrada e mostra a
+diferença. É o caminho para estudar um resultado depois, sem placa, ou para
+investigar um resultado estranho que um aluno trouxe. \arq{exemplos/} tem
+pacotes reais produzidos pela placa.
+
+\section{Sinais maiores que o hardware: processamento em blocos}
+\label{sec:blocos}
+
+Os aceleradores processam no máximo 1024 amostras por vez. Um arquivo de áudio
+de um segundo tem 44\,100; uma captura do ADC pode ter milhões. O
+\arq{Python/blocos.py} divide o sinal em blocos, manda cada um à placa pelo
+mesmo caminho que as janelas usam para um bloco só, e junta os resultados. São
+três técnicas, uma por tipo de operação, e cada uma tem um argumento de por que
+o resultado é o mesmo que uma operação única daria.
+
+Todas as funções de bloco recebem a operação de \emph{um} bloco como parâmetro:
+na placa, as classes \texttt{ConvPlaca}, \texttt{FirPlaca}, \texttt{FftPlaca},
+\texttt{IfftPlaca} e \texttt{IirPlaca}; nos testes sem placa, o
+\texttt{np.convolve}, o \texttt{np.fft.fft} e o modelo em ponto fixo. Isso
+permite conferir a montagem dos blocos separada do hardware.
+
+\subsection{Convolução e FIR: \emph{overlap-add}}
+
+A convolução é linear e invariante no tempo. Cortando \(x\) em blocos \(x_i\) de
+\(L\) amostras,
+\[
+  x[n] = \sum_i x_i[n - iL]
+  \quad\Longrightarrow\quad
+  (x * h)[n] = \sum_i (x_i * h)[n - iL].
+\]
+Cada \(x_i * h\) é uma convolução que cabe na placa, com \(L + M - 1\) amostras
+de saída; as caudas de \(M - 1\) amostras de blocos vizinhos se sobrepõem e são
+somadas (Figura~\ref{fig:overlap-add}). Se \(h\) também passa de 1024
+amostras, é cortado do mesmo jeito, e cada par de pedaços vira uma requisição.
+O resultado é exatamente a convolução linear: a única diferença para uma
+operação única é a quantização em Q15.16, que já existia.
+
+\begin{figure}[htbp]
+  \centering
+  \figura{overlap-add}
+  \caption{\emph{Overlap-add}: cada bloco de \(L\) amostras é convoluído na
+    placa; as caudas de \(M-1\) amostras se somam.}
+  \label{fig:overlap-add}
+\end{figure}
+
+\subsection{FFT e IFFT: o algoritmo de quatro passos}
+
+Uma DFT de \(N = M \cdot 1024\) pontos se decompõe em DFTs de 1024 e DFTs de
+\(M\) pontos, ligadas por fatores de giro. É a decomposição de Cooley--Tukey
+com \(N_1 = M\) e \(N_2 = 1024\). Com \(n = n_1 + M n_2\) e
+\(k = 1024\,k_1 + k_2\):
+\[
+  X[1024\,k_1 + k_2] = \sum_{n_1=0}^{M-1} W_M^{n_1 k_1}\;
+    W_N^{n_1 k_2}\;
+    \underbrace{\mathrm{FFT}_{1024}\{x[n_1 + M n_2]\}[k_2]}_{\text{na placa}}.
+\]
+Em quatro passos (Figura~\ref{fig:quatro-passos}):
+
+\begin{enumerate}
+  \item a placa faz \(M\) FFTs de 1024 pontos, uma por subsequência
+    \(x[n_1], x[n_1 + M], x[n_1 + 2M], \ldots\);
+  \item cada resultado é multiplicado pelos fatores de giro \(W_N^{n_1 k_2}\);
+  \item o PC faz 1024 DFTs de \(M\) pontos, uma por coluna \(k_2\);
+  \item a matriz resultante, lida por linhas, é \(X[k]\) na ordem natural.
+\end{enumerate}
+
+\begin{figure}[htbp]
+  \centering
+  \figura{quatro-passos}
+  \caption{FFT de \(N = M\cdot 1024\) pontos pelo algoritmo de quatro passos:
+    \(M\) FFTs de 1024 na placa, fatores de giro e DFTs de \(M\) pontos no PC.}
+  \label{fig:quatro-passos}
+\end{figure}
+
+Não é uma aproximação: é a mesma DFT, com a conta dividida. A precisão é a das
+FFTs da placa, cada uma normalizada por conta própria, mais a do ponto
+flutuante de 64 bits do PC, desprezível perto dela. O sinal é completado com
+zeros até o múltiplo de 1024 acima. A IFFT longa é a mesma decomposição no
+sentido inverso, e por isso exige que o espectro já tenha um número de pontos
+múltiplo de 1024.
+
+A escolha foi deliberada: um espectrograma (FFTs de quadros sobrepostos) também
+processaria sinais longos, mas mudaria o significado da janela da FFT, que é
+mostrar \emph{a} transformada do sinal.
+
+\subsection{IIR: blocos com aquecimento}
+
+O IIR não se decompõe assim. A saída em \(n\) depende de toda a entrada
+anterior, e o bloco da placa sempre começa com o estado zerado. A solução é a
+usual: cada bloco começa \(A\) amostras \emph{antes} do trecho que interessa, e
+as primeiras \(A\) saídas são descartadas (Figura~\ref{fig:iir-blocos}). Se o
+aquecimento for longo o bastante para o transitório do estado zero morrer, o
+trecho guardado coincide com o do filtro rodando sem parar.
+
+\begin{figure}[htbp]
+  \centering
+  \figura{iir-blocos}
+  \caption{IIR por blocos: cada bloco começa algumas amostras antes
+    (\emph{aquecimento}) e essa parte da saída é descartada.}
+  \label{fig:iir-blocos}
+\end{figure}
+
+O aquecimento é calculado pelo polo de maior módulo \(|p|\): o transitório
+decai como \(|p|^n\), e o critério é ele cair abaixo de meio passo do Q15.16,
+\[
+  A = \left\lceil 1{,}5 \cdot \frac{\ln 2^{-17}}{\ln |p|} \right\rceil
+      + 8 \cdot (\text{número de seções}),
+\]
+com a folga de 50\,\% e o termo por seção cobrindo os polos repetidos. Um filtro
+com polos muito perto do círculo unitário pode precisar de um aquecimento maior
+que o próprio bloco; nesse caso o cliente recusa com uma mensagem que explica
+por quê.
+
+Para a conferência bit a bit da janela continuar valendo, o modelo em Python
+roda com \emph{os mesmos blocos}: placa e modelo batem exatamente. A distância
+entre os blocos e o filtro contínuo é medida à parte e mostrada em LSB. Em ponto
+fixo ela nem sempre chega a zero, porque o arredondamento na realimentação pode
+fazer estados iniciais diferentes convergirem para bits diferentes: medido em
+23/09/2026, 0\,LSB num Butterworth de ordem 4 com corte em 1\,kHz e 4 a 8\,LSB
+num de ordem 2 com corte em 100\,Hz, ambos a 8\,kHz.
+
+\subsection{O custo}
+
+Cada bloco é uma requisição, e a placa atende cerca de 8 por segundo
+(capítulo~\ref{cap:placas}). Uma convolução de 5000 amostras por um filtro de 67
+coeficientes são 5 requisições; um FIR sobre 5\,s de áudio a 44,1\,kHz são 216,
+perto de meio minuto. Enquanto isso, a barra de status das janelas mostra o
+bloco em curso (``Bloco 3 de 5 na FPGA'').

@@ -1,0 +1,253 @@
+% =============================================================================
+\chapter{Desenvolvimento e verificação}
+\label{cap:desenvolvimento}
+% =============================================================================
+
+Este capítulo é para quem vai mudar o sistema: acrescentar uma operação,
+alterar um acelerador ou recompilar o hardware. Ele descreve o processo que foi
+usado para o IIR e para o ADC, os testes que existem e as regras que evitam os
+erros que já aconteceram.
+
+\section{Três regras antes de começar}
+
+\paragraph{O bitstream, o \texttt{hps\_0.h} e o servidor são um conjunto.}
+Misturar um bitstream de uma versão com um \arq{hps_0.h} de outra
+\textbf{não produz erro}: o servidor escreve em endereços válidos, porém
+errados, e devolve zeros ou lixo. Foi essa a causa de dias de investigação
+equivocada durante a expansão para 1024 pontos. O comando
+\texttt{python3 Quartus/gen\_hps\_header.py -{}-check} confere, sem Quartus, se
+o \arq{hps_0.h} corresponde ao \arq{soc_system.sopcinfo} ao lado; é a primeira
+coisa a rodar diante de um resultado inexplicável.
+
+\paragraph{O \texttt{hps\_0.h} é gerado, nunca editado.} Um cabeçalho escrito à
+mão descreve um hardware que não existe. Ele sai do \arq{.sopcinfo}, que sai
+do Platform Designer. Até para um teste rápido, gere.
+
+\paragraph{O repositório manda, não a placa.} Quando o que está numa placa
+diverge do repositório, o certo é descobrir por quê e levar a correção ao
+repositório --- nunca copiar da placa para o repositório o que não se sabe de
+onde veio. Em 15/09/2026, na primeira compilação feita inteiramente a partir do
+repositório, a IFFT travou: o \arq{fft_wrapper.v} versionado não era o que tinha
+gerado o bitstream em uso, porque uma correção do autor existia só numa cópia
+na estação. Até ali o repositório reproduzia o bitstream, mas não a
+compilação. O \arq{PROVENIENCIA.sha256} (seção~\ref{sec:proveniencia}) existe
+para que isso não se repita.
+
+\section{Recompilar o bitstream}
+\label{sec:recompilar}
+
+O projeto do Quartus está em \arq{Quartus/}: o sistema do Platform Designer
+(\arq{soc_system.qsys}), o topo (\arq{ghrd_top.v}), os aceleradores e as
+restrições (\arq{soc_system.qsf}, \arq{soc_system_timing.sdc}). A compilação é
+feita na estação, no clone de desenvolvimento da conta do coordenador ---
+onde ficam as pastas de trabalho do Quartus --- e não em \arq{/opt/morphe}. Os
+guias passo a passo são \arq{docs/COMPILAR-IIR.md} e
+\arq{docs/COMPILAR-ADC.md}; o roteiro geral é este:
+
+\begin{enumerate}
+  \item \textbf{Simular primeiro.} Se o acelerador tem testbench, ele tem de
+    passar antes de gastar meia hora de compilação
+    (seção~\ref{sec:testbenches}).
+  \item \textbf{Gerar o sistema.} Depois de mudar o \arq{.qsys}:
+    \begin{center}\ttfamily\small
+    qsys-generate soc\_system.qsys -{}-synthesis=VERILOG -{}-family="Cyclone V" -{}-part=5CSEMA5F31C6
+    \end{center}
+  \item \textbf{Regenerar os endereços:} \texttt{python3 gen\_hps\_header.py}.
+    Conferir que os símbolos novos apareceram no \arq{C/hps_0.h}; se algum
+    faltar, o Platform Designer não gerou o módulo.
+  \item \textbf{Compilar} (cerca de 30 minutos):
+    \texttt{quartus\_sh -{}-flow compile soc\_system.qpf}.
+  \item \textbf{Conferir recursos e tempo.} Em \arq{output_files/} ficam o
+    resumo de ocupação, \arq{soc_system.fit.summary}, e a análise de tempo,
+    \arq{soc_system.sta.rpt}, em que a frequência máxima que vale é a do
+    modelo ``\emph{Slow 1100mV 85C}''. Ela precisa
+    ficar acima de 50\,MHz. O \arq{relatorio_timing.tcl} lista os caminhos
+    críticos quando não fica.
+  \item \textbf{Programar e testar o que já funcionava}, antes do que é novo:
+    \arq{./morphe-up.sh} (que recompila o servidor, porque o \arq{hps_0.h}
+    mudou) e os testes da seção~\ref{sec:testes}.
+  \item \textbf{Registrar.} Regerar a proveniência, versionar o bitstream, o
+    \arq{.sopcinfo} e o \arq{hps_0.h} gerados, e anotar os números no
+    \arq{docs/DIARIO.md}.
+\end{enumerate}
+
+\paragraph{Armadilhas conhecidas.}
+\begin{itemize}
+  \item Os \arq{iir_*.v} \textbf{não estão listados} no \arq{.qsf}: o Quartus
+    os acha por estarem na pasta do projeto. Movê-los quebra a compilação.
+  \item Depois de um \texttt{qsys-generate}, o bitstream \emph{tem} de ser
+    recompilado e reprogramado: o \texttt{sysid} muda, e o servidor passa a
+    recusar o ADC com o bitstream antigo (seção~\ref{sec:marca}). É o
+    comportamento desejado.
+  \item No clone de desenvolvimento da estação, nunca use
+    \texttt{git reset -{}-hard}: há arquivos de trabalho do Quartus rastreados
+    por engano.
+  \item Alguns terminais da estação abrem em \texttt{ksh}, que não lê o
+    \arq{.bashrc}: se um comando do Quartus der \texttt{not found}, digite
+    \texttt{bash} antes.
+\end{itemize}
+
+\paragraph{Quando o tempo não fecha.} Foi o que aconteceu na primeira
+compilação do IIR (49,11\,MHz, 14/09/2026). O \arq{relatorio_timing.tcl}
+mostrou que os quinze piores caminhos eram o mesmo: num único ciclo, o
+multiplexador que escolhe os operandos da seção corrente entre as 16, as cinco
+multiplicações de 32 bits, a soma de 72 bits, o arredondamento, a saturação e a
+escrita de volta --- 19,7\,ns de lógica em 20\,ns. A correção foi um estado
+\texttt{S\_SEL} no \arq{iir_cascade.v}, que copia os operandos para
+registradores antes do cálculo; o registrador no meio da lógica é o que
+encurta o caminho (um simples estado de espera não mudaria nada, porque o
+analisador mede de registrador a registrador). A latência subiu de 24 para 35
+ciclos por amostra, o resultado não mudou --- o mesmo teste bit a bit provou
+isso --- e a compilação seguinte fechou a 60,99\,MHz.
+
+\section{Testbenches}
+\label{sec:testbenches}
+
+Os aceleradores escritos no estágio têm testbench em Icarus Verilog, que roda
+no Linux e no Windows sem Quartus.
+
+\begin{description}
+  \item[\arq{Quartus/roda_tb_iir.sh}] simula uma seção (\arq{tb_iir_sos.v}) e a
+    cascata (\arq{tb_iir_cascade.v}) contra vetores gerados pelo
+    \arq{Python/ferramentas/gera_vetores_iir.py}, a partir do modelo em ponto
+    fixo do \arq{iir_design.py}. O critério é igualdade \textbf{bit a bit} em
+    todas as amostras.
+  \item[\arq{Quartus/roda_tb_adc.sh}] simula o \arq{adc_captura.v} contra um
+    modelo do LTC2308 que confere os tempos da folha de dados: captura única a
+    várias taxas, divisor abaixo do mínimo, memória cheia, captura contínua com a
+    memória dando a volta, parada no meio de um quadro, e captura única depois
+    da contínua. Confere o período exato, o canal, a ordem dos bits e, na
+    contínua, que o contador corresponde à última amostra gravada.
+\end{description}
+
+Os dois terminam imprimindo \texttt{TUDO OK} ou a primeira divergência.
+
+\section{Testes contra a placa}
+\label{sec:testes}
+
+As ferramentas de teste ficam em \arq{Python/ferramentas/} e rodam de dentro de
+\arq{Python/}, com o endereço da placa como argumento. Todas conferem
+resultados contra uma referência, e não só a ausência de erro.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Os testes contra a placa.}
+  \label{tab:testes}
+  \begin{tabularx}{\textwidth}{@{}lX@{}}
+    \toprule
+    \textbf{Ferramenta} & \textbf{O que confere} \\
+    \midrule
+    \arq{Quartus/morphe_ping.py} & os quatro testes do \arq{morphe-up.sh}:
+      conexão, protocolo, convolução de impulso, FFT de impulso \\
+    \arq{testa_bit_inverse.py} & o bit \texttt{inverse} do núcleo da FFT e a
+      convenção \(1/N\) \\
+    \arq{testa_ifft_roundtrip.py} & sinal \(\to\) FFT \(\to\) IFFT \(\to\) sinal,
+      contra o NumPy \\
+    \arq{testa_iir_hw.py} & o IIR da placa contra o modelo em ponto fixo, bit a
+      bit, em vários filtros \\
+    \arq{testa_blocos.py} & o processamento em blocos (sem placa, contra o
+      NumPy; com \opt{placa}, contra a placa) e a leitura de arquivos \\
+    \arq{testa_concorrencia.py} & vários clientes ao mesmo tempo, conferindo
+      cada resposta (capítulo~\ref{cap:placas}) \\
+    \arq{testa_adc.py} & o ADC em degraus: \texttt{basico} (sem nada ligado),
+      \texttt{tensao} (com multímetro), \texttt{senoide} (com gerador),
+      \texttt{continuo} (captura longa, conferindo as emendas) e
+      \texttt{canais} \\
+    \arq{compara_professor_fpga.py} & o \arq{dsp_iir_filter.m} do
+      Prof.\ Sanca contra a placa, separando o custo do ponto fixo do que é
+      limitação do MATLAB \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Depois de qualquer bitstream novo, a sequência mínima é o
+\arq{morphe-up.sh} (quatro testes), \arq{testa_ifft_roundtrip.py},
+\arq{testa_iir_hw.py} e \arq{testa_blocos.py} \opt{placa}. Foi o que se rodou
+em 24/09/2026 com o bitstream do ADC, antes de testar o ADC: nada do que já
+existia mudou.
+
+\paragraph{O tempo como diagnóstico.} Cada operação tem um tempo típico na
+placa (cerca de 170\,ms na FPGA para uma convolução de 1024 por 1024, cerca de
+21\,ms de ponta a ponta para a FFT), e o servidor o registra em cada operação.
+Um tempo muito menor é sinal de defeito, não de sorte: um bitstream mal
+compilado já foi visto terminar a convolução em 3,3\,ms sem ter calculado nada.
+
+\paragraph{Diagnóstico sem o servidor.} Quando é preciso saber se o problema
+está no servidor ou no hardware, dá para escrever e ler as memórias e os
+registradores direto pelo \arq{/dev/mem}, na placa. O procedimento está no item
+15 do \arq{docs/RESSALVAS.md}.
+
+\section{Sem placa: o servidor em simulação}
+
+O servidor em C pode ser exercitado sem placa. Em 24/09/2026, para o ADC, o
+\arq{morphe_server.c} foi compilado num Linux x86 com o \arq{/dev/mem} trocado
+por memória comum e uma \emph{thread} fazendo o papel do \arq{adc_captura.v}. Isso
+permitiu testar a captura contínua (sequências idênticas amostra por amostra em
+100 mil amostras, perda forçada, cliente que fecha a conexão no meio) antes da
+primeira compilação do bitstream. O mesmo arranjo serve para qualquer operação
+nova: o servidor não sabe que a memória não é a da FPGA.
+
+\section{A proveniência}
+\label{sec:proveniencia}
+
+O \arq{PROVENIENCIA.sha256}, na raiz, lista o \emph{hash} SHA-256 do conjunto
+inseparável: os fontes de hardware que viram bitstream (\arq{conv1d.v},
+\arq{fft_wrapper.v}, \arq{iir_*.v}, \arq{adc_captura.v}, \arq{ghrd_top.v},
+\arq{soc_system.qsys}), o \arq{.sopcinfo}, o bitstream, o \arq{hps_0.h}, o
+\arq{morphe_config.h} e o servidor. O cabeçalho diz em que máquina, de que
+\emph{commit} e com que validação ele foi gerado.
+
+Conferir um clone é um comando, da raiz:
+
+\begin{center}
+\ttfamily sha256sum -c PROVENIENCIA.sha256
+\end{center}
+
+Regerar é tarefa de quem compilou e validou, na máquina onde o fez, logo depois
+da validação:
+
+\begin{center}
+\ttfamily ./gera\_proveniencia.sh "morphe\_ping 4/4; IFFT 0 falhas; Fmax 61,56 MHz"
+\end{center}
+
+O script se recusa a rodar sem a frase de validação: proveniência sem validação
+não é proveniência. Ele existe porque o arquivo, editado à mão, ficou
+desatualizado duas vezes.
+
+\section{Fluxo de trabalho com o \texttt{git}}
+
+\begin{itemize}
+  \item O repositório de trabalho é o \emph{fork} \texttt{nicassiosantos/morphe}
+    no GitHub. O ramo principal do estágio é
+    \texttt{estagio/v1.1-1024pontos}; cada mudança de hardware nasce num ramo
+    próprio (\texttt{estagio/v1.3-iir-hw}, \texttt{estagio/v1.7-adc}) e só é
+    mesclada depois de validada na placa. Enquanto isso, o bitstream do ramo
+    principal continua valendo.
+  \item Na estação, o clone de desenvolvimento e o \arq{/opt/morphe} só recebem
+    mudanças por \texttt{git pull}. O que for gerado na estação (bitstream,
+    \arq{.sopcinfo}, \arq{hps_0.h}) é versionado de lá.
+  \item Antes de um \texttt{pull} em \arq{/opt/morphe}, confira o ramo
+    (\texttt{git branch -vv}).
+  \item Toda validação vai para o \arq{docs/DIARIO.md}, com o número medido e
+    onde foi medido; trabalho escrito e não validado fica marcado como tal.
+\end{itemize}
+
+\section{Acrescentar um acelerador}
+
+Juntando tudo, o caminho de um acelerador novo, na ordem que evita retrabalho:
+
+\begin{enumerate}
+  \item um modelo em Python, em ponto fixo, que defina o resultado esperado bit
+    a bit --- e o estudo de viabilidade numérica nele, antes de qualquer
+    Verilog (foi assim com o IIR: o \arq{estuda_iir_ponto_fixo.py} respondeu
+    se o Q15.16 bastava antes de o RTL existir);
+  \item o RTL, obedecendo ao protocolo comum de \texttt{start} e \texttt{done}
+    (seção~\ref{sec:aceleradores}), e o seu testbench contra o modelo;
+  \item memórias e registradores no Platform Designer, nos primeiros endereços
+    livres, sem mover os existentes; a instância no \arq{ghrd_top.v};
+  \item a compilação (seção~\ref{sec:recompilar});
+  \item a operação no protocolo e no servidor (seção~\ref{sec:novo-opcode});
+  \item um teste contra a placa, em \arq{Python/ferramentas/};
+  \item a janela, por último.
+\end{enumerate}

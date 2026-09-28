@@ -1,27 +1,23 @@
-% ADC: o que existe hoje (linha cheia) e o que falta (tracejado).
-\begin{tikzpicture}[node distance=6mm]
-  % ---- Hoje ---------------------------------------------------------------
-  \node[caixa, fill=white, text width=16mm] (con) {conector\\analógico\\\scriptsize CH0--CH7};
-  \node[caixa, fill=black!6, right=of con, text width=23mm] (ltc) {LTC2308\\\scriptsize 12 bits, 8 canais\\0--4,095\,V};
-  \node[fpga, right=18mm of ltc, text width=31mm] (up) {controlador do\\University Program\\\scriptsize\itshape instância comentada};
+% O caminho da aquisicao, do conector a memoria que o servidor le.
+\begin{tikzpicture}[node distance=7mm]
+  \node[caixa, fill=white, text width=17mm] (con) {conector J15\\\scriptsize CH0--CH7\\0--4,095\,V};
+  \node[caixa, fill=black!6, right=of con, text width=21mm] (ltc) {LTC2308\\\scriptsize 12 bits, 8 canais};
+  \node[fpga, right=19mm of ltc, text width=30mm] (ctl) {\texttt{adc\_captura.v}\\\scriptsize \texttt{CONVST} a cada \(D\) ciclos\\\(f_s = 50\,\text{MHz}/D\)};
+  \node[mem, right=7mm of ctl, minimum width=18mm, minimum height=9mm, align=center] (buf) {adc\_buf\\32\,768};
+  \node[hps, below=11mm of buf, text width=20mm] (srv) {servidor\\\scriptsize\texttt{OP\_ADC} = 7, 8};
 
   \draw[seta] (con) -- (ltc);
-  \draw[<->, thick] (ltc) -- node[rotulo, above]{SPI, 4 fios}
-                              node[rotulo, below]{\texttt{CONVST}\\\texttt{SCLK DIN}\\\texttt{DOUT}} (up);
+  \draw[<->, thick] (ltc) -- node[rotulo, above]{serial, 4 fios}
+                             node[rotulo, below]{\texttt{SCLK} 12,5\,MHz} (ctl);
+  \draw[seta] (ctl) -- (buf);
+  \draw[seta, cHps] (buf) -- node[rotulo, right]{ponte\\HPS\(\to\)FPGA} (srv);
 
-  % ---- O que falta ----------------------------------------------------------
-  \node[futuro, right=8mm of up, text width=18mm] (pio) {PIO\\\scriptsize leitura avulsa};
-  \node[futuro, below=14mm of ltc, text width=24mm] (ctl) {controlador próprio\\\scriptsize CONVST a \(1/f_s\)};
-  \node[futuro, text width=18mm] (ram) at (ctl -| up) {RAM de\\captura};
-  \node[futuro, text width=18mm] (op) at (ctl -| pio) {opcodes;\\janela\\``Aquisição''};
+  \node[font=\tiny\ttfamily, text=black!70, above=0.5mm of ctl]
+    {PIO: start, done, config, divisor, namostras, contador};
+  \draw[seta, cHps, dashed] (srv.west) -| node[rotulo, pos=0.25, below]{ponte leve} (ctl.south);
 
-  \draw[seta, dashed, cFuturo] (up) -- (pio);
-  \draw[seta, dashed, cFuturo] (pio) -- (op);
-  \draw[seta, dashed, cFuturo] (ltc) -- (ctl);
-  \draw[seta, dashed, cFuturo] (ctl) -- (ram);
-  \draw[seta, dashed, cFuturo] (ram) -- (op);
-
-  \node[rotulo, anchor=north, text=cFuturo!70!black, align=left] at ($(ctl.south)!0.5!(op.south)+(0,-2mm)$)
-    {etapa 1: leitura avulsa, o \emph{voltímetro} (linha de cima)\\
-     etapa 2: captura a \(f_s\) fixa em RAM (linha de baixo)};
+  \node[rotulo, anchor=north west, align=left, text width=78mm] at ($(con.south west)+(0,-6mm)$)
+    {\textbf{captura única}: até 32\,768 amostras, e o \texttt{done} sobe.\\
+     \textbf{contínua}: a memória vira \emph{buffer} circular, o contador diz
+     quantas amostras já foram gravadas, e o servidor as envia em blocos.};
 \end{tikzpicture}

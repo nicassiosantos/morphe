@@ -17,10 +17,11 @@
   \draw[seta] (srv.west) -- node[rotulo, above]{consulta} (mk.east);
 
   % --- FPGA --------------------------------------------------------------
-  \node[mod, fpga] (conv) at (15mm,-48mm)  {\texttt{conv1d}\\convolução};
-  \node[mod, fpga] (fir)  at (45mm,-48mm)  {\texttt{conv1d}\\FIR};
-  \node[mod, fpga] (fft)  at (75mm,-48mm)  {IP FFT II\\FFT e IFFT};
-  \node[mod, fpga] (iir)  at (105mm,-48mm) {\texttt{iir\_cascade}\\IIR};
+  \node[mod, fpga] (conv) at (0,-48mm)     {\texttt{conv1d}\\convolução};
+  \node[mod, fpga] (fir)  at (30mm,-48mm)  {\texttt{conv1d}\\FIR};
+  \node[mod, fpga] (fft)  at (60mm,-48mm)  {IP FFT II\\FFT e IFFT};
+  \node[mod, fpga] (iir)  at (90mm,-48mm)  {\texttt{iir\_cascade}\\IIR};
+  \node[mod, fpga] (adc)  at (120mm,-48mm) {\texttt{adc\_captura}\\ADC};
 
   % Faixas, todas da mesma largura
   \begin{scope}[on background layer]
@@ -37,7 +38,7 @@
   \draw[seta] (proj) -- (dsp);
   \draw[seta] (dsp.north) to[bend left=25] (pro.north);
   \draw[<->, thick, cRede] (pro.south) |- node[rotulo, pos=0.3, left]{TCP\\5000} (srv.east);
-  \foreach \m in {conv, fir, fft, iir}
+  \foreach \m in {conv, fir, fft, iir, adc}
     \draw[seta] (srv.south) -- ++(0,-5mm) -| (\m.north);
   \node[rotulo, right] at ($(srv.south)+(1mm,-2.5mm)$) {\texttt{/dev/mem}};
 \end{tikzpicture}

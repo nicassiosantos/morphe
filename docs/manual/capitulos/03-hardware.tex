@@ -22,29 +22,29 @@ passar por nenhum fio da placa. É essa proximidade que permite ao servidor
 escrever mil amostras numa memória da FPGA como se escrevesse num vetor em C.
 
 A lógica da FPGA roda com o relógio de 50\,MHz da placa (\texttt{CLOCK\_50}).
-A análise de tempo da última compilação (15/09/2026) mede uma frequência máxima
-de 60,99\,MHz para esse domínio: há folga de cerca de 20\,\%. A
-Tabela~\ref{tab:recursos} mostra quanto do chip o projeto ocupa.
+A análise de tempo da última compilação (24/09/2026, com o ADC) mede uma
+frequência máxima de 61,56\,MHz para esse domínio: há folga de cerca de
+20\,\%. A Tabela~\ref{tab:recursos} mostra quanto do chip o projeto ocupa.
 
 \begin{table}[htbp]
   \centering
   \small
-  \caption{Recursos da FPGA ocupados pelo projeto (compilação de 15/09/2026).}
+  \caption{Recursos da FPGA ocupados pelo projeto (compilação de 24/09/2026).}
   \label{tab:recursos}
   \begin{tabular}{@{}lrrr@{}}
     \toprule
     \textbf{Recurso} & \textbf{Usado} & \textbf{Disponível} & \textbf{Ocupação} \\
     \midrule
-    Elementos lógicos (ALMs)      & 11\,140 & 32\,070 & 35\,\% \\
+    Elementos lógicos (ALMs)      & 12\,621 & 32\,070 & 39\,\% \\
     Blocos DSP (multiplicadores)  & 30      & 87      & 34\,\% \\
-    Blocos de memória M10K        & 165     & 397     & 42\,\% \\
+    Memória interna (bits)        & 2\,220\,342 & 4\,065\,280 & 55\,\% \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-O que sobra é bastante: cerca de 230 blocos M10K livres, pouco menos de
-300\,KB, o suficiente para uma memória de captura de dezenas de milhares de
-amostras quando a aquisição pelo ADC for implementada (seção~\ref{sec:adc}).
+A memória de captura do ADC, de 32\,768 palavras, é o que fez a ocupação de
+memória subir de 42\,\% para 55\,\% em relação à compilação anterior (15/09/2026,
+sem o ADC). Ainda sobra quase metade.
 
 \subsection*{O bitstream e a licença da FFT}
 
@@ -74,20 +74,21 @@ O HPS enxerga a FPGA como faixas de endereços. O Morphe usa duas pontes
 
 \begin{figure}[htbp]
   \centering
-  \input{figuras/mapa-memoria}
+  \figura{mapa-memoria}
   \caption{Mapa de memória visto pelo servidor: memórias de dados atrás da
     ponte HPS\(\to\)FPGA e registradores de controle atrás da ponte leve.
     Os endereços são deslocamentos a partir da base de cada ponte.}
   \label{fig:mapa-memoria}
 \end{figure}
 
-\paragraph{As memórias têm duas portas.} Cada uma das treze memórias de dados
+\paragraph{As memórias têm duas portas.} Cada uma das catorze memórias de dados
 é uma RAM interna da FPGA de porta dupla: uma porta está ligada à ponte, para o
-HPS, e a outra ao acelerador. O servidor e o acelerador nunca disputam a mesma
+HPS, e a outra ao acelerador (ou ao controlador do ADC). O servidor e o acelerador nunca disputam a mesma
 porta; o que os separa no tempo é o protocolo de \texttt{start} e \texttt{done}
 (seção~\ref{sec:aceleradores}). As memórias de entrada guardam 1024 palavras de
 32 bits (4\,KB); as de saída da convolução e do FIR, 2047 (8\,KB); a de
-coeficientes do IIR, 5 palavras por seção para até 16 seções.
+coeficientes do IIR, 5 palavras por seção para até 16 seções; a de captura do
+ADC, 32\,768 palavras (128\,KB).
 
 \paragraph{Como o servidor chega lá.} O servidor abre \arq{/dev/mem} e mapeia
 as duas faixas no próprio espaço de endereços com \texttt{mmap}; a partir daí,
@@ -117,14 +118,15 @@ escreve fora das memórias do projeto (\arq{docs/RESSALVAS.md}, item 11).}}
 \label{sec:aceleradores}
 
 A Figura~\ref{fig:fpga-topo} mostra o que há dentro da FPGA: quatro
-aceleradores, cada um com as suas memórias e os seus registradores de
-controle, todos ligados ao HPS pela interconexão que o Platform Designer gera.
+aceleradores e o controlador de captura do ADC, cada um com as suas memórias e
+os seus registradores de controle, todos ligados ao HPS pela interconexão que o
+Platform Designer gera.
 
 \begin{figure}[htbp]
   \centering
-  \input{figuras/fpga-topo}
-  \caption{O que há dentro da FPGA: quatro aceleradores, cada um com as suas
-    memórias e os seus registradores de controle.}
+  \figura{fpga-topo}
+  \caption{O que há dentro da FPGA: quatro aceleradores e o controlador do ADC,
+    cada um com as suas memórias e os seus registradores de controle.}
   \label{fig:fpga-topo}
 \end{figure}
 
@@ -247,7 +249,7 @@ do registrador \texttt{iir\_nsecoes}.
 
 \begin{figure}[htbp]
   \centering
-  \input{figuras/iir-cascata}
+  \figura{iir-cascata}
   \caption{O bloco IIR: cascata de seções de segunda ordem (acima) e a seção em
     forma direta~I (abaixo). Um só multiplicador-acumulador atende todas as
     seções, dois ciclos por seção.}
@@ -300,43 +302,151 @@ testbench em Icarus Verilog (\arq{Quartus/roda_tb_iir.sh}) e a placa
 em todas as amostras: num filtro realimentado, divergir um LSB numa amostra é
 divergir para sempre dali em diante, então ``parecido'' não serve de critério.
 
-\section{Periféricos ainda não usados: ADC e codec}
+\section{A aquisição: o ADC da placa}
 \label{sec:adc}
 
-A placa tem dois conversores que o Morphe ainda não usa. Esta seção descreve o
-estado de hoje e o que falta; a Figura~\ref{fig:adc} resume as duas coisas.
+A placa tem um conversor analógico-digital, e desde 24/09/2026 o Morphe o usa
+para capturar sinais. O aluno escolhe a taxa de amostragem, de 1 a 200\,kHz, e o
+hardware a mantém constante durante a captura, amostra por amostra. A
+Figura~\ref{fig:adc}
+mostra o caminho, do conector até a memória que o servidor lê.
 
 \begin{figure}[htbp]
   \centering
-  \input{figuras/adc}
-  \caption{O ADC da placa: o que existe (linha cheia) e o que falta para
-    capturar sinais a uma taxa fixa (tracejado).}
+  \figura{adc}
+  \caption{O caminho da aquisição: o controlador próprio dispara cada conversão
+    do LTC2308 a \(1/f_s\) e grava a amostra na memória de captura, que o
+    servidor lê pela ponte.}
   \label{fig:adc}
 \end{figure}
 
-\paragraph{O ADC.} O conversor analógico-digital da DE1-SoC é o LTC2308: 12
-bits, 8 canais, por aproximações sucessivas, ligado à FPGA por uma interface
-serial de quatro fios (\texttt{ADC\_CONVST}, \texttt{ADC\_SCLK},
-\texttt{ADC\_DIN}, \texttt{ADC\_DOUT}). As entradas analógicas chegam por um
-conector próprio da placa. O projeto contém o controlador do \emph{University
-Program} da Intel para esse conversor, configurado para entrada simples e
-unipolar: com a referência interna, a faixa é de 0 a 4,095\,V, 1\,mV por passo.
-\textbf{Tensão negativa não é lida e pode danificar a entrada}; um sinal
-alternado precisa de um deslocamento DC antes de chegar ao conector.
+\subsection{O conversor e o conector}
 
-Hoje a instância desse controlador está comentada no \arq{ghrd_top.v}: o ADC
-não faz parte do bitstream. E mesmo ativo, ele não serviria para amostrar um
-sinal: converte sem parar, sozinho, e entrega apenas o último valor lido de
-cada canal, sem controle do instante da conversão. Uma incerteza de alguns
-microssegundos no instante da amostra limita a medida de um tom de 5\,kHz a
-cerca de 25\,dB. Capturar a uma taxa de amostragem fixa exige um controlador
-próprio, que dispare a conversão a cada \(1/f_s\) e guarde as amostras numa
-memória da FPGA. O plano, em duas etapas --- uma leitura avulsa, como um
-voltímetro, e depois a captura temporizada --- está em \arq{docs/ADC.md}.
+O conversor é o LTC2308, da Analog Devices (antiga Linear): 12 bits, 8 canais,
+por aproximações sucessivas, até 500 mil amostras por segundo, ligado à FPGA
+por uma interface serial de quatro fios (\texttt{ADC\_CONVST},
+\texttt{ADC\_SCLK}, \texttt{ADC\_DIN}, \texttt{ADC\_DOUT}). A marca ``2308'' no
+chip ao lado do conector confirma o modelo; revisões antigas da DE1-SoC tinham
+outro conversor (AD7928), e o manual da placa de 2015 descreve esse, não o
+LTC2308.
 
-\paragraph{O codec de áudio.} A placa tem também um codec de áudio (o WM8731,
-segundo a documentação da DE1-SoC), com entrada e saída de linha, ligado à FPGA
-por uma interface de áudio serial e configurado por I\textsuperscript{2}C. Os
-pinos estão declarados no \arq{ghrd_top.v} e mais nada: nenhum sinal do codec é
-usado pelo projeto. Seria o caminho natural para uma saída de áudio --- ouvir o
-sinal filtrado --- e fica como trabalho futuro.
+As entradas chegam pelo conector J15, de 2\(\times\)5 pinos. Pelo manual da
+placa (seção 3.6.12): pino 1 = 5\,V, pino 2 = canal 0, pinos 3 a 9 = canais 1 a
+7, pino 10 = terra. \textbf{Identifique os pinos medindo, e não olhando}: o
+conector já foi lido girado de 180\textdegree{} no laboratório, e o pino 1 fornece 5\,V ---
+ligado por engano ao terra, põe a alimentação em curto. Com o multímetro e a
+ponta comum na carcaça metálica do conector USB, o pino de 5\,V e o de 0\,V
+aparecem sem ambiguidade.
+
+\paragraph{Faixa de tensão.} Com a referência interna, a faixa de medida é de
+0 a 4,095\,V no modo de entrada simples (1\,mV por passo) e de
+\(-2{,}048\) a \(+2{,}047\)\,V no modo diferencial, entre dois canais. Entre
+4,096\,V e cerca de 5,3\,V a leitura só satura. \textbf{Abaixo de
+\(-0{,}3\)\,V a entrada pode ser danificada}, e não há proteção entre o
+conector e o chip. Um sinal alternado do gerador de funções precisa de
+deslocamento DC: por exemplo, 2\,V de deslocamento e no máximo 4\,Vpp, conferido
+no osciloscópio \emph{antes} de ligar à placa, com o terra do gerador no pino
+de terra do conector. A placa também não tem filtro \emph{anti-aliasing}.
+
+\subsection{Por que um controlador próprio}
+
+O projeto original trazia o controlador do \emph{University Program} da Intel
+para esse conversor, com a instância comentada. Ele converte sem parar, por
+conta própria, e entrega apenas o último valor lido de cada canal. Para ler uma
+tensão isso basta; para amostrar um sinal, não: o instante em que cada amostra
+foi tirada fica incerto em até uma volta inteira da varredura, alguns
+microssegundos. Essa incerteza vira ruído que cresce com a frequência do sinal
+--- estimado em uns 25\,dB de relação sinal-ruído para um tom de 5\,kHz, contra
+os 74\,dB que 12 bits permitem.
+
+O \arq{Quartus/adc_captura.v} substitui esse controlador. Um contador conta
+\(D\) ciclos de 50\,MHz e, a cada volta, dispara uma conversão (a subida do
+\texttt{CONVST}). O instante da amostra é essa borda, com a precisão do relógio
+de 20\,ns, e a taxa de amostragem é
+\[
+  f_s = \frac{50\,\text{MHz}}{D}, \qquad 250 \le D \le 50\,000,
+\]
+de 200\,kHz a 1\,kHz. Os 50\,MHz são o relógio da FPGA, não a taxa de
+amostragem: quem decide a taxa é o aluno, na janela de aquisição. O cliente
+converte a \(f_s\) pedida no divisor inteiro mais próximo,
+\(D = \operatorname{round}(50\,\text{MHz}/f_s)\)
+(\texttt{divisor\_para} em \arq{Python/aquisicao.py}), e o envia na
+requisição; o servidor o escreve no registrador \texttt{adc\_divisor} antes de
+disparar. Como \(D\) é inteiro, a taxa real pode diferir um pouco da pedida
+(44,1\,kHz vira 44\,091,7\,Hz), e é a taxa real que acompanha a captura.
+
+A cada período o controlador:
+
+\begin{enumerate}
+  \item mantém o \texttt{CONVST} alto por 96 ciclos (1,92\,\textmu s, acima do
+    tempo máximo de conversão);
+  \item gera 12 pulsos de relógio serial a 12,5\,MHz, lendo os 12 bits do
+    resultado e enviando, nos seis primeiros, a palavra de configuração da
+    conversão seguinte (canal e modo);
+  \item grava a amostra na memória \texttt{adc\_buf}, de 32\,768 palavras.
+\end{enumerate}
+
+O primeiro quadro de cada captura é descartado, porque a configuração enviada
+num quadro vale para a conversão seguinte. A taxa máxima de 200\,kHz vem do
+tamanho do quadro, cerca de 150 ciclos, mais o tempo de aquisição que o
+conversor exige.
+
+\subsection{Captura única e captura contínua}
+
+O controlador tem dois modos, escolhidos pelo servidor:
+
+\begin{description}
+  \item[Captura única] grava \(n \le 32\,768\) amostras na memória e levanta o
+    \texttt{done}. O servidor então lê tudo e responde.
+  \item[Captura contínua] grava sem parar, usando a memória como
+    \emph{buffer} circular, e mantém um contador (\texttt{adc\_contador}) de
+    quantas amostras já gravou. O servidor lê o contador, copia as amostras
+    novas e as envia em blocos enquanto a captura segue
+    (seção~\ref{sec:adc-continuo}). Não há intervalo entre um bloco e outro,
+    porque quem fixa o instante de cada amostra é o contador de período da
+    FPGA, que não para.
+\end{description}
+
+Na captura contínua o limite passa a ser o servidor acompanhar: a memória
+guarda 164\,ms de sinal a 200\,kHz, e se o servidor atrasar mais que isso as
+amostras seriam sobrescritas antes de lidas. Isso nunca vira um buraco
+silencioso no sinal: o servidor relê o contador depois de cada cópia e, se o
+controlador já passou do ponto, termina a captura com o estado ``perdeu''. O
+que foi enviado até ali é contínuo e válido. Medido em 24/09/2026, o HPS
+acompanha a taxa máxima: 2 milhões de amostras a 200\,kHz, em 10\,s, sem perda.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Os registradores do controlador do ADC, na ponte leve, e a sua
+    memória.}
+  \label{tab:adc-regs}
+  \begin{tabularx}{\textwidth}{@{}llX@{}}
+    \toprule
+    \textbf{Nome} & \textbf{Endereço} & \textbf{Função} \\
+    \midrule
+    \texttt{adc\_buf} & \texttt{0x20000} (ponte HPS\(\to\)FPGA) & 32\,768
+      palavras; 12 bits úteis cada \\
+    \texttt{adc\_start} & \texttt{0xD0} & a subida dispara a captura; descer
+      encerra a contínua \\
+    \texttt{adc\_done} & \texttt{0xE0} & fim da captura única \\
+    \texttt{adc\_config} & \texttt{0xF0} & bits 5--0: palavra do LTC2308
+      (canal, modo); bit 6: captura contínua \\
+    \texttt{adc\_divisor} & \texttt{0x100} & \(D\), de 250 a 50\,000 \\
+    \texttt{adc\_namostras} & \texttt{0x110} & \(n\) da captura única \\
+    \texttt{adc\_contador} & \texttt{0x120} & amostras já gravadas na contínua;
+      0 em repouso \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{O que foi validado}
+
+Em 24/09/2026, na placa 1, com o bitstream que contém o ADC: as operações que
+já existiam continuam iguais (testes da FFT, do IIR e dos blocos); a entrada
+ligada ao terra lê 0,0000\,V, com desvio de 0,03\,mV; ligada ao 3,3\,V da
+própria placa, 3,3300\,V, com desvio de 2,6\,mV; a numeração dos canais e o
+modo diferencial estão certos; e a captura contínua acompanha 200\,kHz.
+Com a entrada solta, a leitura fica perto de 1,9\,V: é o próprio conversor
+carregando o pino, e não uma medida. \textbf{Falta a validação com uma senoide do
+gerador de funções} (capítulo~\ref{cap:limitacoes}).

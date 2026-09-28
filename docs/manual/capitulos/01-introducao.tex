@@ -25,6 +25,13 @@ São cinco as operações executadas em hardware:
   \item[IFFT] a transformada inversa, no mesmo núcleo da FFT.
 \end{description}
 
+Além delas, a plataforma \textbf{adquire sinais}: o conversor
+analógico-digital da placa captura um sinal real, de um gerador de funções ou
+de um sensor, à taxa de amostragem que o aluno escolher, de 1 a 200\,kHz,
+constante durante toda a captura, e a captura pode
+ser usada como entrada de qualquer uma das cinco operações
+(seção~\ref{sec:adc}).
+
 O hardware trabalha com blocos de tamanho fixo (1024 amostras), mas o
 aplicativo aceita sinais de qualquer tamanho: divide o sinal em blocos, manda
 cada um à placa e recompõe o resultado, com técnicas que dão a mesma resposta
@@ -49,7 +56,10 @@ O Morphe torna essa diferença visível e mensurável. Com ele o aluno pode:
     executado em ponto fixo, e entender por que o hardware usa seções de segunda
     ordem e não um polinômio de ordem alta;
   \item medir quanto tempo cada operação leva na placa e relacionar esse tempo
-    com o número de operações do algoritmo.
+    com o número de operações do algoritmo;
+  \item capturar um sinal de verdade pelo conversor da placa, ver o
+    \emph{aliasing} de um tom acima de \(f_s/2\) e medir quantos bits efetivos
+    o conversor entrega.
 \end{itemize}
 
 \section{Histórico}
@@ -81,6 +91,8 @@ os motivos, em \arq{docs/RESSALVAS.md}.
     Tamanho & 128 amostras na convolução e no FIR & 1024 amostras em todas as
       operações, e sinais maiores por blocos \\
     Operações & convolução, FIR, FFT & as três, mais IFFT e IIR \\
+    Sinais & gerados na janela & gerados, lidos de arquivo, ou capturados pelo
+      ADC da placa, à taxa escolhida \\
     Filtros & sem projetista por especificação & projetistas FIR e IIR por especificação \\
     Precisão & entrada da FFT sem normalização & normalização da entrada: de
       50 para 92\,dB de SNR na FFT \\
@@ -101,7 +113,7 @@ resto detalha uma das partes dela.
 
 \begin{figure}[htbp]
   \centering
-  \input{figuras/visao-geral}
+  \figura{visao-geral}
   \caption{Visão geral: os computadores do laboratório falam com as placas pela
     rede (TCP, porta 5000); a estação programa a FPGA pelo USB-Blaster e sobe o
     servidor por SSH.}

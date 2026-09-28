@@ -1,0 +1,99 @@
+% =============================================================================
+\chapter{Limitações e trabalho futuro}
+\label{cap:limitacoes}
+% =============================================================================
+
+Este capítulo reúne o que o sistema não faz hoje, cada item com o motivo e,
+quando há, o caminho para resolvê-lo. Nada aqui impede o uso em aula; são os
+pontos de partida para quem continuar o trabalho.
+
+\section{Hardware}
+
+\paragraph{Tamanho fixo de 1024 amostras.} Os aceleradores foram sintetizados
+para blocos de 1024. Sinais maiores são tratados no cliente, por blocos
+(seção~\ref{sec:blocos}), com o custo de uma requisição por bloco. Aumentar o
+bloco exige memórias maiores, um núcleo de FFT gerado de novo e, para a
+convolução, aceitar um tempo que cresce com o quadrado do tamanho: 1024 por
+1024 já leva 170\,ms.
+
+\paragraph{A licença de avaliação da FFT.} O bitstream só funciona com o
+\emph{tether} vivo, e para uma hora depois de ele cair
+(seção~\ref{sec:tether}). O \arq{morphe-up.sh} torna isso invisível na rotina,
+mas a estação precisa ficar ligada durante a aula e o \arq{morphe-up.sh} tem de
+rodar depois de cada boot dela. As saídas são uma licença do núcleo da Intel,
+ou uma FFT própria em Verilog, que tiraria a restrição e daria controle sobre a
+aritmética interna (hoje o teto de 92\,dB é do núcleo).
+
+\paragraph{A aritmética do \texttt{conv1d}.} A convolução e o FIR truncam os
+produtos e deixam o acumulador dar a volta. Trocar por arredondamento e
+saturação reduziria o erro máximo de 521 para 25 LSB e eliminaria o estouro
+silencioso. A troca foi avaliada e deliberadamente não feita, para manter o
+comportamento descrito no TCC original (seção~\ref{sec:acel-conv}); é uma
+decisão a rever com o supervisor, não uma pendência técnica.
+
+\paragraph{Restos do projeto original.} O IP de FIR da Intel (\texttt{fir\_ii})
+e o seu adaptador continuam no projeto sem instância, e o registrador
+\texttt{fir\_error} não é acionado por nada. Podem sair numa próxima
+compilação, junto com a conferência de que nada mudou.
+
+\section{Aquisição}
+
+\paragraph{O que falta validar.} Na data deste manual o ADC foi validado na
+placa com tensões contínuas (0\,V e 3,3\,V, contra o valor nominal) e com a
+captura contínua a 200\,kHz sem perda; \textbf{falta a validação com uma
+senoide do gerador de funções} (SINAD e ENOB medidos, e a continuidade das
+emendas entre blocos com um sinal que muda) e a comparação da leitura em 3,3\,V
+com um multímetro. O roteiro está em \arq{docs/COMPILAR-ADC.md}, passos 7c e
+7d, e no \arq{testa_adc.py}.
+
+\paragraph{Não há filtro \emph{anti-aliasing}.} O sinal chega ao conversor sem
+filtro analógico. Um tom acima de \(f_s/2\) aparece dobrado no espectro. Para
+medir, isso é uma limitação; para ensinar amostragem, é uma oportunidade.
+
+\paragraph{Faixa de entrada.} A entrada lê de 0 a 4,095\,V e pode ser danificada
+abaixo de \(-0{,}3\)\,V. Um sinal alternado precisa de deslocamento DC antes do
+conector. Um pequeno circuito de condicionamento (deslocamento, proteção e
+filtro) tornaria a entrada segura para uso direto pelos alunos.
+
+\paragraph{Um canal por captura.} A captura lê um canal, ou um par
+diferencial, por vez. Como o LTC2308 recebe a palavra de configuração a cada
+conversão, alternar dois canais é uma mudança pequena no \arq{adc_captura.v}
+(e exige recompilar); abriria correlação cruzada e estimativa de atraso.
+
+\paragraph{A placa fica ocupada durante a captura.} A captura contínua mantém
+a conexão aberta, e o servidor não atende mais ninguém nesse tempo
+(capítulo~\ref{cap:placas}). Limitar a duração, ou atender outras operações
+durante a captura, são decisões ainda em aberto.
+
+\section{Infraestrutura}
+
+Descritas no capítulo~\ref{cap:placas}: \textbf{não há alocação de placas}
+(duas pessoas podem cair na mesma placa sem saber), \textbf{o servidor não
+atende em paralelo} nem diz ao cliente que está ocupado, \textbf{a descoberta
+depende de varredura} e \textbf{o estado de cada instalação não é
+compartilhado}. As quatro se resolvem juntas com um serviço que gerencie as
+placas, com reserva por prazo e resposta explícita de ocupação --- o que o plano
+do estágio chamou de versão 1.4.
+
+\paragraph{Instalação nos computadores.} O Quartus tem um instalador
+(\arq{instala-quartus.sh}); o aplicativo, não: a instalação nos outros
+computadores é o procedimento manual da seção~\ref{sec:turma} e seguintes. Um
+script, com um atalho no menu de aplicativos, seria o próximo passo natural.
+
+\section{Ideias que a plataforma já permite}
+
+Com o que existe hoje, sem mudar o hardware:
+
+\begin{itemize}
+  \item aula de amostragem e \emph{aliasing}, capturando um tom do gerador
+    acima e abaixo de \(f_s/2\);
+  \item analisador de espectro, com capturas repetidas e a FFT da placa;
+  \item medir o próprio conversor (SINAD, ENOB) e comparar com os 74\,dB
+    teóricos de 12 bits;
+  \item multitaxa: capturar rápido e dizimar com o FIR da placa;
+  \item os exercícios do Oppenheim que usam sequências dadas, agora que o
+    aplicativo lê sinais de arquivo de qualquer tamanho;
+  \item estudar o efeito da quantização dos coeficientes de um IIR de ordem alta
+    em forma direta contra seções de segunda ordem, com o projetista e o
+    comparador.
+\end{itemize}

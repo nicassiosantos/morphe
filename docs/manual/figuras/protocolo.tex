@@ -16,7 +16,7 @@
   \campo{8}{2}{\texttt{dtype}}{white}{0}
   \campo{10}{2}{\texttt{flags}}{white}{0}
   \campo{12}{4}{\texttt{n\_x}\\amostras de \(x\)}{white}{0}
-  \campo{16}{4}{\texttt{n\_h}\\\(h\) ou seções}{white}{0}
+  \campo{16}{4}{\texttt{n\_h}\\{\tiny \(h\), seções ou divisor}}{white}{0}
 
   % ---- Resposta --------------------------------------------------------
   \node[anchor=east, font=\small\bfseries] at (-2mm,-26mm) {resposta};
@@ -26,7 +26,7 @@
   \campo{8}{2}{\texttt{dtype}}{white}{-26mm}
   \campo{10}{2}{\texttt{status}}{opConv!15}{-26mm}
   \campo{12}{4}{\texttt{n\_out}}{white}{-26mm}
-  \campo{16}{4}{\texttt{extra}\\saturou (IIR)}{white}{-26mm}
+  \campo{16}{4}{\texttt{extra}\\{\tiny saturou (IIR)}\\{\tiny divisor (ADC)}}{white}{-26mm}
 
   % Regua de bytes
   \foreach \b in {0,4,8,12,16,20}
@@ -35,7 +35,7 @@
 
   % Payload, logo depois de cada cabecalho
   \node[campo, fill=black!5, dashed, minimum width=20*\u, anchor=west] at (0,-9mm)
-    {\emph{payload}: \(x\) e \(h\), espectro complexo ou coeficientes --- int32, 4 bytes por valor};
+    {\emph{payload}: \(x\) e \(h\), espectro ou coeficientes, int32 --- vazio no PING e no ADC};
   \node[campo, fill=black!5, dashed, minimum width=20*\u, anchor=west] at (0,-35mm)
     {\emph{payload}: \(y\) (int32 ou float32), ou a mensagem de erro se \texttt{status} \(\ne 0\)};
 \end{tikzpicture}

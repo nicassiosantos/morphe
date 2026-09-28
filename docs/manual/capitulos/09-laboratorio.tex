@@ -1,0 +1,325 @@
+% =============================================================================
+\chapter{Preparação e operação do laboratório}
+\label{cap:laboratorio}
+% =============================================================================
+
+Este capítulo é para quem prepara a aula: o professor, o monitor, ou o aluno que
+chegou primeiro. Descreve a rotina diária, o que o \arq{morphe-up.sh} faz, a
+instalação para a turma, o Quartus nos computadores e como pôr uma placa nova
+em serviço. Os detalhes, com o histórico de cada decisão, estão em
+\arq{PREPARACAO.md} e \arq{docs/NOVA-PLACA.md}.
+
+\section{A rotina}
+
+Com as placas ligadas à rede e aos cabos USB-Blaster da estação, e a instalação
+de turma feita (seção~\ref{sec:turma}), a aula começa com um comando na
+estação, uma vez por placa:
+
+\begin{center}
+\ttfamily cd /opt/morphe \&\& ./morphe-up.sh -{}-cable 'DE-SoC [1-2]' -{}-board 172.16.230.24
+\end{center}
+
+\noindent e cada aluno, em qualquer computador, abre o aplicativo:
+
+\begin{center}
+\ttfamily cd /opt/morphe/Python \&\& python3 morphe\_app.py
+\end{center}
+
+Com uma placa só, o \arq{./morphe-up.sh} sem argumentos basta: ele acha o cabo e
+a placa sozinho. Com duas, o \opt{cable} diz qual cabo e o \opt{board} qual
+placa; na estação do laboratório, o cabo \texttt{DE-SoC [1-2]} é o da placa
+\texttt{172.16.230.24} e o \texttt{DE-SoC [1-3]} o da \texttt{172.16.230.52}.
+Depois de preparada, a placa fica pronta até ser desligada ou até a estação ser
+desligada (seção~\ref{sec:tether}).
+
+Antes dessa rotina, preparar a plataforma levava 9 passos, dois deles com SSH
+na placa e cinco pontos de conhecimento que só o autor tinha; a contagem está
+em \arq{docs/LINHA-DE-BASE-PASSOS.md}. Hoje são 3, e um deles é a própria
+operação.
+
+\section{O que o \texttt{morphe-up.sh} faz}
+
+\begin{figure}[htbp]
+  \centering
+  \figura{morphe-up}
+  \caption{O que o \arq{morphe-up.sh} faz, em ordem.}
+  \label{fig:morphe-up}
+\end{figure}
+
+A Figura~\ref{fig:morphe-up} mostra os passos, na ordem em que o script os
+executa e imprime. Ele para no primeiro problema, com uma mensagem que diz o
+que fazer. Alguns passos merecem explicação.
+
+\paragraph{Achar o Quartus.} O script procura no \texttt{PATH}, em
+\texttt{\$QUARTUS\_ROOTDIR} e nas instalações usuais, e prefere a versão
+\textbf{20.1}, a que compilou o bitstream. Outra versão só é usada, com aviso,
+se não houver a 20.1 em lugar nenhum. Ele também \textbf{recusa rodar como
+\texttt{root}}: em 23/09/2026 um \texttt{sudo ./morphe-up.sh} achou o Quartus
+22.1 da conta \texttt{root}, deixou o \emph{tether} como processo do
+\texttt{root}, que nenhuma outra conta consegue encerrar, e pediu a senha da
+placa três vezes.
+
+\paragraph{Descobrir o cabo.} O nome do cabo JTAG (\texttt{DE-SoC [1-1]},
+\texttt{[1-2]}, \ldots) depende da porta USB. O script o lê do
+\texttt{jtagconfig}, em vez de supor.
+
+\paragraph{Programar e manter o \emph{tether}.} Ver a seção~\ref{sec:tether}.
+
+\paragraph{Servidor sempre depois da FPGA.} O servidor é (re)iniciado depois de
+a FPGA ser programada, nunca antes, e o script grava a marca
+\arq{/var/run/morphe-fpga-preparada} na placa (seção~\ref{sec:marca}). O
+servidor é reenviado e recompilado se algum dos seus seis arquivos mudou.
+
+\paragraph{Verificar.} O \arq{Quartus/morphe_ping.py} faz quatro testes contra a
+placa: conexão, \texttt{PING}, uma convolução de impulso (que tem de devolver a
+própria entrada) e uma FFT de impulso (que tem de dar espectro plano). O script
+só devolve o controle com os quatro passando, e traduz as falhas: falhar os dois
+primeiros é rede; passar os dois primeiros e falhar os dois últimos é FPGA ou
+\arq{hps_0.h}.
+
+\paragraph{Registrar.} A placa vai para \arq{.morphe-estado/placas}, que é o
+que os clientes leem (capítulo~\ref{cap:placas}).
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{As opções do \arq{morphe-up.sh}.}
+  \label{tab:morphe-up}
+  \begin{tabularx}{\textwidth}{@{}lX@{}}
+    \toprule
+    \textbf{Opção} & \textbf{O que faz} \\
+    \midrule
+    (nenhuma) & prepara a placa lembrada, ou a que achar na rede \\
+    \opt{board} \textit{ip} & prepara esta placa, e passa a lembrá-la \\
+    \opt{cable} \textit{nome} & usa este cabo JTAG, quando há mais de um \\
+    \opt{deploy} & reenvia e recompila o servidor mesmo sem mudança \\
+    \opt{skip-fpga} & só o servidor, sem reprogramar a FPGA \\
+    \opt{setup-ssh} & uma vez por placa e por conta: instala a chave SSH
+      (seção~\ref{sec:ssh}) \\
+    \opt{status} & mostra, placa a placa, o que está no ar e se o
+      \emph{tether} está vivo \\
+    \opt{down} & encerra os \emph{tethers} de todas as placas \\
+    \opt{down} \opt{stop-server} & e também para o servidor das placas \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{O \emph{tether} da licença}
+\label{sec:tether}
+
+O núcleo de FFT é um IP da Intel que a edição gratuita do Quartus só permite
+usar em modo de avaliação. O bitstream gerado assim
+(\arq{soc_system_time_limited.sof}) funciona \textbf{enquanto o programador
+JTAG continuar conectado} à placa. Esse processo conectado é o \emph{tether}.
+Quando ele termina, começa uma contagem de cerca de uma hora, e depois dela
+\textbf{o bitstream inteiro para} --- não só a FFT: a convolução passa a
+esgotar o tempo (medido em 17/09/2026).
+
+O programador do Quartus (\texttt{quartus\_pgm}), depois de gravar, fica
+esperando uma tecla no terminal. O \arq{morphe-up.sh} o deixa rodando em
+segundo plano, numa sessão própria, com uma entrada que nunca fecha, e guarda o
+identificador do grupo de processos para o \opt{down}. Há um \emph{tether} por
+cabo JTAG, em \arq{.morphe-estado/tethers/}, então preparar uma placa não
+derruba a outra.
+
+Três fatos práticos:
+
+\begin{itemize}
+  \item \textbf{o \emph{tether} pertence a uma conta.} Se outra conta tentar
+    reprogramar aquele cabo, o script para e diz de quem ele é;
+  \item \textbf{sobrevive ao \emph{logout}} se a estação tiver o
+    \emph{linger} ligado para a conta (\texttt{sudo loginctl enable-linger
+    coordenador}, uma vez), mas \textbf{não sobrevive a desligar a estação}:
+    depois de cada boot, alguém roda o \arq{morphe-up.sh};
+  \item para saber se está vivo, de qualquer conta: \texttt{pgrep -af
+    quartus\_pgm}. Se não imprimir nada, qualquer resultado errado a partir daí
+    é consequência disso.
+\end{itemize}
+
+\section{A instalação de turma}
+\label{sec:turma}
+
+A estação tem duas contas: \texttt{coordenador}, com \texttt{sudo}, e
+\texttt{alunopds}, sem. A pasta pessoal do coordenador não é legível pelo aluno,
+então a plataforma mora fora dela, em \arq{/opt/morphe}, como um clone do
+repositório pertencente ao coordenador e ao grupo dos alunos. O Quartus mora em
+\arq{/opt/intelFPGA_lite/20.1}, legível por todos.
+
+\paragraph{Instalar, uma vez.} Na conta do coordenador, copia-se o clone para
+\arq{/opt/morphe}, sem o ambiente virtual do Python e sem as pastas de
+compilação do Quartus, e ajustam-se dono e permissões (os comandos estão em
+\arq{PREPARACAO.md}). O ambiente virtual sai de propósito: o \texttt{python3} do
+sistema já tem NumPy, Matplotlib e SciPy, e o aluno não pode instalar nada.
+
+\paragraph{Atualizar.} Como \arq{/opt/morphe} é um clone, atualizar é um
+\texttt{git pull} na conta do coordenador, sem \texttt{sudo}. Antes, confira o
+ramo com \texttt{git -C /opt/morphe branch -vv}: em 17/09/2026 um
+\texttt{pull} dizia ``\emph{Already up to date}'' num ramo errado, e duas
+preparações rodaram com código antigo. Depois de um \texttt{pull} que mude o
+servidor ou o bitstream, rode o \arq{morphe-up.sh} de novo.
+
+\paragraph{Qualquer conta prepara a placa.} Com o Quartus em \arq{/opt} e a
+regra do USB-Blaster liberando o cabo para todos, o aluno também roda o
+\arq{morphe-up.sh}. O preço: o \arq{morphe-up.sh} de uma pessoa reprograma a
+FPGA e interrompe quem estiver usando aquela placa. A regra de bolso é rodá-lo
+para \textbf{começar a aula ou consertar uma placa parada}, não durante.
+
+\paragraph{As duas contas no mesmo estado.} O \arq{.morphe-estado} é
+compartilhado; o script deixa as pastas com permissão 777 e os arquivos com 666
+(o \arq{/opt/morphe} inteiro é fechado para quem não é da turma), para que o
+que uma conta grava a outra possa reescrever.
+
+\paragraph{Rodar sempre de \texttt{/opt/morphe}.} O cliente lê a placa em
+\arq{<raiz>/.morphe-estado}, e quem escreve ali é o \arq{morphe-up.sh}. Se os
+dois rodarem de pastas diferentes --- o script de um clone na pasta pessoal, o
+aplicativo de \arq{/opt/morphe} ---, o aluno abre o aplicativo e não acha
+placa nenhuma. O sintoma parece de rede, e não é.
+
+\section{As chaves SSH}
+\label{sec:ssh}
+
+Sem chave, um \arq{morphe-up.sh} pede a senha da placa três vezes. Uma vez por
+placa e por conta:
+
+\begin{center}
+\ttfamily ./morphe-up.sh -{}-setup-ssh -{}-board <ip da placa>
+\end{center}
+
+A chave criada é \textbf{RSA}, e as conexões habilitam o algoritmo
+\texttt{ssh-rsa}. As duas coisas são necessárias juntas: as placas rodam o
+OpenSSH 6.0, anterior às chaves ed25519 (uma chave ed25519 é gravada na placa e
+ignorada sem erro), e o OpenSSH 8.9 da estação desabilita por padrão o
+\texttt{ssh-rsa}, que é o único tipo que o servidor antigo assina.
+
+\section{O servidor no boot da placa}
+
+Uma vez por placa, instala-se o início automático do servidor
+(\arq{C/autostart/}, capítulo~\ref{cap:servidor}). Com ele, a placa aparece na
+rede assim que liga --- recusando operações até ser preparada --- e o cliente
+não precisa de ninguém que saiba o endereço dela.
+
+\section{O Quartus em todos os computadores}
+
+Para que o aluno possa compilar um projeto próprio e programar a FPGA pelo cabo
+ligado ao computador em que está, cada computador precisa do Quartus
+\textbf{20.1}, da regra do USB-Blaster e do \texttt{PATH}. O
+\arq{instala-quartus.sh}, rodado com \texttt{sudo} numa conta que o tenha, faz
+tudo isso, na ordem:
+
+\begin{enumerate}
+  \item procura Quartus já instalados; uma 20.1 com Cyclone~V fora das pastas
+    pessoais é usada como está, uma dentro de uma pasta pessoal é copiada para
+    \arq{/opt}, e só sem nenhuma das duas a cópia vem da estação (ou de um
+    disco externo, com \opt{origem});
+  \item confere a versão e o suporte ao Cyclone~V;
+  \item libera a leitura para todas as contas;
+  \item instala a regra \emph{udev} do USB-Blaster, para qualquer conta
+    enxergar o cabo;
+  \item cria a \arq{libudev.so.0}, que o \texttt{jtagd} procura;
+  \item põe a 20.1 na frente do \texttt{PATH}, para todas as contas, em
+    \arq{/etc/profile.d/quartus.sh};
+  \item cria o atalho ``Quartus Prime Lite 20.1'' no menu;
+  \item testa, da conta do aluno, a versão e o cabo.
+\end{enumerate}
+
+A versão é sempre a mesma em todo o laboratório porque o Quartus é copiado da
+estação, e não baixado. O script pode ser rodado de novo sem estragar nada, e
+\opt{verificar} só confere. Em 23/09/2026 ele foi rodado em todos os
+computadores do laboratório.
+
+\textbf{Cuidado:} gravar um projeto próprio numa placa que está servindo o
+Morphe substitui o bitstream da plataforma para todos os que a usam. Depois,
+\arq{./morphe-up.sh} na estação a restaura.
+
+\section{O aplicativo nos outros computadores}
+
+O aplicativo não depende de nada da estação: basta uma cópia do repositório e o
+\texttt{python3} do sistema com NumPy e Matplotlib. Em cada computador, numa
+conta com \texttt{sudo}:
+
+\begin{enumerate}
+  \item clonar o repositório em \arq{/opt/morphe} e dar a leitura ao grupo dos
+    alunos, como na estação;
+  \item escrever \arq{/opt/morphe/.morphe-estado/placas} com os endereços das
+    placas, um por linha, para o aplicativo não depender da varredura;
+  \item abrir o aplicativo da conta do aluno e conferir que ele acha as placas.
+\end{enumerate}
+
+Não é preciso rodar o \arq{morphe-up.sh} nesses computadores: as placas são
+preparadas pela estação, e os outros computadores só usam.
+
+\paragraph{A armadilha do \texttt{pip -{}-user}.} Duas vezes o aplicativo
+quebrou numa conta por um NumPy ou Matplotlib instalado com
+\texttt{pip install -{}-user}, incompatível com o outro pacote do sistema. Se o
+aplicativo não abrir com um erro de importação, remova \textbf{os dois juntos}
+--- \texttt{python3 -m pip uninstall -y matplotlib numpy} --- e confira que
+voltaram a vir de \arq{/usr/lib/python3/dist-packages}. Remover só um deles
+deixa o outro incompatível e mantém o erro.
+
+\section{Uma placa nova}
+
+Todas as DE1-SoC saem de fábrica com \textbf{o mesmo endereço MAC}
+(\texttt{12:34:56:78:90:12}) e os mesmos endereços IP fixos auxiliares. Duas
+placas na mesma rede disputam o endereço, e o sintoma --- conexões
+intermitentes --- parece defeito de placa. Por isso incorporar uma placa não é
+só ligá-la. Os passos, detalhados em \arq{docs/NOVA-PLACA.md}:
+
+\begin{enumerate}
+  \item \textbf{clonar o cartão SD} de uma placa que funciona, cuidando do
+    tamanho: a imagem tem o tamanho do cartão de origem, e um cartão
+    nominalmente igual pode ser menor;
+  \item \textbf{trocar o MAC no U-Boot}, pelo console serial
+    (\texttt{setenv ethaddr 02:00:00:6d:70:NN} e \texttt{saveenv}, com \(NN\) o
+    número da placa), e dar à placa um nome próprio;
+  \item \textbf{limpar o que o clone trouxe}: as concessões de DHCP da placa de
+    origem e os endereços fixos de fábrica; configurar a rede como
+    \texttt{auto eth0};
+  \item instalar a chave SSH de cada conta e o início automático do servidor;
+  \item preparar com o \arq{morphe-up.sh}, com o cabo e o endereço dela.
+\end{enumerate}
+
+\section{Sintoma, causa e o que fazer}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Sintomas da operação do laboratório.}
+  \label{tab:sintomas-lab}
+  \begin{tabularx}{\textwidth}{@{}XXX@{}}
+    \toprule
+    \textbf{Sintoma} & \textbf{Causa provável} & \textbf{O que fazer} \\
+    \midrule
+    Operações dão tempo esgotado, ou a FFT volta errada, depois de funcionar
+      & o \emph{tether} caiu há mais de uma hora
+      & \texttt{pgrep -af quartus\_pgm}; \arq{./morphe-up.sh} \\
+    \addlinespace
+    ``FPGA não preparada'' & a placa foi ligada depois da última preparação
+      & \arq{./morphe-up.sh} \\
+    \addlinespace
+    ``o bitstream na FPGA não é o deste servidor'' (ADC)
+      & servidor novo com bitstream antigo & \arq{./morphe-up.sh} com o
+        bitstream que tem o ADC \\
+    \addlinespace
+    O aplicativo abre e não acha placa & o \arq{morphe-up.sh} rodou de outra
+      pasta, ou a lista está vazia & rodar de \arq{/opt/morphe}; escrever a
+      lista \\
+    \addlinespace
+    \texttt{Permission denied} no \arq{.morphe-estado} & arquivo antigo gravado
+      por outra conta & corrigir dono e permissões uma vez (\arq{PREPARACAO.md});
+      nunca \texttt{sudo} \\
+    \addlinespace
+    A senha da placa é pedida várias vezes & falta a chave desta conta
+      & \opt{setup-ssh} \\
+    \addlinespace
+    \texttt{qsys-generate: not found} ou Quartus fora do \texttt{PATH}
+      & terminal em \texttt{ksh}, que não lê o \arq{.bashrc} & digitar
+      \texttt{bash} antes \\
+    \addlinespace
+    O aplicativo não abre, com erro de importação & pacote instalado com
+      \texttt{pip -{}-user} & remover NumPy e Matplotlib juntos \\
+    \addlinespace
+    A placa some da rede depois de ligada & cartão com servidor anterior a
+      21/09/2026 no início automático & atualizar o servidor da placa \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

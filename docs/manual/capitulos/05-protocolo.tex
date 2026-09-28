@@ -1,0 +1,230 @@
+% =============================================================================
+\chapter{O protocolo Morphe-TCP}
+\label{cap:protocolo}
+% =============================================================================
+
+Cliente e servidor conversam por um protocolo binário próprio, sobre TCP, na
+porta 5000. Ele é definido em dois arquivos que precisam concordar byte a byte:
+\arq{C/morphe_protocol.h}, do lado do servidor, e
+\arq{Python/morphe_protocol.py}, do lado do cliente.
+
+\section{Uma conexão por operação}
+
+Cada operação abre a sua própria conexão, e a conexão acaba com ela:
+
+\begin{enumerate}
+  \item o cliente conecta;
+  \item envia um cabeçalho de requisição de 20 bytes e, logo em seguida, o
+    \emph{payload} com os dados;
+  \item o servidor responde com um cabeçalho de resposta de 20 bytes e o
+    \emph{payload} do resultado (ou uma mensagem de erro);
+  \item o servidor fecha a conexão.
+\end{enumerate}
+
+Não existe sessão, autenticação nem estado guardado entre conexões. Isso é o
+que permite ao cliente escolher uma placa diferente a cada operação e a vários
+clientes intercalarem operações na mesma placa (capítulo~\ref{cap:placas}). A
+única exceção ao roteiro é a captura contínua do ADC, em que a resposta é uma
+sequência de blocos enquanto a captura dura (seção~\ref{sec:adc-continuo}).
+
+\section{Os cabeçalhos}
+
+Todos os campos são inteiros sem sinal em ordem de rede
+(\emph{big-endian}). A Figura~\ref{fig:protocolo} mostra os dois cabeçalhos.
+
+\begin{figure}[htbp]
+  \centering
+  \figura{protocolo}
+  \caption{Os cabeçalhos de requisição e de resposta, em bytes.}
+  \label{fig:protocolo}
+\end{figure}
+
+\begin{description}
+  \item[\texttt{magic}] a assinatura: \texttt{0x4D52504D} (``MRPM'') na
+    requisição e \texttt{0x4D52504E} (``MRPN'') na resposta. Um servidor que
+    recebe outra coisa responde \texttt{BAD\_MAGIC} sem ler mais nada.
+  \item[\texttt{version}] sempre 1.
+  \item[\texttt{opcode}] a operação (Tabela~\ref{tab:opcodes}); a resposta
+    repete o da requisição.
+  \item[\texttt{dtype}] o tipo dos números no \emph{payload}: 1 para
+    \texttt{int32}, 2 para \texttt{float32}. Na prática o cliente sempre envia
+    \texttt{int32} já em ponto fixo; o \texttt{float32} existe na convolução e
+    no FIR por compatibilidade com o projeto original.
+  \item[\texttt{flags}] 0, exceto no ADC, em que carrega a palavra de
+    configuração do conversor.
+  \item[\texttt{n\_x}, \texttt{n\_h}] os tamanhos. O significado muda com a
+    operação: no IIR, \texttt{n\_h} é o número de seções; no ADC, o divisor do
+    relógio que dá a taxa de amostragem.
+  \item[\texttt{status}] 0 quando deu certo; os outros valores estão na
+    Tabela~\ref{tab:status}. Com status diferente de zero, o \emph{payload} é
+    uma mensagem de texto de \texttt{n\_out} bytes.
+  \item[\texttt{n\_out}] quantos valores (ou bytes de mensagem) vêm no
+    \emph{payload} da resposta.
+  \item[\texttt{extra}] uma palavra livre para a operação: 1 no IIR se alguma
+    amostra saturou; o divisor usado no ADC; 0 nas outras.
+\end{description}
+
+\section{As operações}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{As operações do protocolo e o que vai em cada \emph{payload}. Todos
+    os valores ocupam 4 bytes.}
+  \label{tab:opcodes}
+  \begin{tabularx}{\textwidth}{@{}clXX@{}}
+    \toprule
+    & \textbf{Operação} & \textbf{Requisição} & \textbf{Resposta} \\
+    \midrule
+    1 & \texttt{CONV} & \(n_x\) amostras de \(x\), depois \(n_h\) de \(h\),
+      Q15.16; \(1 \le n_x, n_h \le 1024\)
+      & \(n_x + n_h - 1\) amostras de \(y\), Q15.16 \\
+    \addlinespace
+    2 & \texttt{FFT} & 1024 amostras reais em Q15.8 (\(n_x = 1024\))
+      & 1024 valores complexos em \texttt{float32}, parte real e imaginária
+        intercaladas, já em escala real \\
+    \addlinespace
+    3 & \texttt{PING} & nada & texto \texttt{chave=valor}, uma por linha
+      (seção~\ref{sec:ping}) \\
+    \addlinespace
+    4 & \texttt{FIR} & como a \texttt{CONV}: \(x\) e os coeficientes \(h\)
+      & como a \texttt{CONV} \\
+    \addlinespace
+    5 & \texttt{IFFT} & 1024 valores complexos em Q15.8, real e imaginário
+      intercalados (\(2 \times 1024\) palavras)
+      & como a \texttt{FFT}, sem o fator \(1/N\) \\
+    \addlinespace
+    6 & \texttt{IIR} & \(n_x \le 1024\) amostras em Q15.16, depois
+      \(5 \cdot n_h\) coeficientes Q15.16 na ordem
+      \(b_0, b_1, b_2, a_1, a_2\) de cada seção; \(1 \le n_h \le 16\)
+      & \(n_x\) amostras Q15.16; \texttt{extra} = 1 se saturou \\
+    \addlinespace
+    7 & \texttt{ADC} & nada; \(n_x\) = amostras (até 32\,768), \(n_h\) =
+      divisor, \texttt{flags} = configuração
+      & \(n_x\) códigos do conversor, \texttt{int32}; \texttt{extra} = divisor \\
+    \addlinespace
+    8 & \texttt{ADC\_CONTINUO} & como o \texttt{ADC}, com \(n_x\) sem limite
+      (0 = até o cliente parar)
+      & cabeçalho com \(n_{out} = 0\) e depois blocos
+        (seção~\ref{sec:adc-continuo}) \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Algumas observações sobre a tabela.
+
+\paragraph{A FFT e a IFFT recusam tamanhos diferentes de 1024.} A convolução
+completa com zeros o que faltar, porque acrescentar zeros ao fim de um sinal
+não muda a convolução. Com um espectro isso não vale: completar \(X[k]\) com
+zeros muda o sinal que ele representa. Por isso as duas exigem exatamente 1024
+pontos, e sinais de outros tamanhos são tratados no cliente
+(seção~\ref{sec:blocos}).
+
+\paragraph{A FFT devolve números em ponto flutuante.} É a única operação em que
+o servidor converte: ele conhece o expoente de bloco que o núcleo da FFT
+calculou (seção~\ref{sec:acel-fft}) e o aplica, junto com o fator \(2^{-8}\) do
+Q15.8, antes de enviar. O cliente ainda desfaz a escala que ele mesmo aplicou
+na entrada (seção~\ref{sec:normalizacao}).
+
+\paragraph{A IFFT recebe o dobro de dados.} Um espectro é complexo por
+natureza, então o \emph{payload} tem duas palavras por ponto. O servidor satura
+cada uma na faixa do Q15.8 antes de escrever na FPGA.
+
+\paragraph{A palavra de configuração do ADC.} São os seis bits que o LTC2308
+recebe a cada conversão, na ordem da folha de dados:
+\texttt{S/D}, \texttt{O/S}, \texttt{S1}, \texttt{S0}, \texttt{UNI},
+\texttt{SLP}. Os quatro primeiros escolhem o canal e se a entrada é simples
+(contra o terra) ou diferencial (entre dois canais); \texttt{UNI} escolhe
+unipolar (0 a 4,095\,V) ou bipolar (\(\pm 2{,}048\)\,V). O modo de
+economia de energia (\texttt{SLP}) é recusado, porque a referência interna leva
+200\,ms para voltar dele. Quem monta a palavra é o \arq{Python/aquisicao.py}; a
+janela só oferece o canal e o modo.
+
+\section{A descoberta: \texttt{PING}}
+\label{sec:ping}
+
+O \texttt{PING} é só um cabeçalho, e a resposta é um texto curto que descreve a
+placa e o hardware que ela tem. Um exemplo, de uma placa preparada:
+
+\begin{center}
+\begin{minipage}{0.6\textwidth}
+\small\ttfamily
+service=morphe\\
+version=1\\
+hostname=de1soc-02\\
+fft\_n=1024\\
+conv\_n\_max=1024\\
+iir\_secoes\_max=16\\
+adc\_n\_max=32768\\
+adc\_fs\_max=200000\\
+uptime\_s=5412\\
+fpga\_preparada=1
+\end{minipage}
+\end{center}
+
+\noindent (a resposta completa traz mais alguns campos, como os bits
+fracionários de cada formato.) O cliente usa o \texttt{PING} para achar placas
+na rede e para conferir que uma placa está preparada
+(\texttt{fpga\_preparada}); placas não preparadas não são escolhidas. O campo
+\texttt{adc\_n\_max} diz se o ADC pode ser usado naquela placa agora (0 quando
+não pode). O tempo que a resposta leva também é usado, para escolher a placa
+menos ocupada (capítulo~\ref{cap:placas}).
+
+\section{A captura contínua do ADC}
+\label{sec:adc-continuo}
+
+A captura contínua é a única operação cuja resposta não cabe numa mensagem só:
+ela pode durar minutos, e o sinal é enviado enquanto é capturado. Depois do
+cabeçalho de resposta (com \texttt{status} 0, \(n_{out} = 0\) e o divisor em
+\texttt{extra}), vem uma sequência de blocos, cada um com o formato
+\[
+  \underbrace{n}_{\texttt{uint32}}\;
+  \underbrace{\textit{estado}}_{\texttt{uint32}}\;
+  \underbrace{c_0\, c_1 \ldots c_{n-1}}_{n \times \texttt{int32}}
+\]
+O \textit{estado} de cada bloco é 0 enquanto a captura segue. O último bloco
+tem \(n = 0\) e um estado que diz por que ela terminou:
+
+\begin{center}
+\small
+\begin{tabular}{@{}cl@{}}
+  \toprule
+  \textbf{Estado} & \textbf{Significado} \\
+  \midrule
+  1 & fim normal: chegou ao total pedido, ou o cliente pediu para parar \\
+  2 & o servidor não acompanhou e amostras foram perdidas; o que veio antes vale \\
+  3 & o hardware parou de produzir amostras \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Os blocos são contínuos no tempo: a última amostra de um e a primeira do
+seguinte estão separadas por exatamente um período de amostragem. Para parar a
+captura antes do total, o cliente envia um byte qualquer pela mesma conexão
+(é o que o botão \emph{Parar} faz), ou simplesmente a fecha. Como funciona do
+lado do hardware está na seção~\ref{sec:adc}.
+
+\section{Como acrescentar uma operação}
+\label{sec:novo-opcode}
+
+Uma operação nova toca sempre os mesmos lugares, e esquecer qualquer um deles
+produz um erro que não aponta para a causa:
+
+\begin{enumerate}
+  \item \arq{C/morphe_protocol.h}: o número da operação
+    (\texttt{MORPHE\_OP\_*}) e, no comentário do topo, o formato do
+    \emph{payload};
+  \item \arq{C/morphe_server.c}: a função \texttt{handle\_*}, seguindo o roteiro
+    do capítulo~\ref{cap:servidor} --- a primeira linha confere a marca de FPGA
+    preparada --- e o seu \texttt{case} no \texttt{serve\_connection};
+  \item \arq{Python/morphe_protocol.py}: a constante \texttt{OP\_*}, a função
+    \texttt{build\_*\_request} e a \texttt{decode\_*\_response};
+  \item \arq{C/morphe_config.h} e \arq{Python/morphe_config.py}, juntos, se a
+    operação tiver limites próprios;
+  \item se a operação usa hardware novo: o Platform Designer, o \arq{hps_0.h}
+    regenerado e um bitstream novo (capítulo~\ref{cap:desenvolvimento}).
+\end{enumerate}
+
+Mudar o formato de uma operação que já existe, em vez de criar outra, quebra os
+clientes instalados nos PCs até que sejam atualizados. Se for inevitável, o
+lugar de sinalizar é o campo \texttt{version}.

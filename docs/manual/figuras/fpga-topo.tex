@@ -32,11 +32,17 @@
   \node[nuc, draw=opIir]    (ic) at (\xn, -66mm) {\texttt{iir\_cascade}\\até 16 seções, Q15.16\\1 MAC (15 blocos DSP)};
   \node[ent, fill=opIir!10] (iy) at (\xs, -66mm) {iir\_yn};
 
+  % --- ADC ----------------------------------------------------------------
+  \node[caixa, fill=black!6, minimum width=17mm, font=\scriptsize] (ax) at (-33mm, -88mm) {LTC2308\\(na placa)};
+  \node[nuc, draw=opAdc]    (ac) at (\xn, -88mm) {\texttt{adc\_captura}\\\texttt{CONVST} a \(1/f_s\)\\única ou contínua};
+  \node[ent, fill=opAdc!10] (ay) at (\xs, -88mm) {adc\_buf};
+
   % Setas de dados
   \foreach \a/\b in {cx/cc,ch/cc,fx/fc,fh/fc,tx/tc,ti/tc,ix/ic,ik/ic}
     \draw[seta] (\a.east) -- (\a.east -| \b.west);
-  \foreach \a/\b in {cc/cy,fc/fy,ic/iy}
+  \foreach \a/\b in {cc/cy,fc/fy,ic/iy,ac/ay}
     \draw[seta] (\a.east) -- (\b.west);
+  \draw[<->, thick] (ax.east) -- node[rotulo, above]{serial} (ac.west);
   \draw[seta] (tc.east |- ty) -- (ty.west);
   \draw[seta] (tc.east |- tj) -- (tj.west);
 
@@ -45,15 +51,16 @@
   \node[pio, above=0.5mm of fc] {PIO: start, done, error};
   \node[pio, above=0.5mm of tc] {PIO: start, done, inverse, bfp\_exponent};
   \node[pio, above=0.5mm of ic] {PIO: start, done, error, nsecoes};
+  \node[pio, above=0.5mm of ac] {PIO: start, done, config, divisor, namostras, contador};
 
   % Interconexao: desce pela esquerda (entradas) e pela direita (saidas)
   \coordinate (bE) at (-12mm, 0);        % barramento da esquerda
   \coordinate (bD) at (\xs+13mm, 0);     % barramento da direita
   \def\ytopo{14mm}
-  \draw[thick, cHps] (bE |- 0,-72mm) -- (bE |- 0,\ytopo) -- node[rotulo, above, text=cHps]{interconexão do Platform Designer} (bD |- 0,\ytopo) -- (bD |- 0,-66mm);
+  \draw[thick, cHps] (bE |- 0,-72mm) -- (bE |- 0,\ytopo) -- node[rotulo, above, text=cHps]{interconexão do Platform Designer} (bD |- 0,\ytopo) -- (bD |- 0,-88mm);
   \foreach \y in {3,-3,-19,-25,-41,-47,-63,-69}
     \draw[cHps] (bE |- 0,\y mm) -- (\xe-8.5mm,\y mm);
-  \foreach \y in {0,-22,-41,-47,-66}
+  \foreach \y in {0,-22,-41,-47,-66,-88}
     \draw[cHps] (bD |- 0,\y mm) -- (\xs+8.5mm,\y mm);
 
   % HPS, a esquerda, fora da FPGA
@@ -63,9 +70,9 @@
 
   % cantos da FPGA (virgula dentro de fit=... quebraria a lista de opcoes)
   \coordinate (cantoA) at (bE |- 0,\ytopo);
-  \coordinate (cantoB) at (bD |- 0,-72mm);
+  \coordinate (cantoB) at (bD |- 0,-94mm);
   \begin{scope}[on background layer]
-    \node[grupo, draw=cFpga, fill=cFpga!4, fit=(cx)(iy)(ik)(tj)(cantoA)(cantoB),
+    \node[grupo, draw=cFpga, fill=cFpga!4, fit=(cx)(iy)(ik)(tj)(ac)(ay)(cantoA)(cantoB),
           inner ysep=5mm,
           label={[font=\scriptsize\bfseries, text=cFpga]above:{FPGA (Cyclone V), relógio de 50 MHz}}] {};
   \end{scope}

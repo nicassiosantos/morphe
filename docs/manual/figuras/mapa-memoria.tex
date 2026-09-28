@@ -19,7 +19,8 @@
       9/fft\_xn\_imag/0x1B000/opFft,
       10/iir\_xn/0x1C000/opIir,
       11/iir\_yn/0x1D000/opIir,
-      12/iir\_coef/0x1E000/opIir}
+      12/iir\_coef/0x1E000/opIir,
+      13/adc\_buf/0x20000/opAdc}
   {
     \node[reg, fill=\cor!12] (h\i) at (0,-\i*5.2mm) {\nome};
     \node[end] at (h\i.west) {\off\ };
@@ -41,7 +42,13 @@
       9/iir\_start/0x90/opIir,
       10/iir\_done/0xA0/opIir,
       11/iir\_error/0xB0/opIir,
-      12/iir\_nsecoes/0xC0/opIir}
+      12/iir\_nsecoes/0xC0/opIir,
+      13/adc\_start/0xD0/opAdc,
+      14/adc\_done/0xE0/opAdc,
+      15/adc\_config/0xF0/opAdc,
+      16/adc\_divisor/0x100/opAdc,
+      17/adc\_namostras/0x110/opAdc,
+      18/adc\_contador/0x120/opAdc}
   {
     \node[reg, fill=\cor!12] (l\i) at (0,-\i*5.2mm) {\nome};
     \node[end] at (l\i.west) {\off\ };
@@ -49,8 +56,8 @@
   \end{scope}
 
   % Legenda
-  \begin{scope}[yshift=-72mm, xshift=-10mm]
-    \foreach \x/\c/\t in {0/opConv/convolução e FIR, 38/opFft/FFT e IFFT, 72/opIir/IIR}
+  \begin{scope}[yshift=-104mm, xshift=-10mm]
+    \foreach \x/\c/\t in {0/opConv/convolução e FIR, 38/opFft/FFT e IFFT, 72/opIir/IIR, 90/opAdc/ADC}
       { \fill[\c!12, draw=black] (\x mm,0) rectangle ++(4mm,3mm);
         \node[anchor=west, font=\scriptsize] at (\x mm+5mm,1.5mm) {\t}; }
   \end{scope}

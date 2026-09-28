@@ -1,0 +1,259 @@
+% =============================================================================
+\chapter{Representação numérica}
+\label{cap:numerica}
+% =============================================================================
+
+Tudo o que a FPGA calcula é em ponto fixo, e a diferença entre esse cálculo e
+o do computador é o que o Morphe existe para mostrar. Este capítulo reúne o que
+se sabe sobre essa diferença: os formatos usados, a regra que governa o erro,
+o que o núcleo da FFT faz por dentro e os números medidos na placa. A versão
+com todas as medições está em \arq{docs/PRECISAO-NUMERICA.md}.
+
+\section{Os dois formatos}
+
+O Morphe usa \textbf{dois} formatos de ponto fixo, um para cada família de
+aceleradores (Figura~\ref{fig:ponto-fixo}). Os dois têm a mesma faixa, mas
+passos muito diferentes, e confundi-los é o erro mais comum de quem mexe no
+código.
+
+\begin{figure}[htbp]
+  \centering
+  \figura{ponto-fixo}
+  \caption{Os dois formatos de ponto fixo, bit a bit.}
+  \label{fig:ponto-fixo}
+\end{figure}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Os formatos de ponto fixo e onde cada um é usado.}
+  \label{tab:formatos}
+  \begin{tabularx}{\textwidth}{@{}lllllX@{}}
+    \toprule
+    \textbf{Formato} & \textbf{Bits} & \textbf{Passo} \(\Delta\)
+      & \textbf{Faixa} & \textbf{Usado em} & \textbf{Por quê} \\
+    \midrule
+    Q15.8 & 24 & \(2^{-8} \approx 3{,}9\times10^{-3}\) & \(\pm 32\,768\)
+      & FFT, IFFT & o núcleo da Intel lê 24 bits \\
+    Q15.16 & 32 & \(2^{-16} \approx 1{,}5\times10^{-5}\) & \(\pm 32\,768\)
+      & conv., FIR, IIR & multiplicadores próprios, de 32 bits \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+A codificação é a mesma para os dois, feita no cliente:
+\[
+  q = \operatorname{round}\!\left(v \cdot 2^{f}\right),
+\]
+com \(f\) o número de bits fracionários, saturando na faixa do formato. No
+Q15.8 o valor ocupa os 24 bits de baixo de uma palavra de 32, com o bit de
+sinal repetido nos 8 de cima para que o HPS leia o número certo; o núcleo da
+FFT ignora esses 8 bits. As funções estão em \arq{Python/dsp_core.py}
+(\texttt{fft\_q1508\_encode} e \texttt{float\_to\_q1516}).
+
+\section{A regra dos 6 dB por bit}
+
+O arredondamento comete um erro distribuído uniformemente entre
+\(-\Delta/2\) e \(+\Delta/2\), com variância \(\Delta^2/12\). Se o sinal for
+multiplicado por um fator \(s\) antes de codificar e dividido por \(s\) depois,
+o passo efetivo passa a ser \(\Delta/s\), e a relação sinal-ruído melhora em
+\[
+  20 \log_{10} s \ \text{dB}, \qquad
+  \text{ou seja, } 6{,}02\,\text{dB a cada vez que } s \text{ dobra.}
+\]
+Numa operação linear --- a FFT, a IFFT, a convolução --- essa escala se desfaz
+exatamente na saída, então o ganho é de graça. O quanto se pode ganhar depende
+da faixa que o sinal deixa sem uso:
+\[
+  \text{ganho máximo} = 6{,}02 \cdot \log_2 \frac{32\,768}{\max |v|}\ \text{dB}.
+\]
+Um sinal de amplitude 3 codificado numa faixa que vai a 32\,768 desperdiça
+cerca de 13 bits.
+
+\paragraph{Medido na placa.} A Tabela~\ref{tab:escala} mostra a mesma FFT de um
+sinal de pico 3,3 feita com escalas crescentes, comparada com a do NumPy. De 1
+a 64 são 6 bits: a teoria prevê 36,1\,dB de ganho, e a placa deu 36,2\,dB.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{FFT de um sinal de pico 3,3 com escalas crescentes, comparada com
+    \texttt{np.fft.fft} (placa, 10/09/2026).}
+  \label{tab:escala}
+  \begin{tabular}{@{}rrrr@{}}
+    \toprule
+    \textbf{Escala} & \textbf{Pico de} \(x\) & \textbf{SNR} & \textbf{Ganho} \\
+    \midrule
+    1     & 3,3       & 50,42\,dB & ---       \\
+    4     & 13,2      & 62,74\,dB & +12,32\,dB \\
+    16    & 52,8      & 75,07\,dB & +24,65\,dB \\
+    64    & 211,1     & 86,64\,dB & +36,22\,dB \\
+    256   & 844,3     & 91,74\,dB & +41,33\,dB \\
+    1024  & 3\,377,3  & 91,66\,dB & +41,24\,dB \\
+    4096  & 13\,509,1 & 91,55\,dB & +41,13\,dB \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Acima da escala 256 a melhora para, em cerca de \textbf{92\,dB}. A partir daí o
+limite deixa de ser o Q15.8 da entrada e passa a ser a aritmética interna do
+núcleo da FFT, explicada na seção~\ref{sec:bfp}.
+
+\section{A normalização da entrada}
+\label{sec:normalizacao}
+
+Por causa dessa regra, o cliente \textbf{normaliza} a entrada da FFT e da IFFT
+por padrão: multiplica o sinal pelo fator que o leva a 98\,\% da faixa do
+Q15.8, envia, e divide o resultado pelo mesmo fator. As janelas têm uma caixa
+``Normalizar entrada'', ligada, que permite desligar e ver a diferença.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Efeito da normalização, medido na placa (10/09/2026).}
+  \label{tab:normalizacao}
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    \textbf{Operação} & \textbf{Sem normalizar} & \textbf{Normalizada}
+      & \textbf{Escala usada} \\
+    \midrule
+    FFT, sinal de pico 3,3      & 50,42\,dB & 91,53\,dB & 9\,737 \\
+    IFFT, espectro de pico 1280 & 91,17\,dB & 92,69\,dB & 25,09 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A IFFT ganha pouco \emph{neste} espectro porque ele já ocupava bem a faixa. O
+caso em que ela é decisiva é o contrário, e ele é comum. O espectro de um sinal
+pode ser até \(N\) vezes maior que o sinal:
+\[
+  |X[k]| \le \sum_n |x[n]| \le N \cdot \max |x[n]|,
+\]
+ou seja, até 60\,dB acima, com \(N = 1024\). Um espectro assim satura o Q15.8
+nos picos; um espectro pequeno tem os seus pontos menores abaixo de
+\(\Delta/2 = 1/512\), e eles viram exatamente zero. Normalizado, um espectro
+\(10^{4}\) vezes menor volta com erro de \(5{,}9\times10^{-8}\), contra
+\(2{,}7\times10^{-3}\) sem normalizar.
+
+\section{O que o núcleo da FFT faz por dentro}
+\label{sec:bfp}
+
+O núcleo \emph{FFT~II} da Intel está configurado com entrada de 24 bits,
+fatores de giro de 18 bits e \emph{ponto flutuante em bloco}. A FFT de 1024
+pontos tem cinco estágios de base 4 (\(1024 = 4^5\)). A cada estágio o núcleo
+verifica se os valores cresceram e, se preciso, desloca \textbf{as 1024
+amostras juntas}, acumulando um expoente único para o bloco:
+\[
+  y = y_{\text{bruto}} \cdot 2^{-e}.
+\]
+O adaptador captura \(e\) e o servidor o aplica (seção~\ref{sec:acel-fft}).
+Duas consequências:
+
+\begin{enumerate}
+  \item o ponto flutuante em bloco \textbf{não recupera} o que se perdeu na
+    entrada. Um valor que ficou abaixo de \(1/512\) já era zero antes de o
+    núcleo começar. Por isso a normalização continua valendo 6\,dB por bit;
+  \item o expoente é \textbf{compartilhado}. Os pontos do espectro muito abaixo
+    do pico carregam menos bits efetivos, porque o deslocamento foi decidido
+    pelo maior deles. Isso, junto com os fatores de giro de 18 bits, é o que
+    põe o teto em cerca de 92\,dB.
+\end{enumerate}
+
+A normalização do cliente e o ponto flutuante em bloco resolvem problemas
+diferentes: a primeira posiciona o sinal \emph{antes} de ele virar 24 bits; o
+segundo evita que ele estoure \emph{durante} a transformada. Um não substitui o
+outro.
+
+\paragraph{A IFFT não aplica o \(1/N\).} O núcleo entrega \(N\) vezes a IDFT
+matemática. Isso foi medido, não suposto: enviando um sinal real pelo caminho
+da FFT com o bit \texttt{inverse} ligado, a magnitude do que volta é a da DFT
+(razão 1,00031), e para \(x\) real
+\(\mathrm{IDFT}(x) = \overline{\mathrm{DFT}(x)}/N\). O cliente aplica o
+\(1/1024\) (\texttt{IFFT\_HW\_GAIN} em \arq{morphe_config.py}), e o resultado
+coincide com o \arq{idft.m} do Prof.\ Sanca a \(2{,}5\times10^{-5}\).
+
+\section{Convolução, FIR e IIR}
+
+Os aceleradores em Q15.16 têm comportamentos numéricos próprios, descritos com
+o circuito no capítulo~\ref{cap:hardware}. Em resumo:
+
+\begin{description}
+  \item[Convolução e FIR] \emph{truncam} cada produto e acumulam em 32 bits
+    \emph{sem saturar}. O erro de truncamento cresce com o número de termos
+    (chega a centenas de LSB em 1024 por 1024), e uma soma além de
+    \(\pm 32\,768\) dá a volta com o sinal trocado
+    (seção~\ref{sec:acel-conv}).
+  \item[IIR] \emph{arredonda} na saída de cada seção e \emph{satura} em vez de
+    dar a volta; o registrador \texttt{iir\_error} avisa quando saturou. O
+    resultado da placa coincide bit a bit com o modelo em Python
+    (seção~\ref{sec:acel-iir}).
+\end{description}
+
+\paragraph{Os coeficientes dos filtros também são quantizados.} Um FIR
+projetado em ponto flutuante e convertido para Q15.16 muda cada coeficiente em
+no máximo meio passo (\(7{,}6\times10^{-6}\), medido). No IIR, com os polos em
+seções de segunda ordem, o raio de cada polo se desloca no máximo cerca de
+\(10^{-6}\), mesmo com polos em \(|p| = 0{,}9984\). É isso que torna o Q15.16
+suficiente para os dois.
+
+\section{O ADC}
+
+O conversor da placa tem 12 bits: 4096 níveis de 1\,mV entre 0 e 4,095\,V (ou
+entre \(-2{,}048\) e \(+2{,}047\)\,V no modo diferencial). O ruído de
+quantização de um conversor ideal de \(B\) bits, com uma senoide que ocupa a
+faixa inteira, dá uma relação sinal-ruído de
+\[
+  \mathrm{SNR} = 6{,}02\,B + 1{,}76\ \text{dB} \approx 74\ \text{dB}
+  \quad (B = 12).
+\]
+O número de bits efetivos (ENOB) que a janela de aquisição mostra é essa
+fórmula invertida, aplicada à relação medida:
+\(\mathrm{ENOB} = (\mathrm{SINAD} - 1{,}76)/6{,}02\). A medida usa a janela de
+Blackman-Harris, e não a de Hann: com a de Hann o vazamento espectral limitava
+a medida a cerca de 53\,dB e escondia o conversor.
+
+Uma senoide que ocupa só uma parte da faixa perde o mesmo que um sinal mal
+escalado na FFT: 6\,dB a cada vez que a amplitude cai pela metade. Por isso a
+recomendação de usar amplitude perto de 2\,V de pico em torno de 2\,V de
+deslocamento (seção~\ref{sec:adc}).
+
+\section{Números para referência rápida}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Erros medidos na placa, para comparação.}
+  \label{tab:erros}
+  \begin{tabularx}{\textwidth}{@{}Xrl@{}}
+    \toprule
+    \textbf{Medida} & \textbf{Valor} & \textbf{Condição} \\
+    \midrule
+    FFT \(\to\) IFFT \(\to\) sinal original, erro máximo & \(6{,}1\times10^{-5}\)
+      & as duas normalizadas \\
+    FFT \(\to\) IFFT, erro máximo & \(9{,}5\times10^{-4}\) & nenhuma normalizada \\
+    FFT contra o NumPy & 91,5\,dB & normalizada \\
+    IFFT contra o NumPy & 92,7\,dB & normalizada, espectro de pico 1280 \\
+    Convolução 1024 \(\times\) 1024, erro máximo & 521 LSB & truncamento \\
+    IIR contra o modelo em Python & 0 LSB & qualquer filtro testado \\
+    Coeficientes FIR, ponto flutuante contra Q15.16 & \(\le 7{,}6\times10^{-6}\)
+      & meio passo \\
+    ADC, entrada no terra & 0,0000\,V, desvio 0,03\,mV & 24/09/2026 \\
+    ADC, entrada no 3,3\,V da placa & 3,3300\,V, desvio 2,6\,mV & 24/09/2026 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Regras práticas}
+
+\begin{enumerate}
+  \item Antes de codificar, olhe \(\max|v| / 32\,768\). Se for muito menor que
+    1, há bits sendo jogados fora.
+  \item Numa operação linear, normalize: a escala se desfaz exatamente.
+  \item Não espere mais que cerca de 92\,dB de nada que passe pelo núcleo da
+    FFT. Um erro de ida e volta de \(10^{-5}\) não é defeito, é esse teto.
+  \item Um espectro não pode ser completado com zeros como um sinal no tempo.
+  \item Erro grande e sistemático é escala errada; erro pequeno e espalhado é
+    quantização.
+  \item Na convolução, saída negativa para entradas positivas é estouro do
+    acumulador, não defeito: reduza a amplitude.
+\end{enumerate}

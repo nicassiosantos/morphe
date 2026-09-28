@@ -1,4 +1,4 @@
-% Arvore do repositorio (estado de de9bc41). Pacote dirtree.
+% Arvore do repositorio (estado de 24/09/2026, com o ADC). Pacote dirtree.
 \renewcommand*\DTstylecomment{\small\rmfamily\itshape\color{black!65}}
 \renewcommand*\DTstyle{\small\ttfamily}
 \dirtree{%
@@ -13,6 +13,7 @@
 .3 morphe\_protocol.py\DTcomment{cliente TCP}.
 .3 dsp\_core.py, blocos.py\DTcomment{ponto fixo, referência, sinais longos}.
 .3 fir\_design.py, iir\_design.py\DTcomment{projetistas de filtros}.
+.3 aquisicao.py, sinal\_arquivo.py\DTcomment{ADC e sinais de arquivo}.
 .3 ferramentas/\DTcomment{testes contra a placa, figuras, vetores}.
 .2 C/\DTcomment{o servidor da placa}.
 .3 morphe\_server.c, morphe\_protocol.h, morphe\_config.h.
@@ -21,10 +22,12 @@
 .2 Quartus/\DTcomment{o hardware}.
 .3 ghrd\_top.v\DTcomment{topo: instancia os aceleradores}.
 .3 conv1d.v, fft\_wrapper.v, iir\_*.v\DTcomment{os aceleradores}.
+.3 adc\_captura.v\DTcomment{o controlador do ADC}.
 .3 soc\_system.qsys, soc\_system.qsf.
-.3 tb\_iir\_*.v, roda\_tb\_iir.sh\DTcomment{testbenches}.
+.3 tb\_*.v, roda\_tb\_*.sh\DTcomment{testbenches (IIR e ADC)}.
+.3 gen\_hps\_header.py\DTcomment{gera o hps\_0.h}.
 .3 output\_files/\DTcomment{o bitstream}.
 .2 exemplos/\DTcomment{pacotes .mrph e sinais de exemplo}.
-.2 docs/\DTcomment{documentação técnica e diário}.
+.2 docs/\DTcomment{documentação técnica, diário e este manual}.
 .2 legado/\DTcomment{do projeto original, fora do produto}.
 }

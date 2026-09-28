@@ -1,0 +1,185 @@
+% =============================================================================
+\chapter{Várias placas, vários alunos}
+\label{cap:placas}
+% =============================================================================
+
+O laboratório tem duas placas e uma turma. Este capítulo descreve o que
+acontece entre um cliente e as placas quando várias pessoas usam o sistema ao
+mesmo tempo: como o cliente acha as placas, como escolhe uma, o que a fila do
+servidor faz com o tempo de resposta e o que foi medido. O texto completo, com
+as mensagens de diagnóstico, está em \arq{docs/GERENCIAMENTO-PLACAS.md}.
+
+\section{Descoberta}
+
+O cliente procura placas em duas etapas.
+
+\paragraph{A lista local.} O \arq{morphe-up.sh} grava toda placa que prepara
+em \arq{.morphe-estado/placas}, um endereço por linha, na raiz do repositório;
+a última preparada fica também em \arq{.morphe-estado/placa}. O cliente lê esses
+arquivos primeiro. Como a instalação de turma é uma só (\arq{/opt/morphe}), o
+que o \arq{morphe-up.sh} registra é o que todos os alunos daquele computador
+enxergam.
+
+\paragraph{A varredura.} Com a lista vazia, o cliente varre a rede por TCP,
+enviando um \texttt{PING} a cada endereço das sub-redes prováveis --- a da placa
+lembrada, a do próprio computador e as usadas historicamente no laboratório ---
+com até 64 conexões em paralelo e prazos curtos. A varredura \textbf{para na
+primeira placa que achar}. É o último recurso: o servidor não responde a
+\emph{broadcast}, então uma placa numa sub-rede nunca vista continua invisível.
+
+A lista é texto puro. Num computador que não é a estação, basta escrevê-la uma
+vez para o cliente passar a conhecer as duas placas:
+
+\begin{center}
+\ttfamily printf '172.16.230.24\textbackslash n172.16.230.52\textbackslash n' > .morphe-estado/placas
+\end{center}
+
+\noindent Não se deve usar o \arq{morphe-up.sh} só para registrar uma placa:
+mesmo sem reprogramar a FPGA, ele reinicia o servidor e interrompe quem estiver
+no meio de uma operação.
+
+\section{Escolha: a placa que responder mais rápido}
+
+Com mais de uma placa na lista, o cliente envia um \texttt{PING} a todas ao
+mesmo tempo e fica com a primeira que responder (Figura~\ref{fig:escolha-placa}).
+Placas que respondem com \texttt{fpga\_preparada=0} são ignoradas.
+
+\begin{figure}[htbp]
+  \centering
+  \figura{escolha-placa}
+  \caption{Escolha da placa: o cliente sonda todas em paralelo e fica com a
+    que responder primeiro. Uma placa ocupada só responde ao fim da operação
+    em curso.}
+  \label{fig:escolha-placa}
+\end{figure}
+
+O tempo de resposta do \texttt{PING} mede ocupação por causa da estrutura do
+servidor: ele atende uma conexão de cada vez, então uma placa no meio de uma
+convolução só responde ao \texttt{PING} depois de terminá-la. Placa livre
+responde em milissegundos; placa ocupada, em centenas.
+
+Duas placas livres empatam: a diferença entre elas é de microssegundos de rede,
+e a vencedora muda de uma vez para a outra. Não é defeito. É também por isso
+que dois alunos que cliquem no mesmo instante ainda podem cair na mesma placa;
+a regra resolve o caso comum, de uma placa ocupada e outra livre.
+
+\section{A fila e o tempo de resposta}
+
+Como o servidor atende uma conexão por vez, dois alunos na mesma placa
+\textbf{não recebem erro: esperam}. A segunda requisição fica na fila do sistema
+operacional até a primeira terminar, e os tempos se somam. Com \(k\) clientes
+disputando a mesma placa, cada um vê cerca de \(k\) vezes o tempo de placa
+livre.
+
+A fila do \texttt{listen(4)} guarda cinco conexões, e a sexta é a que está
+sendo atendida. O que passa disso não é recusado: no Linux, o sistema descarta
+o pedido de conexão em silêncio e o cliente o repete cerca de um segundo
+depois. O sintoma do excesso é, portanto, uma cauda de latência, não um erro.
+
+\section{O que foi medido}
+
+As medições de 22/09/2026 usaram o \arq{Python/ferramentas/testa_concorrencia.py},
+que dispara requisições simultâneas e \textbf{confere cada resposta}: uma
+convolução com impulso tem de devolver a própria entrada, e a FFT de um impulso
+tem de dar espectro plano. Não bastava cronometrar; era preciso saber se alguma
+resposta chegava trocada.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Vários clientes simultâneos, operações de 1024 amostras, metade
+    convoluções (\(\approx\)215\,ms) e metade FFTs (\(\approx\)21\,ms). Placa
+    livre: mediana de 120\,ms (22/09/2026).}
+  \label{tab:concorrencia}
+  \begin{tabularx}{\textwidth}{@{}Xrrrr@{}}
+    \toprule
+    \textbf{Cenário} & \textbf{Respostas certas} & \textbf{Mediana}
+      & \textbf{p95} & \textbf{Pior} \\
+    \midrule
+    4 clientes, uma placa  & 32/32 & 471\,ms (3,9\(\times\)) & --- & --- \\
+    6 clientes, uma placa  & 24/24 & 604\,ms (5,1\(\times\)) & --- & 1,29\,s \\
+    8 clientes, uma placa  & 64/64 & 517\,ms & 1,29\,s & 6,39\,s \\
+    10 clientes, uma placa & 80/80 & 519\,ms & 4,56\,s & 7,07\,s \\
+    \addlinespace
+    3 clientes em cada uma de duas máquinas, duas placas & 90/90 & --- & --- & --- \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Três conclusões:
+
+\begin{itemize}
+  \item \textbf{Nenhuma resposta foi perdida nem trocada}, em nenhum cenário. As
+    90 requisições do teste com duas máquinas e duas placas foram conferidas uma
+    a uma.
+  \item \textbf{Uma placa atende cerca de 8 requisições por segundo} com essa
+    mistura de operações, e esse número não muda de 2 para 10 clientes: é o
+    tempo médio de uma operação (120\,ms) invertido. A partir de 8 clientes a
+    placa está saturada, e cliente a mais só acrescenta espera. Duas placas dão
+    cerca de 16 requisições por segundo para a turma inteira.
+  \item O excesso aparece como cauda: de 8 para 10 clientes a mediana não se
+    move e o p95 triplica.
+\end{itemize}
+
+Dois clientes gráficos, um em cada máquina, escolheram placas diferentes.
+
+\paragraph{A captura do ADC ocupa a placa.} Uma captura contínua mantém a
+conexão aberta enquanto dura, e durante esse tempo a placa não atende mais
+ninguém: outro aluno na mesma placa espera, e a escolha automática não a
+escolhe (o \texttt{PING} dela não responde). Numa aula com o ADC, é melhor
+reservar uma placa para a aquisição.
+
+\section{O que não existe}
+
+Estas são as limitações conhecidas da infraestrutura. Nenhuma impede o uso em
+turma com supervisão; todas impedem o uso sem supervisão com mais alunos do que
+placas.
+
+\begin{enumerate}
+  \item \textbf{Alocação.} Nada impede duas pessoas de usarem a mesma placa
+    achando que cada uma tem a sua. O resultado sai certo, porque cada
+    requisição é completa, mas o tempo dobra e ninguém sabe por quê. Uma
+    reserva com prazo, renovada pelo cliente, resolveria, e exige estado no
+    servidor.
+  \item \textbf{Concorrência no servidor.} Um processo por conexão, ou uma fila
+    explícita que respondesse ``ocupada, você é o segundo'', diria ao cliente o
+    que está acontecendo. Hoje ele não distingue ``placa ocupada'' de ``placa
+    fora do ar'': nos dois casos a sonda simplesmente demora.
+  \item \textbf{Descoberta sem varredura.} Um servidor que respondesse a
+    \emph{broadcast} UDP seria achado em qualquer sub-rede.
+  \item \textbf{Estado compartilhado entre computadores.} O
+    \arq{.morphe-estado} é de cada instalação.
+\end{enumerate}
+
+\section{Sintoma, causa e o que fazer}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Sintomas ligados a várias placas e vários clientes.}
+  \label{tab:sintomas-placas}
+  \begin{tabularx}{\textwidth}{@{}XXX@{}}
+    \toprule
+    \textbf{Sintoma} & \textbf{Causa} & \textbf{O que fazer} \\
+    \midrule
+    A escolha automática alterna entre as placas & duas placas livres empatam
+      & nada; é o esperado \\
+    \addlinespace
+    Tudo ficou duas vezes mais lento & outra pessoa está na mesma placa
+      & é a fila; reconectar para ir à outra \\
+    \addlinespace
+    ``A placa não respondeu'', mas ela está no ar & placa ocupada (uma captura
+      contínua, por exemplo) & esperar ou usar a outra \\
+    \addlinespace
+    Operação recusada com ``FPGA não preparada'' & a placa foi ligada e ninguém
+      programou o bitstream & \arq{./morphe-up.sh} na estação \\
+    \addlinespace
+    Um computador só enxerga uma placa & a lista dele está vazia e a varredura
+      para na primeira & escrever \arq{.morphe-estado/placas} \\
+    \addlinespace
+    ``o \emph{tether} de DE-SoC [1-x] pertence à conta \ldots'' & outra conta
+      preparou aquela placa & usá-la como está ou pedir àquela conta um
+      \opt{down} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

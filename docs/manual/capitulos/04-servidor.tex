@@ -1,0 +1,225 @@
+% =============================================================================
+\chapter{O servidor na placa}
+\label{cap:servidor}
+% =============================================================================
+
+O servidor é um programa em C, \arq{C/morphe_server.c}, que roda no HPS de cada
+placa. Ele é a única parte do sistema que fala com a FPGA, e faz pouco: recebe
+uma requisição pela rede, confere, copia os dados para as memórias do
+acelerador, dispara, espera e devolve o resultado. Este capítulo descreve como
+ele faz isso e por que algumas das suas regras existem.
+
+\section{Estrutura}
+
+O programa tem um único fio de execução e atende \textbf{uma conexão por vez}.
+O laço principal é o mais simples possível:
+
+\begin{enumerate}
+  \item abre o \arq{/dev/mem} e mapeia as duas pontes (seção~\ref{sec:pontes});
+  \item abre um \emph{socket} TCP na porta 5000 (ou na que vier como argumento)
+    com uma fila de espera de quatro conexões, \texttt{listen(srv, 4)};
+  \item repete para sempre: \texttt{accept} \(\to\) atende \(\to\)
+    \texttt{close}.
+\end{enumerate}
+
+Atender uma conexão é ler o cabeçalho de 20 bytes, conferir a assinatura e a
+versão, e despachar pelo campo \texttt{opcode} para uma função por operação:
+\texttt{handle\_conv}, \texttt{handle\_fir}, \texttt{handle\_fft},
+\texttt{handle\_ifft}, \texttt{handle\_iir}, \texttt{handle\_adc},
+\texttt{handle\_adc\_continuo} e \texttt{handle\_ping}. Um opcode desconhecido
+recebe o status \texttt{BAD\_OPCODE}.
+
+Não há \emph{fork}, \emph{threads} nem fila própria. Quem espera é o sistema
+operacional: enquanto uma operação está sendo atendida, as conexões seguintes
+ficam na fila do \texttt{listen}. Essa escolha é do projeto original e foi
+mantida porque é correta: a FPGA tem um acelerador de cada tipo, e duas
+operações ao mesmo tempo no mesmo acelerador seriam um erro. O que ela custa em
+latência quando vários alunos usam a mesma placa está medido no
+capítulo~\ref{cap:placas}.
+
+\subsection*{Uma função por operação, todas com o mesmo roteiro}
+
+Cada \texttt{handle\_*} segue a mesma sequência, na mesma ordem:
+
+\begin{enumerate}
+  \item confere se a FPGA foi preparada (seção~\ref{sec:marca}); se não, recusa
+    sem tocar em nada;
+  \item confere os tamanhos contra os limites de \arq{morphe_config.h} e o tipo
+    dos dados;
+  \item recebe o \emph{payload} inteiro para um \emph{buffer} local;
+  \item escreve nas memórias de entrada, \textbf{completando com zeros} até o
+    tamanho do hardware;
+  \item leva o \texttt{start} a 0, espera 1\,\textmu s, leva a 1;
+  \item espera o \texttt{done} (seção~\ref{sec:espera});
+  \item devolve o \texttt{start} a 0, lê as saídas e envia a resposta.
+\end{enumerate}
+
+O enchimento com zeros do passo 4 não é detalhe: os aceleradores sempre
+processam o bloco inteiro de 1024 amostras, e o que tivesse sobrado na memória
+de uma operação anterior entraria na conta. No IIR isso apareceria como uma
+cauda na saída; na convolução, como amostras erradas no fim.
+
+\section{Esperar a FPGA}
+\label{sec:espera}
+
+O servidor não usa interrupções. Depois do \texttt{start}, lê o registrador
+\texttt{done} a cada 50\,\textmu s até ele subir. Se não subir em
+\textbf{5 segundos}, a operação é abandonada, o \texttt{start} volta a 0 e o
+cliente recebe o status \texttt{FPGA\_TIMEOUT}.
+
+Nenhuma operação normal chega perto desse prazo: a mais longa, a convolução de
+1024 por 1024 amostras, leva cerca de 170\,ms na FPGA. Um tempo esgotado quer
+dizer que o acelerador não está funcionando, e na prática quase sempre tem uma
+de duas causas: o \emph{tether} da licença caiu e o bitstream parou
+(seção~\ref{sec:tether}), ou o servidor foi compilado com um \arq{hps_0.h} que
+não corresponde ao bitstream carregado.
+
+A exceção são as capturas do ADC, cuja duração depende do pedido --- 32\,768
+amostras a 1\,kHz levam 33\,s. Nelas o prazo é calculado da própria captura: a
+duração esperada mais 2\,s.
+
+Cada operação registra no \emph{log} os seus tempos em três fases ---
+\texttt{entrada} (copiar para a FPGA), \texttt{fpga} (do \texttt{start} ao
+\texttt{done}) e \texttt{saida} (ler e enviar). O número do meio é o que
+interessa para diagnóstico: ele mede o hardware sozinho, sem a rede.
+
+\section{A marca de FPGA preparada}
+\label{sec:marca}
+
+Esta é a regra mais importante do servidor, e a que custou mais caro para
+descobrir.
+
+Quando uma DE1-SoC liga, o carregador de boot (U-Boot) programa a FPGA com o
+bitstream de fábrica gravado no cartão SD, o \arq{soc_system.rbf}. Nesse
+bitstream os registradores e memórias do Morphe \textbf{não existem}. No
+Cyclone~V, um acesso a um endereço sem escravo na ponte HPS\(\to\)FPGA não
+devolve erro: \textbf{trava o barramento do processador inteiro}, sem prazo. A
+placa some da rede, e nem o console serial responde. Foi o que aconteceu com a
+placa~2 do laboratório a cada boot, entre 17 e 21/09/2026: o servidor subia
+sozinho no boot e zerava os registradores de \texttt{start} antes de a FPGA ter
+o bitstream do Morphe.
+
+Desde então o servidor segue esta regra:
+
+\begin{quote}
+\textbf{Nenhum acesso à FPGA enquanto não existir o arquivo}\\
+\arq{/var/run/morphe-fpga-preparada}.
+\end{quote}
+
+Quem cria esse arquivo é o \arq{morphe-up.sh}, por SSH, logo depois de o
+programador do Quartus confirmar que gravou o bitstream do Morphe
+(capítulo~\ref{cap:laboratorio}). O \arq{/var/run} é uma pasta em memória: o
+arquivo some sozinho no próximo boot, que é exatamente quando o U-Boot devolve
+a FPGA ao bitstream de fábrica. A marca e o bitstream que ela atesta
+desaparecem juntos.
+
+Sem a marca, o servidor sobe normalmente, responde ao \texttt{PING} com
+\texttt{fpga\_preparada=0} e recusa toda operação com o status
+\texttt{FPGA\_NAO\_PREPARADA} e a mensagem ``rode ./morphe-up.sh nesta placa''.
+Na primeira requisição depois que a marca aparece, e só então, ele zera os
+registradores de \texttt{start} de todos os aceleradores.
+
+\subsection*{A segunda proteção: o \texttt{sysid}}
+
+O ADC trouxe uma variação do mesmo problema. Um servidor compilado com os
+endereços do ADC pode encontrar na FPGA um bitstream mais antigo, sem ele ---
+por exemplo, se o \arq{morphe-up.sh} ainda não rodou depois de uma atualização.
+Os registradores do ADC não existiriam, e tocá-los travaria o barramento do
+mesmo jeito.
+
+Todo bitstream do Morphe tem um componente \texttt{sysid} no mesmo endereço,
+com a data e hora em que o sistema foi gerado no Platform Designer. O
+\arq{gen_hps_header.py} copia esse valor para o \arq{hps_0.h}
+(\texttt{SYSID\_QSYS\_TIMESTAMP}). Antes de tocar em qualquer registrador do
+ADC, o servidor lê o \texttt{sysid} da FPGA e o compara com o do cabeçalho; se
+forem diferentes, recusa com a mensagem ``o bitstream na FPGA não é o deste
+servidor''. O \texttt{PING} anuncia \texttt{adc\_n\_max=0} sempre que o ADC não
+pode ser usado.
+
+Há ainda uma terceira camada, em tempo de compilação: o código do ADC só é
+compilado se o \arq{hps_0.h} tiver a memória \texttt{adc\_buf}
+(\texttt{MORPHE\_TEM\_ADC}). Um cabeçalho de antes do ADC produz um servidor que
+responde a essas operações com \texttt{BAD\_OPCODE} e uma explicação.
+
+\section{Outros cuidados}
+
+\paragraph{Respostas de erro que chegam ao cliente.} Quando o servidor recusa
+uma requisição, o cliente pode já ter enviado parte do \emph{payload}. Fechar um
+\emph{socket} com dados não lidos faz o Linux enviar um \emph{reset} em vez de
+um fechamento normal, e o \emph{reset} descarta a resposta que acabou de ser
+enviada: o cliente via ``\emph{connection reset by peer}'' no lugar da mensagem
+de erro. Por isso, depois de toda resposta de erro, o servidor lê e descarta o
+que houver na entrada (\texttt{drain\_pending}), com um limite de tempo e de
+tamanho.
+
+\paragraph{Cliente que fecha a conexão no meio.} Escrever num \emph{socket} cujo
+outro lado fechou gera o sinal \texttt{SIGPIPE}, cuja ação padrão encerra o
+processo. Até 24/09/2026 um aluno que fechasse a janela durante uma operação
+longa derrubava o servidor da placa para todos. Agora o sinal é ignorado e o
+envio só devolve erro.
+
+\paragraph{Pacotes de depuração.} A cada operação o servidor grava, no seu
+diretório na placa, um pacote \arq{.mrph} com a entrada e a saída
+(seção~\ref{sec:mrph}). Para não encher o cartão SD em silêncio, ele guarda os
+100 mais recentes de cada tipo de operação e apaga os mais antigos. A variável
+de ambiente \texttt{MORPHE\_DUMP\_MAX} muda esse número; 0 desliga a gravação.
+
+\paragraph{Modo de diagnóstico da FFT.} Com \texttt{MORPHE\_FFT\_INVERSE=1} no
+ambiente, a operação FFT roda com o bit \texttt{inverse} ligado. Serviu para
+provar, em 10/09/2026, que esse bit estava vivo no hardware antes de existir a
+operação IFFT; não é usado na operação normal.
+
+\section{Compilação e início automático}
+
+O servidor é compilado \textbf{na própria placa}, com o \texttt{gcc} do Linux
+dela, pelo \arq{C/Makefile}. As opções ativam as otimizações para o
+Cortex-A9 (\texttt{-O3}, \texttt{-mcpu=cortex-a9}, \texttt{-mfpu=neon}). Os seis
+arquivos necessários --- \arq{morphe_server.c}, \arq{morphe_protocol.h},
+\arq{morphe_config.h}, \arq{hps_0.h}, \arq{address_map_arm.h} e o
+\arq{Makefile} --- são enviados e compilados pelo \arq{morphe-up.sh}, que
+recompila com \texttt{make -B} sempre que algum deles mudou. Compilar à mão não
+é necessário, e o servidor precisa rodar como \texttt{root} por causa do
+\arq{/dev/mem}.
+
+\paragraph{No boot.} O \arq{C/autostart/instala-autostart.sh}, rodado uma vez
+em cada placa, registra o servidor como serviço do sistema (\emph{systemd} ou
+\emph{init.d}, o que a imagem do cartão tiver), com reinício automático se ele
+cair. Com o serviço instalado, a placa aparece na rede para os clientes assim
+que liga, recusando operações até ser preparada. Só o servidor de 21/09/2026 em
+diante pode ir para o início automático: o anterior tocava a FPGA ao subir.
+
+\section{Códigos de status}
+
+Toda resposta traz um status. Quando ele não é zero, o \emph{payload} é uma
+mensagem em texto, que o cliente mostra ao aluno.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption[Códigos de status das respostas]{Códigos de status das respostas
+    (\arq{C/morphe_protocol.h}).}
+  \label{tab:status}
+  \begin{tabularx}{\textwidth}{@{}clX@{}}
+    \toprule
+    \textbf{Código} & \textbf{Nome} & \textbf{Quando aparece} \\
+    \midrule
+    0 & \texttt{OK} & a operação foi feita \\
+    1 & \texttt{BAD\_MAGIC} & o cabeçalho não começa com \texttt{MRPM}: não é
+      um cliente Morphe \\
+    2 & \texttt{BAD\_VERSION} & versão do protocolo diferente de 1 \\
+    3 & \texttt{BAD\_OPCODE} & operação desconhecida, ou ADC pedido a um servidor
+      compilado sem ele \\
+    4 & \texttt{BAD\_DTYPE} & tipo de dado que a operação não aceita (a FFT, a
+      IFFT e o ADC só aceitam \texttt{int32}) \\
+    5 & \texttt{BAD\_SIZE} & tamanho fora dos limites do hardware, número de
+      seções do IIR, taxa de amostragem ou configuração do ADC inválidos \\
+    6 & \texttt{FPGA\_TIMEOUT} & o acelerador não levantou o \texttt{done} no
+      prazo (seção~\ref{sec:espera}) \\
+    7 & \texttt{INTERNAL\_ERROR} & só no FIR, se o registrador \texttt{fir\_error}
+      estiver em 1; como nada no bitstream atual aciona esse registrador
+      (seção~\ref{sec:acel-conv}), na prática não aparece \\
+    8 & \texttt{FPGA\_NAO\_PREPARADA} & a placa não foi preparada pelo
+      \arq{morphe-up.sh}, ou o bitstream carregado não é o do servidor \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

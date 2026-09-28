@@ -1,0 +1,132 @@
+% =============================================================================
+\chapter{Estrutura do repositório}
+\label{ap:repositorio}
+% =============================================================================
+
+A árvore abaixo mostra o que importa em cada pasta. A separação entre o que é
+produto (o que roda quando alguém usa o Morphe) e o que não é está também no
+\arq{README.md} da raiz.
+
+\medskip
+\input{figuras/arvore}
+\medskip
+
+Três regras sobre esta estrutura:
+
+\begin{itemize}
+  \item \textbf{os \arq{iir_*.v} não saem de \arq{Quartus/}}: não estão
+    listados no \arq{soc_system.qsf}, e o Quartus os acha por estarem na pasta
+    do projeto;
+  \item \textbf{o \arq{C/hps_0.h} e o \arq{Quartus/soc_system.sopcinfo} são
+    gerados}, e vão juntos com o bitstream que os gerou;
+  \item \textbf{as ferramentas rodam de dentro de \arq{Python/}}, porque o
+    \arq{ferramentas/_caminho.py} acrescenta a pasta de cima ao caminho de
+    importação; por exemplo:\\
+    \texttt{python3 ferramentas/testa\_iir\_hw.py <ip>}.
+\end{itemize}
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{A documentação técnica, em \arq{docs/} e na raiz.}
+  \label{tab:docs}
+  \begin{tabularx}{\textwidth}{@{}lX@{}}
+    \toprule
+    \textbf{Arquivo} & \textbf{Assunto} \\
+    \midrule
+    \arq{PREPARACAO.md} & preparar a placa, instalar para a turma, Quartus nos
+      computadores \\
+    \arq{docs/GERENCIAMENTO-PLACAS.md} & várias placas e vários clientes \\
+    \arq{docs/PRECISAO-NUMERICA.md} & os formatos de ponto fixo e os erros
+      medidos \\
+    \arq{docs/ADC.md} & o conversor da placa e como a captura funciona \\
+    \arq{docs/COMPILAR-IIR.md}, \arq{docs/COMPILAR-ADC.md} & recompilar o
+      bitstream, passo a passo \\
+    \arq{docs/NOVA-PLACA.md} & pôr uma placa nova em serviço \\
+    \arq{docs/RESSALVAS.md} & o que foi corrigido no projeto original, e por
+      quê \\
+    \arq{docs/LINHA-DE-BASE-PASSOS.md} & a medição de usabilidade antes das
+      mudanças \\
+    \arq{docs/DIARIO.md} & o diário do estágio: o que foi feito, medido e
+      validado, dia a dia \\
+    \arq{docs/manual/} & este manual \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+% =============================================================================
+\chapter{Referência rápida}
+\label{ap:referencia}
+% =============================================================================
+
+Os comandos do dia a dia. Os da estação rodam de \arq{/opt/morphe}, na conta de
+quem vai preparar a aula; nunca com \texttt{sudo}.
+
+\newcommand{\cmd}[1]{\par\smallskip\noindent\hspace*{1em}{\ttfamily\small #1}\par\smallskip}
+
+\section*{Preparar as placas (estação)}
+
+\cmd{cd /opt/morphe \&\& ./morphe-up.sh -{}-cable 'DE-SoC [1-2]' -{}-board 172.16.230.24}
+\cmd{./morphe-up.sh -{}-cable 'DE-SoC [1-3]' -{}-board 172.16.230.52}
+
+Ver o que está no ar, e se os \emph{tethers} estão vivos:
+
+\cmd{./morphe-up.sh -{}-status}
+\cmd{pgrep -af quartus\_pgm}
+
+\section*{Abrir o aplicativo (qualquer computador)}
+
+\cmd{cd /opt/morphe/Python \&\& python3 morphe\_app.py}
+
+\section*{Uma vez por placa e por conta}
+
+\cmd{./morphe-up.sh -{}-setup-ssh -{}-board <ip>}
+
+\section*{Atualizar a instalação de turma (coordenador)}
+
+\cmd{git -C /opt/morphe branch -vv}
+\cmd{cd /opt/morphe \&\& git pull}
+
+\noindent e, se o servidor ou o bitstream mudaram, \arq{./morphe-up.sh} de novo.
+
+\section*{Conferir um clone}
+
+\cmd{sha256sum -c PROVENIENCIA.sha256}
+\cmd{python3 Quartus/gen\_hps\_header.py -{}-check}
+
+\section*{Testar contra a placa (de dentro de \texttt{Python/})}
+
+\cmd{python3 ../Quartus/morphe\_ping.py <ip>}
+\cmd{python3 ferramentas/testa\_ifft\_roundtrip.py <ip>}
+\cmd{python3 ferramentas/testa\_iir\_hw.py <ip>}
+\cmd{python3 ferramentas/testa\_blocos.py -{}-placa <ip>}
+\cmd{python3 ferramentas/testa\_adc.py <ip> basico}
+\cmd{python3 ferramentas/testa\_concorrencia.py -{}-modo mesma -{}-clientes 6}
+
+\section*{Encerrar}
+
+\cmd{./morphe-up.sh -{}-down}
+
+\noindent encerra os \emph{tethers}; em uma hora as placas param. Com
+\opt{stop-server}, para também os servidores.
+
+\section*{Quando algo dá errado}
+
+\begin{center}
+\small
+\begin{tabular}{@{}ll@{}}
+  \toprule
+  \textbf{Sintoma} & \textbf{Primeiro passo} \\
+  \midrule
+  tempo esgotado, FFT errada & \texttt{pgrep -af quartus\_pgm}; \arq{./morphe-up.sh} \\
+  ``FPGA não preparada'' & \arq{./morphe-up.sh} \\
+  aplicativo não acha placa & rodar tudo de \arq{/opt/morphe}; conferir
+    \arq{.morphe-estado/placas} \\
+  resultado inexplicável & \texttt{gen\_hps\_header.py -{}-check} \\
+  aplicativo não abre & remover NumPy e Matplotlib do \texttt{pip -{}-user} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\noindent As tabelas completas estão nos capítulos~\ref{cap:placas}
+e~\ref{cap:laboratorio}.
