@@ -1,4 +1,11 @@
-"""tcp_panel.py — widget de configuração da conexão TCP.
+"""tcp_panel.py — painel "Placas do laboratório" da janela principal.
+
+Desde 28/09/2026 o painel mostra uma linha por placa conhecida (placas.conf,
+lista local e as que a varredura achar), com um ponto de cor e o que cada uma
+está fazendo, pela porta de estado, atualizado a cada 4 s: livre, ocupada
+(com qual operação e há quanto tempo), sem resposta ou com a FPGA não
+preparada. A placa em uso é marcada; as outras têm um botão "Usar". Os campos
+de endereço e porta ficam recolhidos em "Conexão manual".
 
 Consome `morphe_theme` para estilos e helpers. A configuração TCP vive
 na janela principal e é compartilhada por todas as janelas filhas
@@ -96,6 +103,26 @@ def ler_placas_laboratorio() -> List[str]:
     return ips
 
 
+def ler_nomes_laboratorio() -> dict:
+    """IP -> nome curto da placa, do comentário do placas.conf ("placa 1,
+    de1soclinux, ..." vira "Placa 1"). Placa sem nome ali fica sem nome."""
+    nomes: dict = {}
+    try:
+        with open(_caminho_placas_laboratorio(), encoding="utf-8") as f:
+            for linha in f:
+                util = linha.split("#", 1)[0].strip()
+                if not util:
+                    continue
+                partes = util.split(None, 1)
+                ip, resto = partes[0], (partes[1] if len(partes) > 1 else "")
+                nome = resto.split(",", 1)[0].strip()
+                if ip and nome:
+                    nomes[ip] = nome[:1].upper() + nome[1:]
+    except OSError:
+        pass
+    return nomes
+
+
 def ler_placas_conhecidas() -> List[str]:
     """Todas as placas que este computador conhece, sem repetir.
 
@@ -157,9 +184,9 @@ class TcpConfigPanel(ttk.LabelFrame):
 
         super().__init__(
             parent,
-            text=" Conexão FPGA (TCP) ",
+            text=" Placas do laboratório ",
             style="Card.TLabelframe",
-            padding=(18, 14, 18, 16),
+            padding=(18, 12, 18, 12),
         )
 
         # Threads de trabalho (autoconnect e conexão manual). Mantidas
@@ -169,89 +196,75 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._cancel_event: Optional[threading.Event] = None
         self._success_handled = False
 
-        # Grid de duas colunas: labels (largura fixa) + inputs (cresce)
-        self.columnconfigure(0, weight=0, minsize=110)
-        self.columnconfigure(1, weight=1)
-
-        # Linha 0: Host
-        ttk.Label(self, text="Host", style="Card.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 6))
-        # A placa preparada pelo morphe-up.sh tem precedência sobre o
-        # default fixo — que, no laboratório, nunca é o endereço certo.
+        # O que o painel sabe de cada placa: a lista (placas.conf e a local),
+        # mais as que a varredura achar. Estado vem da porta de estado.
         conhecidas = ler_placas_conhecidas()
-        self.var_host = tk.StringVar(value=ler_placa_lembrada()
-                                     or (conhecidas[0] if conhecidas else default_host))
-        ttk.Entry(self, textvariable=self.var_host).grid(
-            row=0, column=1, sticky="ew", pady=(0, 6))
-
-        # Linha 1: Porta
-        ttk.Label(self, text="Porta", style="Card.TLabel").grid(
-            row=1, column=0, sticky="w", pady=(0, 6))
-        self.var_port = tk.StringVar(value=str(default_port))
-        ttk.Entry(self, textvariable=self.var_port).grid(
-            row=1, column=1, sticky="ew", pady=(0, 6))
-
-        # Linha 2: Timeout
-        ttk.Label(self, text="Timeout (s)", style="Card.TLabel").grid(
-            row=2, column=0, sticky="w", pady=(0, 8))
-        self.var_timeout = tk.StringVar(value="10")
-        ttk.Entry(self, textvariable=self.var_timeout).grid(
-            row=2, column=1, sticky="ew", pady=(0, 8))
-
-        # Linha 3: botões de conexão (Conectar + Autoconnect), à direita.
-        # Um sub-frame encosta o par na margem direita da coluna de inputs.
-        btn_row = ttk.Frame(self, style="Card.TFrame")
-        btn_row.grid(row=3, column=0, columnspan=2, sticky="e", pady=(2, 4))
-
-        # "Conectar" é a ação primária quando o usuário já sabe o IP →
-        # estilo outline (primário leve, combina com o card branco).
-        self.btn_connect = ttk.Button(
-            btn_row, text="Conectar",
-            style="Outline.TButton",
-            command=self._on_connect,
-        )
-        self.btn_connect.pack(side="left", padx=(0, 8))
-
-        # "Autoconnect" é o caminho de descoberta → ação neutra (secondary).
-        self.btn_autoconnect = ttk.Button(
-            btn_row, text="Autoconnect",
-            style="Secondary.TButton",
-            command=self._on_autoconnect,
-        )
-        self.btn_autoconnect.pack(side="left")
-
-        # Linha 4: status (autoconnect e conexão manual escrevem aqui)
-        self.var_status = tk.StringVar(value="")
-        self.lbl_status = tk.Label(
-            self, textvariable=self.var_status,
-            background=theme.COLORS["card_bg"],
-            foreground=theme.COLORS["info_fg"],
-            font=("TkDefaultFont", 9, "italic"),
-            justify="left", anchor="w",
-        )
-        self.lbl_status.grid(row=4, column=0, columnspan=2,
-                             sticky="w", pady=(4, 0))
-
-        # Linha 5: o que a placa conectada está fazendo agora (porta de estado).
-        # Fica vazia com servidor anterior a 28/09/2026, que não tem a porta.
-        self.var_estado = tk.StringVar(value="")
-        tk.Label(
-            self, textvariable=self.var_estado,
-            background=theme.COLORS["card_bg"],
-            foreground=theme.COLORS["text_muted"],
-            font=("TkDefaultFont", 9),
-            justify="left", anchor="w",
-        ).grid(row=5, column=0, columnspan=2, sticky="w")
+        self._ips: List[str] = list(conhecidas)
+        self._nomes = ler_nomes_laboratorio()
+        self._estados: dict = {}           # ip -> EstadoPlaca | None (sem resposta)
+        self._consultadas: set = set()     # ips já consultados ao menos uma vez
+        self._conectada: Optional[str] = None
+        self._linhas: dict = {}            # ip -> widgets da linha
         self._estado_agendado = False
 
-        # Linha 6: banner informativo (Conectar + Autoconnect)
-        theme.make_banner(
-            self, kind="info",
-            text=("A placa é procurada sozinha ao abrir. Conectar valida um "
-                  "servidor informado à mão; Autoconnect refaz a busca — "
-                  "primeiro o /24 da última placa usada, depois o da estação, "
-                  "depois os /24 históricos do laboratório."),
-        ).grid(row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        # A placa preparada pelo morphe-up.sh tem precedência sobre o
+        # default fixo -- que, no laboratório, nunca é o endereço certo.
+        self.var_host = tk.StringVar(value=ler_placa_lembrada()
+                                     or (conhecidas[0] if conhecidas else default_host))
+        self.var_port = tk.StringVar(value=str(default_port))
+        self.var_timeout = tk.StringVar(value="10")
+        card = theme.COLORS["card_bg"]
+
+        # --- resumo + "Procurar de novo" -------------------------------
+        topo = ttk.Frame(self, style="Card.TFrame")
+        topo.pack(fill="x")
+        self.var_resumo = tk.StringVar(value="Procurando placas...")
+        tk.Label(topo, textvariable=self.var_resumo, background=card,
+                 foreground=theme.COLORS["text"], font=("TkDefaultFont", 10, "bold"),
+                 anchor="w").pack(side="left")
+        self.btn_autoconnect = ttk.Button(topo, text="Procurar de novo",
+                                          style="Secondary.TButton",
+                                          command=self._on_autoconnect)
+        self.btn_autoconnect.pack(side="right")
+
+        # --- uma linha por placa ---------------------------------------
+        self._quadro_placas = tk.Frame(self, background=card)
+        self._quadro_placas.pack(fill="x", pady=(8, 0))
+
+        # --- mensagens (erros, placa achada fora da lista...) ----------
+        self.var_status = tk.StringVar(value="")
+        self.lbl_status = tk.Label(
+            self, textvariable=self.var_status, background=card,
+            foreground=theme.COLORS["info_fg"], font=("TkDefaultFont", 9),
+            justify="left", anchor="w", wraplength=520,
+        )
+        self.lbl_status.pack(fill="x", pady=(6, 0))
+        self.lbl_status.bind("<Configure>", lambda e: self.lbl_status.configure(
+            wraplength=max(200, e.width - 8)))
+
+        # --- conexão manual, recolhida ---------------------------------
+        self._manual_aberta = False
+        self._lbl_manual = tk.Label(self, background=card, cursor="hand2",
+                                    foreground=theme.COLORS["text_muted"],
+                                    font=("TkDefaultFont", 9), anchor="w")
+        self._lbl_manual.pack(fill="x", pady=(6, 0))
+        self._lbl_manual.bind("<Button-1>", lambda _e: self._alterna_manual())
+        self._manual = ttk.Frame(self, style="Card.TFrame")
+        self._manual.columnconfigure(1, weight=1)
+        for linha, (rotulo, var) in enumerate((("Host", self.var_host),
+                                               ("Porta", self.var_port),
+                                               ("Timeout (s)", self.var_timeout))):
+            ttk.Label(self._manual, text=rotulo, style="Card.TLabel").grid(
+                row=linha, column=0, sticky="w", padx=(0, 10), pady=(0, 4))
+            ttk.Entry(self._manual, textvariable=var).grid(
+                row=linha, column=1, sticky="ew", pady=(0, 4))
+        self.btn_connect = ttk.Button(self._manual, text="Conectar",
+                                      style="Outline.TButton", command=self._on_connect)
+        self.btn_connect.grid(row=3, column=1, sticky="e", pady=(2, 0))
+        self._alterna_manual(inicial=True)
+
+        self._desenha_placas()
+        self._agenda_estado()
 
         if autoconectar:
             # Depois que a janela existe, para o status já ter onde aparecer.
@@ -280,8 +293,7 @@ class TcpConfigPanel(ttk.LabelFrame):
             porta = 5000
 
         self._set_busy(True)
-        self.var_status.set("Procurando a placa...")
-        self.lbl_status.configure(foreground=theme.COLORS["info_fg"])
+        self._mensagem("Escolhendo a placa...")
         self._cancel_event = threading.Event()
         self._success_handled = False
 
@@ -312,6 +324,7 @@ class TcpConfigPanel(ttk.LabelFrame):
             if escolha is not None:
                 for a in achados:
                     acrescentar_placa_local(a.ip)
+                self.after(0, self._acrescenta_placas, [a.ip for a in achados])
                 self.after(0, self._on_search_success, *escolha)
             else:
                 self.after(0, self._autoconexao_sem_placa, lembrada)
@@ -354,10 +367,13 @@ class TcpConfigPanel(ttk.LabelFrame):
                 pass
 
     def _avisa_placas_novas(self, novas: List[str]):
-        self.var_status.set(
-            self.var_status.get()
-            + f"\nAchei na rede, fora do placas.conf: {', '.join(novas)}. Já entram "
-              "na escolha a partir da próxima abertura; peça para corrigir o placas.conf.")
+        self._acrescenta_placas(novas)
+        plural = len(novas) > 1
+        self._mensagem(
+            f"Achei na rede {'as placas' if plural else 'a placa'} {', '.join(novas)}, "
+            "fora do placas.conf (o IP pode ter mudado). Já aparece"
+            f"{'m' if plural else ''} acima e pode{'m' if plural else ''} ser "
+            "usada; peça para corrigir o placas.conf.", "aviso")
 
     @classmethod
     def _escolher_placa_livre(cls, ips: List[str], porta: int
@@ -440,17 +456,10 @@ class TcpConfigPanel(ttk.LabelFrame):
 
     def _autoconexao_sem_placa(self, lembrada: Optional[str]):
         self._set_busy(False)
-        if lembrada:
-            self.var_status.set(
-                f"A placa {lembrada} não respondeu ou ainda não foi preparada, "
-                "e nenhuma outra foi encontrada. Rode ./morphe-up.sh ou informe o host."
-            )
-        else:
-            self.var_status.set(
-                "Nenhuma placa encontrada na rede. Rode ./morphe-up.sh, "
-                "ou use as ferramentas que não precisam de placa."
-            )
-        self.lbl_status.configure(foreground=theme.COLORS["text_muted"])
+        self._mensagem("Nenhuma placa preparada respondeu. Quem prepara é o "
+                       "./morphe-up.sh, na estação. As ferramentas que não precisam "
+                       "de placa (gerador, comparador, projetistas) funcionam assim mesmo.",
+                       "neutro")
 
     # ==================================================================
     # Guarda de exclusão mútua
@@ -480,8 +489,7 @@ class TcpConfigPanel(ttk.LabelFrame):
             return
 
         self._set_connect_busy(True)
-        self.var_status.set(f"Conectando a {client.host}:{client.port}...")
-        self.lbl_status.configure(foreground=theme.COLORS["info_fg"])
+        self._mensagem(f"Conectando a {client.host}:{client.port}...")
 
         def run():
             try:
@@ -500,17 +508,17 @@ class TcpConfigPanel(ttk.LabelFrame):
     def _on_connect_success(self, srv: ServerInfo):
         self._set_connect_busy(False)
         gravar_placa_lembrada(srv.ip)
-        self.var_status.set(
-            f"Conectado a {srv.ip}:{srv.port} — {srv.hostname} "
-            f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max})"
-        )
-        self.lbl_status.configure(foreground=theme.COLORS["ok_fg"])
-        self._agenda_estado()
+        self._marca_conectada(srv.ip)
+        if srv.preparada:
+            self._mensagem(f"{self._nome(srv.ip)}: conectado.", "ok")
+        else:
+            self._mensagem(f"{self._nome(srv.ip)} responde, mas a FPGA não foi "
+                           "preparada: as operações serão recusadas até alguém rodar "
+                           "./morphe-up.sh na estação.", "aviso")
 
     def _on_connect_error(self, host: str, port, e: Exception):
         self._set_connect_busy(False)
-        self.var_status.set(f"Falha ao conectar em {host}:{port}.")
-        self.lbl_status.configure(foreground=theme.COLORS["danger"])
+        self._mensagem(f"Falha ao conectar em {host}:{port}.", "erro")
         messagebox.showerror(
             "Conectar", self._describe_connect_error(host, port, e))
 
@@ -563,8 +571,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         port = 5000  # constante do hardware
 
         self._set_busy(True)
-        self.var_status.set("Procurando placas: a lista e a rede (alguns segundos)...")
-        self.lbl_status.configure(foreground=theme.COLORS["info_fg"])
+        self._mensagem("Procurando placas na lista e na rede (alguns segundos)...")
         self._cancel_event = threading.Event()
         self._success_handled = False
 
@@ -581,6 +588,8 @@ class TcpConfigPanel(ttk.LabelFrame):
                     outras = (outras + "; " if outras else "") + \
                         f"fora do placas.conf: {', '.join(novas)}"
                 self.after(0, self._on_search_success, srv, quantas, outras)
+                if novas:
+                    self.after(0, self._avisa_placas_novas, novas)
             elif self._cancel_event.is_set():
                 self.after(0, self._on_search_cancelled)
             else:
@@ -601,52 +610,211 @@ class TcpConfigPanel(ttk.LabelFrame):
         if entre <= 1:
             gravar_placa_lembrada(srv.ip)
         self._set_busy(False)
-        sufixo = f" — a mais livre entre {entre} placas" if entre > 1 else ""
-        if outras:
-            sufixo += f"\nOutras placas: {outras}"
-        self.var_status.set(
-            f"Conectado a {srv.ip} — {srv.hostname} "
-            f"(FFT N={srv.fft_n}, Conv N={srv.conv_n_max}){sufixo}"
-        )
-        self.lbl_status.configure(foreground=theme.COLORS["ok_fg"])
-        self._agenda_estado()
+        self._marca_conectada(srv.ip)
+        motivo = (f"escolhida automaticamente: a mais livre de {entre}"
+                  if entre > 1 else "conectado")
+        self._mensagem(f"{self._nome(srv.ip)}: {motivo}.", "ok")
 
     # ==================================================================
-    # Estado da placa conectada, de tempos em tempos (porta de estado)
+    # As linhas de placa, atualizadas pela porta de estado
     # ==================================================================
+
+    # (cor do ponto, texto curto) por situação
+    _SITUACOES = {
+        "livre":     ("#16a34a", "livre"),
+        "ocupada":   ("#d97706", "ocupada"),
+        "preparar":  ("#b91c1c", "FPGA não preparada"),
+        "silencio":  ("#94a3b8", "sem resposta"),
+        "consultando": ("#cbd5e1", "consultando..."),
+    }
+
+    def _nome(self, ip: str) -> str:
+        if ip in self._nomes:
+            return self._nomes[ip]
+        e = self._estados.get(ip)
+        return e.hostname if e is not None else ip
+
+    def _situacao(self, ip: str) -> str:
+        if ip not in self._consultadas:
+            return "consultando"
+        e = self._estados.get(ip)
+        if e is None:
+            return "silencio"
+        if not e.preparada:
+            return "preparar"
+        return "ocupada" if e.ocupada else "livre"
+
+    def _desenha_placas(self):
+        """(Re)cria uma linha por placa conhecida. Só é chamada quando a lista
+        de placas muda; o conteúdo das linhas muda em _atualiza_linhas."""
+        card = theme.COLORS["card_bg"]
+        for w in self._quadro_placas.winfo_children():
+            w.destroy()
+        self._linhas.clear()
+        if not self._ips:
+            tk.Label(self._quadro_placas, background=card,
+                     foreground=theme.COLORS["text_muted"], anchor="w",
+                     text="Nenhuma placa conhecida. Clique em “Procurar de novo”, "
+                          "ou informe o endereço em “Conexão manual”.").pack(fill="x")
+        for ip in self._ips:
+            linha = tk.Frame(self._quadro_placas, background=card,
+                             highlightthickness=1,
+                             highlightbackground=theme.COLORS["border"])
+            linha.pack(fill="x", pady=(0, 4))
+            ponto = tk.Label(linha, text="●", background=card,
+                             font=("TkDefaultFont", 14))
+            ponto.pack(side="left", padx=(8, 6))
+            acao = tk.Frame(linha, background=card, width=150)
+            acao.pack(side="right", padx=8)
+            textos = tk.Frame(linha, background=card)
+            textos.pack(side="left", fill="x", expand=True, pady=4)
+            titulo = tk.Label(textos, background=card, anchor="w",
+                              foreground=theme.COLORS["text"],
+                              font=("TkDefaultFont", 10, "bold"))
+            titulo.pack(fill="x")
+            detalhe = tk.Label(textos, background=card, anchor="w", justify="left",
+                               foreground=theme.COLORS["text_muted"],
+                               font=("TkDefaultFont", 9))
+            detalhe.pack(fill="x")
+            textos.bind("<Configure>", lambda e, d=detalhe: d.configure(
+                wraplength=max(120, e.width - 4)))
+            aqui = tk.Label(acao, text="✓ você está aqui", background=card,
+                            foreground=theme.COLORS["ok_fg"],
+                            font=("TkDefaultFont", 9, "bold"))
+            usar = ttk.Button(acao, text="Usar", style="Outline.TButton",
+                              command=lambda ip=ip: self._usar(ip))
+            self._linhas[ip] = {"ponto": ponto, "titulo": titulo,
+                                "detalhe": detalhe, "aqui": aqui, "usar": usar}
+        self._atualiza_linhas()
+        self._ajusta_altura()
+
+    def _atualiza_linhas(self):
+        livres = ocupadas = 0
+        for ip, w in self._linhas.items():
+            sit = self._situacao(ip)
+            cor, curto = self._SITUACOES[sit]
+            e = self._estados.get(ip)
+            livres += sit == "livre"
+            ocupadas += sit == "ocupada"
+            w["ponto"].configure(foreground=cor)
+            host = e.hostname if e is not None else ""
+            nome = self._nome(ip)
+            partes = [] if nome in (ip, host) else [nome]
+            partes += [host] if host else []
+            w["titulo"].configure(text="   ".join(partes + [ip]) if partes else ip)
+            if sit in ("livre", "ocupada", "preparar"):
+                detalhe = e.descricao()
+            elif sit == "silencio":
+                detalhe = ("sem resposta: desligada, fora da rede, ou com servidor "
+                           "antigo (sem porta de estado)")
+            else:
+                detalhe = curto
+            w["detalhe"].configure(text=detalhe)
+            if ip == self._conectada:
+                w["usar"].pack_forget()
+                w["aqui"].pack()
+            else:
+                w["aqui"].pack_forget()
+                w["usar"].pack()
+                w["usar"].configure(state="disabled" if sit == "preparar" else "normal")
+        n = len(self._linhas)
+        if not n:
+            self.var_resumo.set("Nenhuma placa")
+        elif not self._consultadas:
+            self.var_resumo.set(f"{n} placa{'s' if n > 1 else ''} · consultando...")
+        else:
+            partes = [f"{n} placa{'s' if n > 1 else ''}", f"{livres} livre{'s' if livres != 1 else ''}"]
+            if ocupadas:
+                partes.append(f"{ocupadas} ocupada{'s' if ocupadas > 1 else ''}")
+            mudas = sum(self._situacao(ip) in ("silencio", "preparar") for ip in self._linhas)
+            if mudas:
+                partes.append(f"{mudas} indisponíve{'is' if mudas > 1 else 'l'}")
+            self.var_resumo.set(" · ".join(partes))
+
+    def _ajusta_altura(self):
+        """Linha de placa nova depois de a janela abrir: a janela principal
+        tem a altura medida no início e não cresceria sozinha."""
+        topo = self.winfo_toplevel()
+        topo.update_idletasks()
+        h = topo.winfo_reqheight()
+        if topo.winfo_ismapped() and topo.winfo_height() < h:
+            topo.geometry(f"{topo.winfo_width()}x{h}")
+            topo.minsize(topo.winfo_width(), h)
+
+    def _acrescenta_placas(self, ips: List[str]):
+        novas = [ip for ip in ips if ip not in self._ips]
+        if novas:
+            self._ips.extend(novas)
+            self._desenha_placas()
+            self._consulta(novas)
+
+    def _marca_conectada(self, ip: str):
+        self._conectada = ip
+        self._acrescenta_placas([ip])
+        self._atualiza_linhas()
+        self._agenda_estado()
+
+    def _usar(self, ip: str):
+        """Botão "Usar" de uma linha: conecta àquela placa (handshake)."""
+        if self._busy():
+            return
+        self.var_host.set(ip)
+        self._on_connect()
+
+    def _mensagem(self, texto: str, tipo: str = "info"):
+        cores = {"info": "info_fg", "ok": "ok_fg", "aviso": "warn_fg",
+                 "erro": "danger", "neutro": "text_muted"}
+        self.var_status.set(texto)
+        self.lbl_status.configure(foreground=theme.COLORS[cores[tipo]])
+
+    def _alterna_manual(self, inicial: bool = False):
+        if not inicial:
+            self._manual_aberta = not self._manual_aberta
+        if self._manual_aberta:
+            self._manual.pack(fill="x", pady=(4, 0))
+        else:
+            self._manual.pack_forget()
+        seta = "▾" if self._manual_aberta else "▸"
+        self._lbl_manual.configure(text=f"{seta}  Conexão manual (endereço e porta)")
+        if not inicial:
+            self._ajusta_altura()
 
     def _agenda_estado(self):
         if not self._estado_agendado:
             self._estado_agendado = True
-            self.after(200, self._atualiza_estado)
+            self.after(100, self._atualiza_estado)
 
     def _atualiza_estado(self):
-        """Pergunta à placa conectada o que ela está fazendo e mostra numa
-        linha. Em outra thread: um UDP sem resposta leva meio segundo."""
+        """Consulta a porta de estado de todas as placas, em paralelo, numa
+        thread (um UDP sem resposta leva meio segundo), e redesenha as linhas.
+        Repete a cada ESTADO_INTERVALO_MS enquanto o painel existir."""
         if not self.winfo_exists():
             return
-        host = self.var_host.get().strip()
+        self._consulta(list(self._ips))
+        self.after(ESTADO_INTERVALO_MS, self._atualiza_estado)
+
+    def _consulta(self, ips: List[str]):
         try:
             porta = int(self.var_port.get())
         except ValueError:
             porta = 5000
 
         def run():
-            e = consultar_estado(host, porta) if host else None
+            import concurrent.futures as cf
+            with cf.ThreadPoolExecutor(max_workers=max(2, len(ips))) as pool:
+                estados = dict(zip(ips, pool.map(lambda ip: consultar_estado(ip, porta), ips)))
             try:
-                self.after(0, self._mostra_estado, host, e)
+                self.after(0, self._recebe_estados, estados)
             except RuntimeError:        # a janela fechou
                 pass
 
-        threading.Thread(target=run, daemon=True).start()
-        self.after(ESTADO_INTERVALO_MS, self._atualiza_estado)
+        if ips:
+            threading.Thread(target=run, daemon=True).start()
 
-    def _mostra_estado(self, host: str, e: Optional[EstadoPlaca]):
-        if e is None:
-            # servidor antigo, ou placa fora do ar: nada a dizer aqui
-            self.var_estado.set("")
-            return
-        self.var_estado.set(f"Placa {host} agora: {e.descricao()}")
+    def _recebe_estados(self, estados: dict):
+        self._estados.update(estados)
+        self._consultadas.update(estados)
+        self._atualiza_linhas()
 
     def estado_placa(self, timeout: float = 0.5) -> Optional[EstadoPlaca]:
         """Para as janelas explicarem uma espera: o que a placa conectada está
@@ -661,7 +829,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._set_busy(False)
         self.var_status.set("")
         messagebox.showerror(
-            "Autoconnect",
+            "Procurar placas",
             "Nenhum servidor Morphe foi encontrado na rede local.\n\n"
             "Possíveis causas:\n"
             "- O servidor não está rodando no DE1-SoC\n"
@@ -674,12 +842,11 @@ class TcpConfigPanel(ttk.LabelFrame):
     def _on_search_error(self, msg: str):
         self._set_busy(False)
         self.var_status.set("")
-        messagebox.showerror("Autoconnect — erro", msg)
+        messagebox.showerror("Procurar placas: erro", msg)
 
     def _on_search_cancelled(self):
         self._set_busy(False)
-        self.var_status.set("Busca cancelada.")
-        self.lbl_status.configure(foreground=theme.COLORS["text_muted"])
+        self._mensagem("Busca cancelada.", "neutro")
 
     # ==================================================================
     # Estados de "ocupado" dos botões (ambos se desabilitam mutuamente)
@@ -694,7 +861,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         """Autoconnect em progresso: trava ambos, rotula o Autoconnect."""
         self._buttons_enabled(not busy)
         self.btn_autoconnect.configure(
-            text="Buscando..." if busy else "Autoconnect")
+            text="Procurando..." if busy else "Procurar de novo")
         if not busy:
             self.btn_connect.configure(text="Conectar")
 
@@ -704,7 +871,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         self.btn_connect.configure(
             text="Conectando..." if busy else "Conectar")
         if not busy:
-            self.btn_autoconnect.configure(text="Autoconnect")
+            self.btn_autoconnect.configure(text="Procurar de novo")
 
     # ==================================================================
     # API pública usada pelas janelas filhas

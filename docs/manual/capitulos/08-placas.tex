@@ -41,7 +41,7 @@ As listas e a varredura trabalham juntas:
     corrigir o \arq{placas.conf};
   \item \textbf{se nenhuma placa da lista responder}, a varredura decide: o
     aplicativo escolhe entre todas as que ela achar;
-  \item \textbf{o botão \emph{Autoconnect}} junta a lista e uma varredura
+  \item \textbf{o botão \emph{Procurar de novo}} junta a lista e uma varredura
     completa, e escolhe entre todas.
 \end{itemize}
 
@@ -77,9 +77,10 @@ Três coisas usam a porta de estado:
 
 \begin{itemize}
   \item a escolha de placa, na seção seguinte;
-  \item o painel de conexão do aplicativo, que a cada 4\,s mostra o que a placa
-    conectada está fazendo (``Placa 172.16.230.24 agora: ocupada: convolução
-    há 0,1\,s; 2 computadores no último minuto'');
+  \item o painel \emph{Placas do laboratório} do aplicativo, que a cada 4\,s
+    mostra uma linha por placa, com o que cada uma está fazendo (``ocupada:
+    convolução há 0,1\,s · 2 computadores no último minuto''), e deixa o aluno
+    trocar de placa com o botão \emph{Usar} (seção~\ref{cap:cliente});
   \item o \arq{Python/ferramentas/estado_placas.py}, para o professor ou o
     monitor verem todas as placas de uma vez; com \opt{seguir}, a tela se
     atualiza a cada segundo.
@@ -111,7 +112,7 @@ mesma razão de antes: uma placa ocupada só responde depois de terminar.
   \label{fig:escolha-placa}
 \end{figure}
 
-A escolha acontece quando o aplicativo abre (ou em \emph{Autoconnect}). Ela não
+A escolha acontece quando o aplicativo abre (ou em \emph{Procurar de novo}). Ela não
 é uma reserva: dois alunos que abram o aplicativo no mesmo instante ainda podem
 cair na mesma placa, e uma placa escolhida livre pode ficar ocupada depois.
 
@@ -200,9 +201,9 @@ placas.
     e agora o painel diz por quê. Uma reserva com prazo, renovada pelo cliente,
     exigiria estado no servidor e faria alunos esperarem por placa parada ---
     com duas placas e uma turma, foi considerada pior que o que existe.
-  \item \textbf{Troca de placa durante o uso.} A escolha acontece ao abrir o
-    aplicativo. Se a placa escolhida lotar, o aluno precisa usar o
-    \emph{Autoconnect} para ir a outra.
+  \item \textbf{Troca automática de placa.} A escolha acontece ao abrir o
+    aplicativo. Se a placa escolhida lotar, o painel mostra isso, mas quem
+    troca é o aluno, com o botão \emph{Usar} de outra placa.
   \item \textbf{Endereço fixo.} As placas pegam IP por DHCP, e o
     \arq{placas.conf} precisa ser corrigido quando um muda. Uma reserva de DHCP
     na TI, pelo MAC de cada placa, acabaria com isso.
@@ -220,7 +221,7 @@ placas.
     \textbf{Sintoma} & \textbf{Causa} & \textbf{O que fazer} \\
     \midrule
     Tudo ficou duas vezes mais lento & outra pessoa está na mesma placa; o
-      painel mostra ``ocupada'' & é a fila; \emph{Autoconnect} para ir à outra \\
+      painel mostra ``ocupada'' & é a fila; \emph{Usar} numa placa livre \\
     \addlinespace
     ``A placa não respondeu'', mas ela está no ar & placa ocupada (uma captura
       contínua, por exemplo) & \arq{estado_placas.py} diz o quê e de quem \\

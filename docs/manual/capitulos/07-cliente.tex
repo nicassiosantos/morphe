@@ -16,13 +16,20 @@ Na instalação de turma (capítulo~\ref{cap:laboratorio}):
 \ttfamily cd /opt/morphe/Python \&\& python3 morphe\_app.py
 \end{center}
 
-A janela principal abre já procurando a placa. Primeiro tenta as placas que o
-\arq{morphe-up.sh} registrou em \arq{.morphe-estado/placas}; se houver mais de
-uma, sonda todas e fica com a menos ocupada (capítulo~\ref{cap:placas}). Sem
-lista, varre a rede local. O painel de conexão no topo mostra a placa escolhida
-ou, depois de uns seis segundos sem achar nenhuma, diz isso em silêncio, sem
-janela de erro: o gerador de sinais, o comparador e os projetistas de filtro
-funcionam sem placa. O mesmo painel permite digitar um endereço à mão.
+A janela principal abre já escolhendo a placa: entre as do \arq{placas.conf} e
+as que a instalação conhece, fica com a livre e menos usada, e varre a rede em
+segundo plano atrás de placas fora da lista (capítulo~\ref{cap:placas}).
+
+O painel \textbf{Placas do laboratório}, no topo, mostra uma linha por placa,
+atualizada a cada 4\,s: um ponto de cor (verde livre, âmbar ocupada, cinza sem
+resposta, vermelho com a FPGA não preparada), o nome, o IP e o que a placa está
+fazendo --- ``ocupada: convolução há 0,1\,s · 3 computadores no último
+minuto''. Em cima, um resumo (``2 placas · 1 livre · 1 ocupada'') e o botão
+\emph{Procurar de novo}. A placa em uso é marcada com ``você está aqui''; as
+outras têm um botão \emph{Usar}, para trocar de placa com um clique. Sem placa
+nenhuma, o painel diz isso numa linha, sem janela de erro: o gerador de sinais,
+o comparador e os projetistas de filtro funcionam sem placa. O endereço e a
+porta, para conectar à mão, ficam recolhidos em \emph{Conexão manual}.
 
 \section{As janelas}
 
@@ -157,7 +164,7 @@ As janelas são finas; o que importa está nos módulos que elas usam.
     \arq{morphe_app.py} & a janela principal e o menu \\
     \arq{*_window.py} & uma janela por ferramenta \\
     \arq{signal_panel.py} & o painel de sinal comum a todas as janelas \\
-    \arq{tcp_panel.py} & o painel de conexão: descoberta e escolha da placa \\
+    \arq{tcp_panel.py} & o painel ``Placas do laboratório'': descoberta, escolha e estado das placas \\
     \arq{morphe_protocol.py} & o protocolo (capítulo~\ref{cap:protocolo}):
       monta e decodifica as mensagens, abre as conexões, varre a rede \\
     \arq{morphe_config.py} & os limites do hardware, espelho do

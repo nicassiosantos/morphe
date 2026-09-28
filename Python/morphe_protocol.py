@@ -624,8 +624,9 @@ class EstadoPlaca:
                "1 computador no último minuto" if n == 1 else
                f"{n} computadores no último minuto")
         if self.ocupada:
-            return f"ocupada: {self.operacao} há {self.ha_s:.1f} s; {uso}"
-        return f"livre; {uso}"
+            ha = f"{self.ha_s:.1f}".replace(".", ",")
+            return f"ocupada: {self.operacao} há {ha} s · {uso}"
+        return f"livre · {uso}"
 
 
 def consultar_estado(host: str, porta_tcp: int = 5000,
