@@ -454,10 +454,14 @@ class ComparatorWindow(tk.Toplevel):
                                               _BUNDLE_IIR)))
 
         self.var_path.set(os.path.basename(path))
+        # N do espectro salvo: 1024, ou o multiplo de 1024 de uma FFT longa.
+        n_espectro = next((len(s["data"]) for s in bundle["sections"]
+                           if s["name"] == "X"), None)
+        pontos = f" {n_espectro} pontos" if n_espectro else ""
         type_label = {
             _BUNDLE_CONV: "Convolução 1D",
-            _BUNDLE_FFT:  "FFT 1024 pontos",
-            _BUNDLE_IFFT: "IFFT 1024 pontos",
+            _BUNDLE_FFT:  f"FFT{pontos}",
+            _BUNDLE_IFFT: f"IFFT{pontos}",
             _BUNDLE_FIR:  "Filtro FIR",
             _BUNDLE_IIR:  "Filtro IIR (cascata de biquads Q15.16)",
         }.get(btype, btype)
@@ -659,7 +663,12 @@ class ComparatorWindow(tk.Toplevel):
         b = self.bundle
         x = dsp.section_by_name(b, "x")["data"]
         X_fpga = dsp.section_by_name(b, "X")["data"]
-        X_python = dsp.recompute_fft_numpy(x, n_fft=1024)
+        # N sai do X[k] salvo, nao de uma constante: desde 23/09/2026 um sinal
+        # maior que 1024 vira uma FFT de N = multiplo de 1024 acima (quatro
+        # passos, blocos.fft_longa), e a referencia tem de ter o mesmo N. Com
+        # 1024 fixo, o x era cortado nas primeiras 1024 amostras e a
+        # comparacao parava em "shapes diferentes".
+        X_python = dsp.recompute_fft_numpy(x, n_fft=len(X_fpga))
 
         mode = self.var_fft_mode.get()
         if mode == "magnitude":
