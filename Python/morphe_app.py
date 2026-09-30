@@ -3,7 +3,7 @@
 Consome o design system de `morphe_theme`. Estrutura:
   - Cabeçalho com título + subtítulo
   - Painel TCP (compartilhado por todas as janelas filhas)
-  - Card "Ferramentas FPGA" com ações primárias
+  - Card "Ferramentas FPGA" com ações primárias (inclui o analisador espectral)
   - Card "Comparação" (independente)
   - Link "Sair" discreto no canto inferior direito
 """
@@ -16,6 +16,7 @@ from tkinter import ttk
 import morphe_theme as theme
 from signal_generator_window import SignalGeneratorWindow
 from aquisicao_window import AquisicaoWindow
+from analisador_window import AnalisadorWindow
 from conv_window import ConvolutionWindow
 from fft_window import FFTWindow
 from ifft_window import IFFTWindow
@@ -100,6 +101,7 @@ class MorpheMainWindow(tk.Tk):
         primary_actions = [
             ("Gerador de Sinais",              self._open_generator),
             ("Aquisição  (ADC da placa)",      self._open_aquisicao),
+            ("Analisador espectral  (ADC → FFT na FPGA)", self._open_analisador),
             ("Convolução  (2 sinais → FPGA)",  self._open_conv),
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
             ("IFFT  (espectro de arquivo → FPGA)", self._open_ifft),
@@ -166,6 +168,9 @@ class MorpheMainWindow(tk.Tk):
 
     def _open_aquisicao(self):
         AquisicaoWindow(self)
+
+    def _open_analisador(self):
+        AnalisadorWindow(self)
 
     def _open_conv(self):
         ConvolutionWindow(self)
