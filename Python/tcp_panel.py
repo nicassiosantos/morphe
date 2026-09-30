@@ -40,7 +40,7 @@ from typing import List, Optional, Tuple
 
 import morphe_theme as theme
 from morphe_protocol import (
-    TcpClient, ServerInfo, EstadoPlaca, consultar_estado, discover_servers,
+    TcpClient, ServerInfo, EstadoPlaca, consultar_estado, descobrir_placas, discover_servers,
     subredes_provaveis, build_ping_request, decode_ping_response,
 )
 
@@ -333,8 +333,20 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._search_thread.start()
 
     def _varrer(self, ip_referencia: Optional[str], porta: int) -> List[ServerInfo]:
-        """Varre as sub-redes prováveis INTEIRAS (não para na primeira) e
-        devolve as placas preparadas. Uns poucos segundos."""
+        """Devolve as placas preparadas da rede, onde quer que estejam.
+
+        Primeiro um broadcast à porta de estado: todas respondem em menos de
+        um segundo, qualquer que seja o IP que o DHCP deu a elas. Só se
+        ninguém responder (rede que bloqueia broadcast) vale a varredura das
+        sub-redes prováveis INTEIRAS, que leva uns poucos segundos."""
+        ips = [e.ip for e in descobrir_placas(porta) if e.preparada]
+        if ips:
+            import concurrent.futures as cf
+            with cf.ThreadPoolExecutor(max_workers=len(ips)) as pool:
+                achados = [s for s in pool.map(lambda ip: self._sondar(ip, porta), ips)
+                           if s is not None and s.preparada]
+            if achados:
+                return achados
         try:
             achados = discover_servers(
                 subnets=subredes_provaveis(ip_referencia), port=porta,

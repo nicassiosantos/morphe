@@ -642,6 +642,10 @@ def consultar_estado(host: str, porta_tcp: int = 5000,
             dados, _ = s.recvfrom(2048)
     except OSError:
         return None
+    return _estado_de(dados, host, time.monotonic() - t0)
+
+
+def _estado_de(dados: bytes, ip: str, rtt_s: float) -> EstadoPlaca | None:
     info: dict = {}
     for linha in dados.decode("utf-8", "replace").splitlines():
         chave, sep, valor = linha.partition("=")
@@ -649,7 +653,56 @@ def consultar_estado(host: str, porta_tcp: int = 5000,
             info[chave.strip()] = valor.strip()
     if info.get("service") != "morphe-status":
         return None
-    return EstadoPlaca(ip=host, info=info, rtt_s=time.monotonic() - t0)
+    return EstadoPlaca(ip=ip, info=info, rtt_s=rtt_s)
+
+
+def descobrir_placas(porta_tcp: int = 5000,
+                     timeout: float = 1.0) -> list[EstadoPlaca]:
+    """Todas as placas da rede, por UM pedido de broadcast à porta de estado.
+
+    Cada servidor escuta a porta de estado em INADDR_ANY, e no Linux isso
+    recebe broadcast também: o pedido vai para a rede inteira e cada placa
+    responde ao remetente com o IP e o hostname dela. Medido na estação em
+    30/09/2026: as duas placas responderam a 172.16.255.255. É o que torna o
+    IP da placa irrelevante -- ele pode mudar por DHCP à vontade.
+
+    Vai para dois destinos: o broadcast do /16 do laboratório, deduzido do IP
+    deste computador, e 255.255.255.255, para o caso de a máscara ser outra.
+    Lista vazia = nenhuma resposta (rede que bloqueia broadcast, ou servidores
+    anteriores a 28/09/2026); quem chama cai na varredura.
+    """
+    destinos = ["255.255.255.255"]
+    local = get_local_ip()
+    if local:
+        partes = local.split(".")
+        destinos.insert(0, f"{partes[0]}.{partes[1]}.255.255")
+
+    achadas: dict[str, EstadoPlaca] = {}
+    t0 = time.monotonic()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            for destino in destinos:
+                try:
+                    s.sendto(ESTADO_PEDIDO, (destino, porta_tcp + 1))
+                except OSError:
+                    pass
+            # Ouve até o prazo acabar: não há como saber quantas vão responder.
+            while True:
+                resta = timeout - (time.monotonic() - t0)
+                if resta <= 0:
+                    break
+                s.settimeout(resta)
+                try:
+                    dados, (ip, _) = s.recvfrom(2048)
+                except (socket.timeout, TimeoutError):
+                    break
+                e = _estado_de(dados, ip, time.monotonic() - t0)
+                if e is not None and ip not in achadas:
+                    achadas[ip] = e
+    except OSError:
+        pass
+    return sorted(achadas.values(), key=lambda e: e.hostname)
 
 
 def get_local_ip() -> str | None:
@@ -702,10 +755,10 @@ def subredes_provaveis(ip_conhecido: str | None = None,
     172.16.230.24. Fixar a lista em 101/102/103, como era antes, fazia a busca
     passar longe dela. Aqui a varredura começa pelo que tem chance real.
 
-    Isto é um paliativo honesto, não a solução: uma placa que apareça num /24
-    nunca visto continua invisível. A solução de verdade é o servidor responder
-    a um broadcast UDP, o que exige mexer no servidor em C — fica para a v1.4,
-    junto com o gerenciamento do conjunto de placas.
+    Isto é um paliativo: uma placa que apareça num /24 nunca visto continua
+    invisível. Desde 30/09/2026 quem procura usa primeiro descobrir_placas()
+    (broadcast à porta de estado, sem depender de IP nenhum); esta varredura
+    ficou para a rede que bloquear broadcast.
     """
     ordem: list[str] = []
 

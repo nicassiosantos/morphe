@@ -14,6 +14,7 @@
 #   ./morphe-up.sh                      # placa lembrada ou descoberta na rede
 #   ./morphe-up.sh --board 172.16.103.226
 #   ./morphe-up.sh --cable 'DE-SoC [1-2]'   # quando ha mais de uma placa na estacao
+#   ./morphe-up.sh --todas              # todas as placas do placas.conf, uma a uma
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --forca              # nao pergunta se a placa esta em uso
@@ -24,6 +25,9 @@
 #
 # Com mais de uma placa na estacao: o tether e por CABO JTAG, entao preparar uma
 # placa NAO derruba a outra. O --cable diz qual, e o --status lista as duas.
+# O IP nao precisa ser informado: o placas.conf diz o hostname da placa de cada
+# cabo, e um broadcast na rede diz o IP atual de cada hostname. Assim o DHCP
+# pode trocar o IP sem que o servidor seja reiniciado na placa errada.
 #
 # Roda da raiz do repositorio ou de qualquer lugar: ele se localiza sozinho.
 
@@ -89,15 +93,18 @@ FORCA=0             # --forca: reprograma mesmo com a placa em uso, sem pergunta
 FPGA_PROGRAMADA=0   # vira 1 quando o quartus_pgm confirmar, nesta execucao
 PARAR_SERVIDOR=0
 ACAO=up
+TODAS=0
+REPASSE=()          # opcoes que o --todas repete em cada placa
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --board|-b) PLACA="${2:-}"; shift 2 ;;
-        --port|-p)  PORTA="${2:-}"; shift 2 ;;
+        --port|-p)  PORTA="${2:-}"; REPASSE+=(--port "$PORTA"); shift 2 ;;
         --cable|-c) CABO_PEDIDO="${2:-}"; shift 2 ;;
-        --deploy)   FORCA_DEPLOY=1; shift ;;
-        --skip-fpga) PULA_FPGA=1; shift ;;
-        --forca|--force) FORCA=1; shift ;;
+        --todas|--all) TODAS=1; shift ;;
+        --deploy)   FORCA_DEPLOY=1; REPASSE+=(--deploy); shift ;;
+        --skip-fpga) PULA_FPGA=1; REPASSE+=(--skip-fpga); shift ;;
+        --forca|--force) FORCA=1; REPASSE+=(--forca); shift ;;
         --down)     ACAO=down; shift ;;
         --stop-server) PARAR_SERVIDOR=1; shift ;;
         --status)   ACAO=status; shift ;;
@@ -436,28 +443,107 @@ programar_fpga() {
 # ---------------------------------------------------------------------------
 # 4. Achar a placa
 # ---------------------------------------------------------------------------
-# Ordem: --board, $MORPHE_BOARD, a placa lembrada da ultima vez, descoberta na
-# rede. A descoberta so acha uma placa cujo servidor ja esteja no ar -- o que
-# passa a ser o caso sempre, depois que o autostart de boot estiver instalado
-# (C/autostart/). Uma vez informada, a placa fica lembrada em .morphe-estado/.
+# Ordem: --board, $MORPHE_BOARD, a placa do cabo segundo o placas.conf (achada
+# pelo hostname, no IP que ela tiver hoje), e so entao a descoberta sem nome.
+# A descoberta so acha uma placa cujo servidor ja esteja no ar -- o que e o
+# caso desde o boot, com o autostart (C/autostart/).
+#
+# Ate 30/09/2026 a descoberta ficava com a PRIMEIRA placa que respondesse. Com
+# duas placas e so o --cable, a FPGA certa era programada e o servidor era
+# reiniciado -- e marcado como preparado -- na OUTRA placa.
 
-resolver_placa() {
-    if [[ -n "$PLACA" ]]; then
-        printf '%s' "$PLACA"; return 0
+# A linha do placas.conf do cabo: "IP  placa N, hostname, MAC, cabo".
+linha_do_cabo() {
+    [[ -n "${1:-}" && -f "$RAIZ/placas.conf" ]] || return 0
+    grep -v '^[[:space:]]*#' "$RAIZ/placas.conf" | grep -F -- "$1" | head -1 || true
+}
+ip_do_cabo()       { linha_do_cabo "$1" | awk '{print $1}'; }
+hostname_do_cabo() { linha_do_cabo "$1" | cut -s -d, -f2 | tr -d '[:space:]'; }
+
+# Os cabos do placas.conf, na ordem do arquivo (o ultimo campo de cada linha).
+cabos_do_laboratorio() {
+    [[ -f "$RAIZ/placas.conf" ]] || return 0
+    grep -v '^[[:space:]]*#' "$RAIZ/placas.conf" \
+        | awk -F, 'NF >= 4 { c = $NF; gsub(/^[ \t]+|[ \t\r]+$/, "", c); if (c != "") print c }' \
+        || true
+}
+
+# "ip hostname" de cada placa que responde ao broadcast da porta de estado.
+# Vazio: rede que bloqueia broadcast, ou nenhuma placa no ar.
+placas_na_rede() {
+    local py; py="$(achar_python || true)"
+    [[ -n "$py" ]] || return 0
+    ( cd "$RAIZ/Python" && "$py" -c "
+from morphe_protocol import descobrir_placas
+for e in descobrir_placas($PORTA):
+    print(e.ip, e.hostname)
+" 2>/dev/null ) || true
+}
+
+# O hostname que a placa neste IP diz ter. Vazio = nao respondeu.
+hostname_em() {
+    local py; py="$(achar_python || true)"
+    [[ -n "$py" ]] || return 0
+    ( cd "$RAIZ/Python" && MORPHE_IP="$1" "$py" -c "
+import os
+from morphe_protocol import consultar_estado
+e = consultar_estado(os.environ['MORPHE_IP'], $PORTA, timeout=1.0)
+if e is not None:
+    print(e.hostname)
+" 2>/dev/null ) || true
+}
+
+# O IP da placa do cabo: pelo hostname no broadcast; sem resposta, o IP que o
+# placas.conf registra. Vazio = cabo fora do placas.conf.
+ip_da_placa_do_cabo() {
+    local nome ip
+    nome="$(hostname_do_cabo "$1")"
+    if [[ -n "$nome" ]]; then
+        ip="$(placas_na_rede | awk -v h="$nome" '$2 == h {print $1; exit}')"
+        [[ -n "$ip" ]] && { printf '%s' "$ip"; return 0; }
     fi
-    if [[ -n "${MORPHE_BOARD:-}" ]]; then
-        printf '%s' "$MORPHE_BOARD"; return 0
+    ip_do_cabo "$1"
+}
+
+# Publica em ALVO, como o achar_cabo: dentro de $(...) o morrer nao pararia o
+# script.
+resolver_placa() {
+    ALVO=""
+    if [[ -n "$PLACA" ]]; then ALVO="$PLACA"; return 0; fi
+    if [[ -n "${MORPHE_BOARD:-}" ]]; then ALVO="$MORPHE_BOARD"; return 0; fi
+
+    local cabo="${CABO:-$CABO_PEDIDO}"
+    if [[ -n "$cabo" ]]; then
+        ALVO="$(ip_da_placa_do_cabo "$cabo")"
+        [[ -n "$ALVO" ]] && return 0
     fi
 
     local lembrada=""
     [[ -f "$CONF_PLACA" ]] && lembrada="$(cat "$CONF_PLACA")"
 
+    # Sem nome para procurar: vale a unica placa da rede, ou a lembrada se ela
+    # estiver entre as que responderam. Com varias e nenhum criterio, escolher
+    # seria adivinhar -- e adivinhar errado reinicia o servidor da placa alheia.
+    local rede n
+    rede="$(placas_na_rede)"
+    n="$(printf '%s' "$rede" | grep -c . || true)"
+    if (( n == 1 )); then
+        ALVO="${rede%% *}"; return 0
+    fi
+    if (( n > 1 )); then
+        if [[ -n "$lembrada" ]] && printf '%s\n' "$rede" | awk '{print $1}' | grep -qxF "$lembrada"; then
+            ALVO="$lembrada"; return 0
+        fi
+        erro "ha $n placas na rede e nada diz qual e a deste cabo:"
+        printf '%s\n' "$rede" | sed 's/^/       /' >&2
+        morrer "informe qual:  ./morphe-up.sh --cable '<cabo>' --board <ip>" \
+               "ou ponha o cabo na linha da placa, no placas.conf."
+    fi
+
+    # Broadcast sem resposta: a varredura antiga, comecando pelo /24 da lembrada.
     local py; py="$(achar_python || true)"
     if [[ -n "$py" ]]; then
-        local achada
-        # A busca comeca pelo /24 da placa lembrada: elas trocam de IP por DHCP
-        # e ja apareceram fora dos 101/102/103 historicos.
-        achada="$(cd "$RAIZ/Python" && MORPHE_LEMBRADA="$lembrada" "$py" -c "
+        ALVO="$(cd "$RAIZ/Python" && MORPHE_LEMBRADA="$lembrada" "$py" -c "
 import os, sys
 try:
     from morphe_protocol import subredes_provaveis, discover_servers
@@ -469,15 +555,33 @@ achados = discover_servers(subredes_provaveis(lembrada), port=$PORTA,
 if achados:
     print(achados[0].ip)
 " 2>/dev/null || true)"
-        if [[ -n "$achada" ]]; then
-            printf '%s' "$achada"; return 0
-        fi
+        [[ -n "$ALVO" ]] && return 0
     fi
 
-    if [[ -n "$lembrada" ]]; then
-        printf '%s' "$lembrada"; return 0
+    ALVO="$lembrada"
+    [[ -n "$ALVO" ]]
+}
+
+# A placa neste IP e mesmo a do cabo que acabou de ser programado? Um --board
+# trocado, ou um IP que o DHCP passou de uma placa para a outra, faria o
+# servidor ser reiniciado e marcado como preparado na placa errada -- e a certa
+# ficaria recusando tudo com "FPGA nao preparada".
+conferir_identidade() {
+    local cabo="${CABO:-$CABO_PEDIDO}"
+    [[ -n "$cabo" ]] || return 0
+    local esperado; esperado="$(hostname_do_cabo "$cabo")"
+    [[ -n "$esperado" ]] || return 0
+    local visto; visto="$(hostname_em "$ALVO")"
+    if [[ -z "$visto" ]]; then
+        aviso "nao consegui perguntar o nome da placa em $ALVO; sigo confiando no IP"
+        return 0
     fi
-    return 1
+    if [[ "$visto" != "$esperado" ]]; then
+        morrer "a placa em $ALVO e '$visto', mas o cabo '$cabo' e da '$esperado' (placas.conf)." \
+               "nada foi mexido no servidor. rode sem o --board para o script achar a" \
+               "'$esperado' sozinho, ou confira se os cabos USB trocaram de porta (jtagconfig)."
+    fi
+    ok "a placa em $ALVO e a '$visto', a do cabo $cabo"
 }
 
 # ---------------------------------------------------------------------------
@@ -680,6 +784,12 @@ acao_status() {
         aviso "tether ausente -- se a FPGA foi programada ha mais de 1 h, a FFT devolve zeros"
     fi
 
+    local rede; rede="$(placas_na_rede)"
+    if [[ -n "$rede" ]]; then
+        printf '    placas na rede agora:\n'
+        printf '%s\n' "$rede" | sed 's/^/        /'
+    fi
+
     if [[ -f "$CONF_PLACAS" ]]; then
         local n; n="$(grep -c . "$CONF_PLACAS" || true)"
         (( n > 1 )) && printf '    placas conhecidas: %s\n' "$(tr '\n' ' ' < "$CONF_PLACAS")"
@@ -702,7 +812,7 @@ acao_status() {
 # dai nenhum passo pede senha. Sem isto, um unico morphe-up.sh pede senha tres
 # vezes (scp, make, start) -- o que ja desmonta a promessa de "um comando".
 acao_setup_ssh() {
-    ALVO="$(resolver_placa || true)"
+    resolver_placa || true
     [[ -n "${ALVO:-}" ]] || morrer "nao sei em qual placa instalar a chave." \
         "use: ./morphe-up.sh --setup-ssh --board <ip>"
     ok "placa: $ALVO"
@@ -846,15 +956,13 @@ acao_down() {
 # ultimo minuto. Com uso, o script mostra o que ha e pergunta; --forca pula.
 
 # A placa que este comando vai mexer, ANTES de programar: --board, $MORPHE_BOARD,
-# a do cabo pedido segundo o placas.conf (a linha do cabo traz o nome dele), ou
-# a lembrada. Vazio = nao da para saber; entao nao ha o que conferir.
+# a do cabo pedido (pelo hostname do placas.conf, no IP de hoje), ou a
+# lembrada. Vazio = nao da para saber; entao nao ha o que conferir.
 placa_alvo_previa() {
     [[ -n "$PLACA" ]] && { printf '%s' "$PLACA"; return; }
     [[ -n "${MORPHE_BOARD:-}" ]] && { printf '%s' "$MORPHE_BOARD"; return; }
-    if [[ -n "$CABO_PEDIDO" && -f "$RAIZ/placas.conf" ]]; then
-        local ip
-        ip="$(grep -v '^[[:space:]]*#' "$RAIZ/placas.conf" | grep -F -- "$CABO_PEDIDO" \
-              | awk 'NR==1 {print $1}')"
+    if [[ -n "$CABO_PEDIDO" ]]; then
+        local ip; ip="$(ip_da_placa_do_cabo "$CABO_PEDIDO")"
         [[ -n "$ip" ]] && { printf '%s' "$ip"; return; }
     fi
     [[ -f "$CONF_PLACA" ]] && cat "$CONF_PLACA"
@@ -925,7 +1033,7 @@ acao_up() {
         programar_fpga
     fi
 
-    ALVO="$(resolver_placa || true)"
+    resolver_placa || true
     if [[ -z "${ALVO:-}" ]]; then
         morrer "nao achei a placa." \
                "na primeira vez, informe uma vez so: ./morphe-up.sh --board <ip>" \
@@ -935,6 +1043,7 @@ acao_up() {
     fi
     ok "placa: $ALVO"
     verificar_alcance
+    conferir_identidade
     lembrar_placa "$ALVO"
 
     if (( FORCA_DEPLOY )); then
@@ -963,8 +1072,40 @@ acao_up() {
     printf 'Ao terminar:     ./morphe-up.sh --down\n'
 }
 
+# --todas: o proprio script, uma vez por cabo do placas.conf. Cada rodada acha
+# a sua placa pelo hostname; uma que falhe nao impede as outras.
+acao_todas() {
+    [[ -z "$PLACA" && -z "$CABO_PEDIDO" ]] || morrer "--todas nao combina com --board nem --cable." \
+        "ele ja escolhe cabo e placa pelo placas.conf."
+    local cabos=() c
+    while IFS= read -r c; do [[ -n "$c" ]] && cabos+=("$c"); done < <(cabos_do_laboratorio)
+    (( ${#cabos[@]} > 0 )) || morrer "nenhum cabo JTAG no placas.conf." \
+        "o ultimo campo de cada linha e o cabo, como o jtagconfig mostra: DE-SoC [1-2]"
+
+    local falhas=() prontas=()
+    for c in "${cabos[@]}"; do
+        printf '\n%s===== %s (%s) =====%s\n' "$NEG" "$c" "$(hostname_do_cabo "$c")" "$FIM"
+        if "${BASH_SOURCE[0]}" --cable "$c" ${REPASSE[@]+"${REPASSE[@]}"}; then
+            prontas+=("$c")
+        else
+            falhas+=("$c")
+        fi
+    done
+
+    printf '\n%sResumo:%s %d de %d placas prontas\n' "$NEG" "$FIM" "${#prontas[@]}" "${#cabos[@]}"
+    for c in ${prontas[@]+"${prontas[@]}"}; do ok "$c ($(hostname_do_cabo "$c"))"; done
+    for c in ${falhas[@]+"${falhas[@]}"}; do erro "$c ($(hostname_do_cabo "$c")) -- veja a saida acima"; done
+    (( ${#falhas[@]} == 0 ))
+}
+
 # Depois que todas as funcoes existem, e antes de qualquer ssh.
 montar_ssh_opts
+
+if (( TODAS )); then
+    [[ "$ACAO" == up ]] || morrer "--todas so vale para preparar as placas."
+    acao_todas
+    exit $?
+fi
 
 case "$ACAO" in
     up)        acao_up ;;
