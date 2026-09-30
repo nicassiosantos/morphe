@@ -10,6 +10,7 @@ Consome o design system de `morphe_theme`. Estrutura:
 from __future__ import annotations
 
 import tkinter as tk
+import webbrowser
 from tkinter import ttk
 
 import morphe_theme as theme
@@ -25,6 +26,14 @@ from fir_window import FIRWindow
 from iir_window import IIRWindow
 from comparator_window import ComparatorWindow
 from tcp_panel import TcpConfigPanel
+
+# Créditos do rodapé, uma linha cada: (texto, perfil do LinkedIn ou ""). O
+# perfil é o final de linkedin.com/in/<perfil> e vira um "LinkedIn" clicável.
+CREDITOS = [
+    ("Desenvolvido por Antonio Nicassio Santos Lima", "antonio-nicassio-64908a276"),
+    ("Baseado no Morphe de Carlos Valadão", "cvaladao"),
+    ("Orientação: Prof. Armando Sanca Sanca", ""),
+]
 
 
 class MorpheMainWindow(tk.Tk):
@@ -57,7 +66,8 @@ class MorpheMainWindow(tk.Tk):
         # para reservar a faixa inferior.
         footer = ttk.Frame(main, style="Main.TFrame")
         footer.pack(side="bottom", fill="x", pady=(8, 0))
-        theme.make_exit_link(footer, on_click=self.destroy).pack(side="right")
+        theme.make_exit_link(footer, on_click=self.destroy).pack(side="right", anchor="s")
+        self._creditos(footer).pack(side="left", anchor="w")
 
         # Cabeçalho
         header = ttk.Frame(main, style="Main.TFrame")
@@ -123,6 +133,32 @@ class MorpheMainWindow(tk.Tk):
             style="Secondary.TButton",
             command=self._open_comparator,
         ).pack(fill="x", pady=3)
+
+    @staticmethod
+    def _creditos(parent) -> tk.Frame:
+        """Os créditos, discretos: cinza, 9 pt, o link do LinkedIn em azul."""
+        bg, cinza, azul = (theme.COLORS["bg"], theme.COLORS["text_muted"],
+                           theme.COLORS["primary"])
+        fonte = ("TkDefaultFont", 9)
+        quadro = tk.Frame(parent, background=bg)
+        for texto, perfil in CREDITOS:
+            faixa = tk.Frame(quadro, background=bg)
+            faixa.pack(anchor="w")
+            tk.Label(faixa, text=texto, background=bg, foreground=cinza,
+                     font=fonte, bd=0, padx=0).pack(side="left")
+            if not perfil:
+                continue
+            tk.Label(faixa, text="  ·  ", background=bg, foreground=cinza,
+                     font=fonte, bd=0, padx=0).pack(side="left")
+            link = tk.Label(faixa, text="LinkedIn", background=bg, foreground=azul,
+                            font=fonte, cursor="hand2", bd=0, padx=0)
+            link.pack(side="left")
+            url = f"https://www.linkedin.com/in/{perfil}"
+            link.bind("<Button-1>", lambda _e, u=url: webbrowser.open(u))
+            link.bind("<Enter>", lambda _e, w=link: w.configure(
+                font=("TkDefaultFont", 9, "underline")))
+            link.bind("<Leave>", lambda _e, w=link: w.configure(font=fonte))
+        return quadro
 
     # ─── Callbacks ───────────────────────────────────────────
     def _open_generator(self):
