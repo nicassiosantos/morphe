@@ -16,6 +16,39 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 30/09/2026 (estação) — Placas achadas pelo nome; as duas preparadas em um comando
+
+- **Broadcast validado na rede do laboratório:** um único pedido `MRPS?` para
+  `172.16.255.255:5001`, feito da estação, foi respondido pelas duas placas
+  (`172.16.230.24 de1soclinux`, `172.16.230.52 de1soc-02`). O servidor não mudou: a
+  porta de estado já escutava em `INADDR_ANY`. Com isso, a reserva de DHCP na TI deixa
+  de ser necessária — o IP da placa pode mudar.
+- **`descobrir_placas()`** (`b30e6d6`): todas as placas em ~1 s, com IP e hostname. O
+  aplicativo tenta o broadcast antes da varredura de sub-redes.
+- **Defeito corrigido no `morphe-up.sh`:** sem `--board`, ele ficava com a primeira placa
+  que respondesse. Com duas placas e só o `--cable`, a FPGA certa era programada e o
+  servidor era reiniciado — e marcado como preparado — na outra. Agora a placa do cabo
+  é achada pelo hostname do `placas.conf`, no IP que ela tiver, e um `--board` que não
+  seja a placa do cabo é recusado antes de mexer no servidor. Doze situações testadas
+  com rede simulada antes de ir à estação.
+- **`./morphe-up.sh --todas`, da conta `alunopds`, em `/opt/morphe`:** 2 de 2 placas
+  prontas. Nas duas, identidade conferida (`de1soclinux` no cabo `DE-SoC [1-2]`,
+  `de1soc-02` no `DE-SoC [1-3]`), tether substituído só no próprio cabo, 4/4 no
+  `morphe_ping`: convolução com erro 0 em 214,8 e 213,9 ms; FFT de 1024 plana em 22,6
+  e 21,6 ms.
+- **Créditos no rodapé do aplicativo** (`ed1e38a`): autor, projeto de origem e
+  orientação, com link para o LinkedIn.
+- **SSH da estação desligado** pelo estagiário.
+- **Defeito no comparador, achado pelo estagiário:** FFT de um sinal longo baixado da
+  Internet, comparada com o NumPy, parava em `shapes diferentes: a=(262144,), b=(1024,)`.
+  O comparador calculava a referência sempre com N = 1024 (anterior à FFT longa de
+  23/09) e cortava o sinal nas primeiras 1024 amostras. Agora N sai do próprio X[k]
+  salvo. Testado em bancada com bundles de 700, 1024, 200000 e 262144 amostras (FFT de
+  1024 em float32 no papel da placa): todos comparam, SNR ~151 dB; a versão antiga
+  reproduz a mensagem exata nos dois longos. **Falta repetir na placa.**
+- O aviso `setlocale: LC_ALL: cannot change locale (en_US.UTF-8)` vem da placa, que não
+  tem esse idioma instalado e recebe a variável pelo SSH; não afeta nada.
+
 ## 28/09/2026 (fim do dia) — O aplicativo em todos os computadores
 
 - **`instala-morphe.sh`** (`308a948`, `3babe17`): clona ou atualiza o `/opt/morphe` na
