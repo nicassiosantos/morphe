@@ -16,6 +16,31 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 30/09/2026 (tarde) — Analisador espectral: o ADC passando pela FFT da FPGA
+
+- **Comparador com FFT longa validado na placa** pelo estagiário (o sinal da Internet
+  de 262144 pontos, que antes dava `shapes diferentes`).
+- **Janela nova, "Analisador espectral (ADC → FFT na FPGA)"** (`analisador_window.py`):
+  a cada quadro o ADC captura N amostras, o PC tira o DC e aplica a janela, a FPGA faz
+  a FFT (N = 1024, 4096 ou 16384; acima de 1024, quatro passos) e a tela mostra x(t) e
+  |X(f)| em dBV de pico, até Parar. Janelas Hann, Blackman-Harris, flat-top e
+  retangular; média de 4 ou 16 quadros (potência) e retenção de pico; pico por
+  interpolação parabólica; o NumPy refaz a FFT do mesmo x e a tela mostra a
+  concordância. O último quadro salva em .mrph e abre no Comparador.
+- **Testado em bancada:** senoide sintética quantizada em 1 mV, nos três N e nas quatro
+  janelas — frequência certa a 0,1 Hz; a flat-top erra no máximo 0,007 dB em qualquer
+  ponto do bin (Hann perde até 1,4 dB, como deve). Médias e o quadro salvo aberto no
+  Comparador conferidos.
+- **Testado na placa 1, do PC Windows** (CH0, 10 kHz, 1024 pontos): 33 quadros em 6 s
+  (5,6 por segundo por esta rede), FFT na FPGA de 30 a 40 ms, **FPGA × NumPy 97,6 dB**
+  em todos os quadros. Com 4096 pontos: 97,4 a 97,8 dB.
+- **Achado, a investigar:** toda captura do CH0 da placa 1 começa em ~2,42 V e desce ao
+  nível estável nas primeiras 40 a 50 amostras; o nível estável depende da fs (1,956 V
+  a 10 kHz, 1,839 V a 50 kHz). Isso é o comportamento de uma entrada **sem nada ligado**
+  (alta impedância: a conversão drena a carga, que se refaz entre capturas) — mas não
+  se sabe o que está ligado no CH0 agora. Conferir com o gerador (baixa impedância): se
+  o transitório continuar, é defeito da captura e afeta também a janela Aquisição.
+
 ## 30/09/2026 (estação) — Placas achadas pelo nome; as duas preparadas em um comando
 
 - **Broadcast validado na rede do laboratório:** um único pedido `MRPS?` para
