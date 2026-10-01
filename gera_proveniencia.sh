@@ -27,7 +27,6 @@ fi
 # enderecos que sai dele e o servidor que o usa. Mudou um, muda o hash.
 ARQUIVOS=(
     Quartus/conv1d.v
-    Quartus/fir_wrapper.v
     Quartus/fft_wrapper.v
     Quartus/iir_cascade.v
     Quartus/iir_biquad_mac.v

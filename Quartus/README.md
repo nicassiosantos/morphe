@@ -45,13 +45,14 @@ O resto do `output_files/` é regenerado a cada compilação e não é versionad
 | `morphe_ping.py` | os quatro testes que o `morphe-up.sh` faz contra a placa |
 | `testbench/` | simulações em Icarus Verilog, sem Quartus nem placa: `roda_tb_iir.sh` (IIR bit a bit contra o modelo em Python) e `roda_tb_adc.sh` (controlador do ADC contra um modelo do LTC2308) |
 
-## Ainda no projeto, sem uso
+## Retirados em 01/10/2026
 
-Listados no `soc_system.qsf` mas não instanciados no `ghrd_top.v`. Só saem
-junto com uma compilação na estação, que é o que prova que a retirada não
-quebra nada:
+Estavam listados no `soc_system.qsf` sem serem instanciados no `ghrd_top.v`.
+A síntese do projeto com e sem eles deu o mesmo circuito (ver o DIARIO de
+01/10/2026). Continuam no histórico do git, se um dia fizerem falta:
 
 - `fir_wrapper.v` e `fir_ii/`: o IP de FIR da Intel; o FIR usa a segunda instância do `conv1d`;
-- `adcltc2308_controller/` e `.qsys`/`.sopcinfo`: o controlador do *University Program*, trocado pelo `adc_captura.v`;
+- `adcltc2308_controller/` e o `.qsys`/`.sopcinfo` dele: o controlador do *University Program*, trocado pelo `adc_captura.v`;
 - `ip/debounce/`: o fio `fpga_debounced_buttons` não tem quem o acione;
-- `stp1.stp`: SignalTap, desligado no `.qsf`.
+- `stp1.stp`: SignalTap, que estava desligado;
+- `fifo.qip`: vazio, sem referência.

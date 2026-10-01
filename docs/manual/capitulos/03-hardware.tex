@@ -198,10 +198,12 @@ escolha, não como defeito esquecido.
 \texttt{conv1d} (\texttt{fir\_inst}), com memórias próprias. Filtrar um sinal
 por um FIR é convoluí-lo com a resposta ao impulso do filtro, e é exatamente
 isso que acontece; a diferença entre as duas operações está no aplicativo, que
-oferece para o FIR um projetista de filtros. O projeto ainda contém um IP de FIR
-da Intel (\texttt{fir\_ii}) e o seu adaptador, \arq{fir_wrapper.v}, mas a
-instância está comentada no \arq{ghrd_top.v}. O registrador
-\texttt{fir\_error} sobrou desse adaptador e o \texttt{conv1d} não o aciona.
+oferece para o FIR um projetista de filtros. O projeto original trazia também
+um IP de FIR da Intel (\texttt{fir\_ii}) e o seu adaptador,
+\arq{fir_wrapper.v}, com a instância comentada no \arq{ghrd_top.v}; os dois
+saíram do projeto em 01/10/2026 e continuam no histórico do git. O
+registrador \texttt{fir\_error} sobrou desse adaptador e o \texttt{conv1d} não
+o aciona.
 
 \subsection{FFT e IFFT: o núcleo da Intel}
 \label{sec:acel-fft}

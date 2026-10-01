@@ -1,7 +1,8 @@
 # O ADC da DE1-SoC no Morphe
 
 Levantamento de 23/09/2026, lido do código do projeto (`Quartus/ghrd_top.v` e o IP em
-`Quartus/adcltc2308_controller/`). O que vem **do código** está dito como fato; o que
+`Quartus/adcltc2308_controller/`, que saiu do projeto em 01/10/2026 e continua no
+histórico do git). O que vem **do código** está dito como fato; o que
 vem da **folha de dados ou do manual da placa** está marcado como *a conferir*.
 
 ## O que a placa tem

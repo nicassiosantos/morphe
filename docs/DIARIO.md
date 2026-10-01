@@ -16,6 +16,31 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 01/10/2026 — Analisador linear, atualização em um comando, pasta Quartus limpa
+
+- **Analisador espectral sem dB e com o espectro completo**, a pedido: eixo em volts de
+  pico, linear, os N pontos de 0 a fs (espelho em fs − f, linha em fs/2). Testado em
+  bancada: tom de 1 kHz e 0,5 V com DC de 2 V → pico de 499,97 mV (flat-top), igual nas
+  duas metades; DC lido 2,0013 V. **Não testado na placa ainda.**
+- **`atualizar.sh`**: `/opt/morphe/atualizar.sh` faz o `git pull` como a conta dona do
+  `/opt/morphe`, mostra ramo, versão de antes e de agora e o que mudou. Testado num clone
+  limpo (WSL), com e sem atualização pendente.
+- **Manual**: referência de tensão do ADC (interna, 2,5 V → 4,096 V; não há referência
+  externa no J15), analisador espectral, modos da aquisição, broadcast, `--todas`,
+  `atualizar.sh`. Compila sem referência indefinida.
+- **Tela inicial com rolagem**: a altura se adapta à tela e o menu rola; créditos e Sair
+  fixos. Conferido por captura de tela, com a janela cheia e com 420 px de altura.
+- **Pasta Quartus organizada** (branch `estagio/limpeza-quartus`): testbenches em
+  `Quartus/testbench/` (os dois rodam TUDO OK do lugar novo); fora o `.sof` de 08/07
+  (sem ADC nem IIR), relatórios velhos, `.qws`, e os arquivos listados no `.qsf` sem
+  uso: `fir_wrapper.v` + `fir_ii/`, `adcltc2308_controller/`, `ip/debounce/`,
+  `stp1.stp`, `fifo.qip` (vazio). **Prova:** síntese (Analysis & Synthesis) do projeto
+  antes e depois, em cópias fora do repositório, com o Quartus 23.1 do PC Windows:
+  resumos idênticos (20 335 registradores, 30 DSPs, 2 220 342 bits de memória, 382
+  pinos) e as mesmas entidades elaboradas; os 51 avisos a menos são todos "entidade não
+  existe no projeto", de `fir_ii` e `adcltc2308_controller`. O circuito não mudou, e o
+  `.sof` versionado (Quartus 20.1) continua valendo.
+
 ## 30/09/2026 (tarde) — Analisador espectral: o ADC passando pela FFT da FPGA
 
 - **Comparador com FFT longa validado na placa** pelo estagiário (o sinal da Internet
