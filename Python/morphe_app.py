@@ -37,6 +37,13 @@ CREDITOS = [
 ]
 
 
+# Tamanho da janela principal: abre com LARGURA e a altura do conteúdo (ou da
+# tela, se for menor). A largura não encolhe abaixo de LARGURA (o painel de
+# placas não quebra linha); a altura encolhe até ALTURA_MIN, e o conteúdo rola.
+LARGURA = 600
+LARGURA_MIN, ALTURA_MIN = LARGURA, 320
+
+
 class MorpheMainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -46,29 +53,28 @@ class MorpheMainWindow(tk.Tk):
         theme.setup_styles(self)
         self._build_ui()
 
-        # Em vez de fixar uma altura "no chute" (que sobrava e deixava
-        # aquele vão vazio antes do "Sair"), deixamos o próprio Tk medir o
-        # conteúdo real e encaixamos a janela nele — assim o rodapé encosta
-        # logo abaixo do último card. Robusto a DPI/fonte: a altura vem do
-        # que de fato foi renderizado.
-        #   - largura travada em 600
-        #   - altura = conteúdo, mas ainda arrastável para baixo
+        # A janela abre do tamanho do conteúdo, se couber na tela; numa tela
+        # baixa (notebook, projetor), abre com a altura da tela e o conteúdo
+        # rola. Pode ser redimensionada nos dois sentidos: os cards
+        # acompanham a largura, e a barra de rolagem aparece só quando falta
+        # altura.
         self.update_idletasks()
-        content_h = self.winfo_reqheight()
-        self.geometry(f"600x{content_h}")
-        self.minsize(600, content_h)
-        self.resizable(False, True)
+        conteudo_h = self._conteudo.winfo_reqheight() + self._rodape.winfo_reqheight()
+        tela_h = self.winfo_screenheight() - 80     # barra de tarefas, título
+        altura = min(conteudo_h, tela_h)
+        largura = max(LARGURA, self._conteudo.winfo_reqwidth())
+        self.geometry(f"{largura}x{altura}+{max(0, (self.winfo_screenwidth() - largura) // 2)}+20")
+        self.minsize(LARGURA_MIN, min(ALTURA_MIN, altura))
 
     def _build_ui(self):
-        main = ttk.Frame(self, style="Main.TFrame", padding=(28, 22, 28, 16))
-        main.pack(fill="both", expand=True)
+        # Rodapé fora da área que rola: os créditos e o "Sair" ficam sempre
+        # visíveis. Packed antes, para reservar a faixa de baixo.
+        self._rodape = ttk.Frame(self, style="Main.TFrame", padding=(28, 8, 28, 16))
+        self._rodape.pack(side="bottom", fill="x")
+        theme.make_exit_link(self._rodape, on_click=self.destroy).pack(side="right", anchor="s")
+        self._creditos(self._rodape).pack(side="left", anchor="w")
 
-        # Rodapé pinado à base via side="bottom" — packed antes do resto
-        # para reservar a faixa inferior.
-        footer = ttk.Frame(main, style="Main.TFrame")
-        footer.pack(side="bottom", fill="x", pady=(8, 0))
-        theme.make_exit_link(footer, on_click=self.destroy).pack(side="right", anchor="s")
-        self._creditos(footer).pack(side="left", anchor="w")
+        main = self._area_rolavel()
 
         # Cabeçalho
         header = ttk.Frame(main, style="Main.TFrame")
@@ -135,6 +141,53 @@ class MorpheMainWindow(tk.Tk):
             style="Secondary.TButton",
             command=self._open_comparator,
         ).pack(fill="x", pady=3)
+
+    def _area_rolavel(self) -> ttk.Frame:
+        """Um Frame dentro de um Canvas com barra de rolagem vertical. O
+        Frame acompanha a largura da janela; a barra só aparece quando o
+        conteúdo é mais alto que a janela."""
+        externo = ttk.Frame(self, style="Main.TFrame")
+        externo.pack(side="top", fill="both", expand=True)
+        canvas = tk.Canvas(externo, background=theme.COLORS["bg"],
+                           highlightthickness=0, bd=0)
+        barra = ttk.Scrollbar(externo, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=barra.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        self._conteudo = ttk.Frame(canvas, style="Main.TFrame", padding=(28, 22, 28, 0))
+        item = canvas.create_window((0, 0), window=self._conteudo, anchor="nw")
+
+        def ajusta(_ev=None):
+            canvas.itemconfigure(item, width=canvas.winfo_width())
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            precisa = self._conteudo.winfo_reqheight() > canvas.winfo_height()
+            if precisa and not barra.winfo_ismapped():
+                barra.pack(side="right", fill="y", before=canvas)
+            elif not precisa and barra.winfo_ismapped():
+                barra.pack_forget()
+                canvas.yview_moveto(0)
+
+        self._conteudo.bind("<Configure>", ajusta)
+        canvas.bind("<Configure>", ajusta)
+
+        # Roda do mouse: <MouseWheel> no Windows e no macOS, Button-4/5 no
+        # Linux dos computadores do laboratório. bind_all pega a roda sobre
+        # qualquer botão do menu; o teste de toplevel deixa as outras janelas
+        # (que também recebem o bind_all) em paz.
+        def roda(ev):
+            try:
+                if ev.widget.winfo_toplevel() is not self:
+                    return
+            except (AttributeError, KeyError, tk.TclError):
+                return
+            if not barra.winfo_ismapped():
+                return
+            passo = -1 if (getattr(ev, "num", 0) == 4 or ev.delta > 0) else 1
+            canvas.yview_scroll(passo, "units")
+
+        self.bind_all("<MouseWheel>", roda, add="+")
+        self.bind_all("<Button-4>", roda, add="+")
+        self.bind_all("<Button-5>", roda, add="+")
+        return self._conteudo
 
     @staticmethod
     def _creditos(parent) -> tk.Frame:
