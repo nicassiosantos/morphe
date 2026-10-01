@@ -40,6 +40,15 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
   pinos) e as mesmas entidades elaboradas; os 51 avisos a menos são todos "entidade não
   existe no projeto", de `fir_ii` e `adcltc2308_controller`. O circuito não mudou, e o
   `.sof` versionado (Quartus 20.1) continua valendo.
+- **Validado na estação** (clone da branch em `/tmp`, Quartus 20.1): compilação completa
+  sem erro; contra a de 24/09, memória, pinos e DSPs iguais, 11 ALMs e 33 registradores
+  a menos (o *fitter* duplica registradores conforme o posicionamento, que muda com
+  qualquer alteração do projeto; a síntese é idêntica), folga do relógio de 50 MHz de
+  3,789 ns (era 3,756), nenhuma violação. **Esse `.sof` gravado na placa 1:** morphe_ping
+  4/4, `testa_ifft_roundtrip` 0 falhas, `testa_iir_hw` 0 falhas (bit a bit),
+  `testa_blocos --placa` TUDO OK, `testa_adc basico` TUDO OK (contínua de 2 milhões de
+  amostras a 200 kHz). A placa voltou ao `.sof` oficial de 24/09, que segue versionado.
+  Branch mesclada na principal.
 
 ## 30/09/2026 (tarde) — Analisador espectral: o ADC passando pela FFT da FPGA
 
