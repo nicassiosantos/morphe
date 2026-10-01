@@ -42,13 +42,10 @@ turma inteira, está em `PREPARACAO.md`.
 | `docs/` | documentação técnica e registro do estágio (ver abaixo) |
 | `legado/` | arquivos do projeto original que o produto não usa, guardados para referência |
 
-**Dentro de `Quartus/`**, nem tudo vai para o bitstream. Os testbenches do IIR
-(`tb_iir_*.v`, `roda_tb_iir.sh`) e as ferramentas de compilação
-(`gen_hps_header.py`, `relatorio_timing.tcl`, `morphe_ping.py`) ficam ali porque
-dependem de estar na pasta do projeto. Dois arquivos ainda estão listados no projeto
-sem serem usados — `fft_impulse_test.v` e `output_files/spiral_dft_top.v` —, e só saem
-junto com a próxima compilação do bitstream, que é o que prova que a retirada não quebra
-nada.
+**Dentro de `Quartus/`**, nem tudo vai para o bitstream: o mapa da pasta está em
+`Quartus/README.md`. Os testbenches (`tb_*.v` e os `roda_tb_*.sh`) ficam em
+`Quartus/testbench/`; as ferramentas de compilação (`gen_hps_header.py`,
+`relatorio_timing.tcl`, `morphe_ping.py`) ficam na raiz de `Quartus/`.
 
 **Não mover os `iir_*.v` para fora de `Quartus/`:** eles não estão listados no
 `soc_system.qsf`; o Quartus os encontra por estarem na pasta do projeto. Fora dela, a

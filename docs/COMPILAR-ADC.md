@@ -13,7 +13,7 @@ um bitstream antigo recusa o pedido e não toca na FPGA (ver "Proteção" abaixo
 | arquivo | o que entrou |
 |---|---|
 | `Quartus/adc_captura.v` | controlador próprio do LTC2308, com captura única e contínua (buffer circular), novo |
-| `Quartus/tb_adc_captura.v`, `roda_tb_adc.sh` | testbench com modelo do LTC2308, novo |
+| `Quartus/testbench/tb_adc_captura.v`, `roda_tb_adc.sh` | testbench com modelo do LTC2308, novo |
 | `Quartus/soc_system.qsys` | 1 memória on-chip e 6 PIOs, clonados dos do IIR |
 | `Quartus/ghrd_top.v` | fios, instância do `adc_captura` e portas no `soc_system`; sai a instância comentada do IP do University Program |
 | `Quartus/soc_system.qsf` | entra `adc_captura.v`; saem `fft_impulse_test.v` e `output_files/spiral_dft_top.v` (sem uso) |
@@ -60,7 +60,7 @@ buraco no tempo entre blocos, porque o contador de período do FPGA não para.
 
 ## O que já foi verificado sem a placa (24/09/2026, no Windows)
 
-- `Quartus/roda_tb_adc.sh`: o controlador contra um modelo do LTC2308 em 9 casos:
+- `Quartus/testbench/roda_tb_adc.sh`: o controlador contra um modelo do LTC2308 em 9 casos:
   - captura única a 200 kHz, 50 kHz e 1 kHz, divisor abaixo do mínimo, n = 0 e a
     RAM cheia;
   - contínua a 200 e a 50 kHz com a RAM dando a volta, parada no meio de um quadro;
@@ -114,7 +114,7 @@ Nunca use `git reset --hard` nesse clone (o `db/` está rastreado por engano).
 ### 1. Simular o controlador (1 minuto, sem placa)
 
 ```bash
-bash Quartus/roda_tb_adc.sh
+bash Quartus/testbench/roda_tb_adc.sh
 ```
 
 Tem que terminar em `TUDO OK`.

@@ -297,7 +297,7 @@ zerado a cada execução, para que o mesmo sinal dê sempre a mesma saída.
 \paragraph{Verificado bit a bit.} O RTL do IIR tem um modelo de referência em
 Python que usa inteiros de precisão arbitrária (o acumulador de uma seção
 chega a \(2^{65}\), além do que um \texttt{float64} representa exatamente). O
-testbench em Icarus Verilog (\arq{Quartus/roda_tb_iir.sh}) e a placa
+testbench em Icarus Verilog (\arq{Quartus/testbench/roda_tb_iir.sh}) e a placa
 (\arq{testa_iir_hw.py}) são comparados com esse modelo e precisam coincidir
 em todas as amostras: num filtro realimentado, divergir um LSB numa amostra é
 divergir para sempre dali em diante, então ``parecido'' não serve de critério.

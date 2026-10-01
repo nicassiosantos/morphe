@@ -14,10 +14,11 @@
 # coerencia do contador a cada amostra. Leva perto de 1 minuto.
 set -euo pipefail
 
-AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # os testbenches
+RTL="$(cd "$AQUI/.." && pwd)"                          # o RTL, em Quartus/
 SIM="$(mktemp -d)"
 trap 'rm -rf "$SIM"' EXIT
 
-iverilog -g2012 -o "$SIM/tb_adc.vvp" "$AQUI/tb_adc_captura.v" "$AQUI/adc_captura.v"
+iverilog -g2012 -o "$SIM/tb_adc.vvp" "$AQUI/tb_adc_captura.v" "$RTL/adc_captura.v"
 ( cd "$SIM" && vvp tb_adc.vvp ) | tee "$SIM/saida.txt"
 grep -q "TUDO OK" "$SIM/saida.txt"

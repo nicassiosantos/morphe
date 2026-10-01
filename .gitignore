@@ -1,15 +1,18 @@
 # ---------------------------------------------------------------------------
 # Saidas de build do Quartus: regeneraveis e enormes. Os arquivos ja
-# versionados pelo autor original continuam versionados; isto so impede que
-# novas saidas de compilacao entrem no historico.
+# Desde 01/10/2026 o output_files/ versiona so o que se usa: o
+# soc_system_time_limited.sof (o bitstream), o .cdf do Programmer e os
+# resumos fit/sta da ultima compilacao. O resto e regenerado a cada build.
 # ---------------------------------------------------------------------------
 Quartus/db/
 Quartus/incremental_db/
 Quartus/.qsys_edit/
-Quartus/output_files/greybox_tmp/
-Quartus/output_files/*.fit.rpt
-Quartus/output_files/*.map.rpt
-Quartus/output_files/*.sta.rpt
+Quartus/*.qws
+Quartus/output_files/*
+!Quartus/output_files/soc_system_time_limited.sof
+!Quartus/output_files/soc_system_time_limited.cdf
+!Quartus/output_files/soc_system.fit.summary
+!Quartus/output_files/soc_system.sta.summary
 
 # Copias de trabalho trazidas de outras maquinas (centenas de MB)
 Quartus-funciona/

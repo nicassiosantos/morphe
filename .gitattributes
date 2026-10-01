@@ -6,6 +6,7 @@ Quartus/fir_wrapper.v        -text
 Quartus/fft_wrapper.v        -text
 Quartus/iir_cascade.v        -text
 Quartus/iir_biquad_mac.v     -text
+Quartus/adc_captura.v        -text
 Quartus/ghrd_top.v           -text
 Quartus/soc_system.qsys      -text
 Quartus/soc_system.sopcinfo  -text

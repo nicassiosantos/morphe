@@ -23,8 +23,9 @@
 # simulacao trabalha sobre copias corrigidas, em diretorio temporario.
 set -euo pipefail
 
-AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PY="$AQUI/../Python"
+AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # os testbenches
+RTL="$(cd "$AQUI/.." && pwd)"                          # o RTL, em Quartus/
+PY="$RTL/../Python"
 SIM="$(mktemp -d)"
 trap 'rm -rf "$SIM"' EXIT
 
@@ -37,9 +38,9 @@ else
 fi
 
 for f in memory_read_controller.v memory_write_controller.v; do
-    sed "s/'b_/'b/g" "$AQUI/$f" > "$SIM/$f"
+    sed "s/'b_/'b/g" "$RTL/$f" > "$SIM/$f"
 done
-cp "$AQUI/iir_sos.v" "$AQUI/iir_cascade.v" "$AQUI/iir_biquad_mac.v" \
+cp "$RTL/iir_sos.v" "$RTL/iir_cascade.v" "$RTL/iir_biquad_mac.v" \
    "$AQUI/tb_iir_sos.v" "$AQUI/tb_iir_cascade.v" "$SIM/"
 
 MEM="$SIM/memory_read_controller.v $SIM/memory_write_controller.v"

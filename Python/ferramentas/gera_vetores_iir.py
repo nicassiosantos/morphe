@@ -146,7 +146,7 @@ def main() -> int:
     print("saturou     : %s  <- error_sat esperado no RTL"
           % ("SIM" if pico >= limite else "nao"))
     print()
-    print("Rode o roda_tb_iir.sh no diretorio Quartus.")
+    print("Rode o Quartus/testbench/roda_tb_iir.sh.")
     return 0
 
 
