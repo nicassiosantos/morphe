@@ -40,6 +40,9 @@ A janela principal é um menu de botões, um por ferramenta:
     explorar e para salvar sinais em arquivo.
   \item[Aquisição (ADC da placa)] lê tensões e captura sinais pela entrada
     analógica da placa (seção~\ref{sec:janela-aquisicao}).
+  \item[Analisador espectral] o sinal do ADC passando pela FFT da FPGA, quadro
+    a quadro, até o aluno clicar em \emph{Parar}
+    (seção~\ref{sec:analisador}).
   \item[Convolução] dois sinais, \(x[n]\) e \(h[n]\), convoluídos na FPGA. Mostra
     as entradas, a saída da placa, a referência do NumPy e o erro entre elas.
   \item[FFT] um sinal, transformado na FPGA; mostra magnitude e fase, compara com
@@ -126,15 +129,24 @@ então a média cancela o zumbido da rede elétrica.
 
 \paragraph{Captura.} O aluno escolhe a entrada (um dos oito canais contra o
 terra, de 0 a 4,095\,V, ou um dos quatro pares diferenciais, de
-\(\pm 2{,}048\)\,V), a taxa de amostragem (de 1 a 200\,kHz) e o número de
-amostras:
+\(\pm 2{,}048\)\,V), a taxa de amostragem (de 1 a 200\,kHz) e, no campo
+\emph{Como}, de que jeito capturar:
 
 \begin{itemize}
-  \item até 32\,768, a captura é de uma vez, na memória da FPGA;
-  \item acima disso, ou com 0 amostras (sem limite, até clicar em
+  \item \textbf{número de amostras}: até 32\,768, a captura é de uma vez, na
+    memória da FPGA; acima disso, ou com 0 amostras (sem limite, até clicar em
     \emph{Parar}), é contínua: a placa envia em blocos enquanto captura
-    (seção~\ref{sec:adc-continuo}).
+    (seção~\ref{sec:adc-continuo});
+  \item \textbf{gravar por um tempo}, em ms, s ou min: sempre contínua, com a
+    tela mostrando o sinal enquanto ele chega; \emph{Parar} antes do fim guarda
+    o que já veio;
+  \item \textbf{ao vivo}: contínua até \emph{Parar}, com a tela atualizada dez
+    vezes por segundo e as amostras descartadas, de modo que a memória não
+    cresce. É o modo de só observar o sinal.
 \end{itemize}
+
+Nos dois últimos modos a tela mostra uma janela de tempo escolhida e pode
+sincronizar na subida do sinal, como um osciloscópio.
 
 O gráfico mostra o sinal em volts; acima de 200\,mil pontos, a envoltória. Para
 uma senoide, a janela mede frequência, SINAD e ENOB, que é o jeito de conferir o
@@ -147,6 +159,65 @@ estão em \arq{Python/aquisicao.py}, separadas da janela.
 A taxa real é \(50\,\text{MHz}/\text{divisor}\), com divisor inteiro. Ela é
 exata para as taxas que dividem 50\,MHz; as outras são arredondadas, e a janela
 mostra a taxa real usada (44,1\,kHz, por exemplo, vira 44\,091,7\,Hz).
+
+\section{O analisador espectral}
+\label{sec:analisador}
+
+A janela ``Analisador espectral'' junta o ADC e a FFT da FPGA. Enquanto o aluno
+não clica em \emph{Parar}, ela repete um ciclo, o \emph{quadro}:
+
+\begin{enumerate}
+  \item o ADC captura \(N\) amostras à taxa escolhida, com \(N\) igual a 1024,
+    4096 ou 16\,384;
+  \item no computador, tira-se o nível DC (opcional, ligado por padrão) e
+    aplica-se a janela;
+  \item a FPGA calcula a FFT: uma FFT de 1024 pontos ou, para \(N\) maior, a
+    FFT longa pelo algoritmo de quatro passos (seção~\ref{sec:blocos}), com
+    \(N/1024\) FFTs na placa;
+  \item a tela mostra o quadro no tempo e o espectro, com o pico marcado.
+\end{enumerate}
+
+Captura e FFT são pedidos separados, como os de qualquer janela: entre um
+quadro e o seguinte, a placa atende quem mais estiver na fila.
+
+\paragraph{O espectro.} O gráfico mostra o \textbf{espectro completo}: os
+\(N\) valores de \(X[k]\) que a FPGA devolveu, de 0 a \(f_s\), em
+\textbf{escala linear}, com o eixo vertical em volts de pico. Como o sinal é
+real, um tom de frequência \(f\) aparece duas vezes, em \(f\) e no espelho, em
+\(f_s - f\); uma linha pontilhada marca \(f_s/2\), onde o espelho começa. A
+amplitude é dividida pelo ganho da janela, \(|X[k]| \,/\, (\sum w[n]/2)\), de
+modo que uma senoide de amplitude \(A\) aparece com altura \(A\) nas duas
+linhas, e o nível DC, que só aparece em \(k = 0\), sai com o seu valor em
+volts. A resolução é \(f_s/N\). O pico é procurado na metade de baixo, e a
+frequência dele é refinada por uma parábola nos três pontos em volta, melhor
+que o ponto inteiro, que erra até meia resolução. A escala vertical se ajusta
+a cada quadro ao maior valor do espectro.
+
+\paragraph{Janela e média.} Há quatro janelas: Hann (a padrão),
+Blackman-Harris, \emph{flat-top} e retangular. A diferença entre elas aparece
+num tom que cai entre dois pontos da FFT: a amplitude dele sai até 15\,\%
+abaixo com a Hann, 9\,\% com a Blackman-Harris e 36\,\% com a retangular. A
+\emph{flat-top} erra menos de 0,3\,\% em qualquer frequência, ao custo de um
+pico mais largo: é a janela de medir amplitude. Mudar a janela mostra isso na
+hora, e é um bom exercício. A média pode ser de 4 ou 16 quadros (média de
+potência, que reduz a flutuação do ruído) ou a retenção de pico, que guarda o
+maior valor de cada ponto desde o início.
+
+\paragraph{A conferência.} A cada quadro, o NumPy calcula a FFT do mesmo
+\(x[n]\) janelado, e o painel \emph{Medidas do quadro} mostra quanto as duas
+concordam: é a prova, quadro a quadro, de que o espectro saiu da FPGA. O mesmo
+painel dá a frequência e a amplitude do pico, o nível DC, os tempos de captura
+e de FFT, quantos quadros por segundo e se a entrada saturou. Em 30/09/2026,
+na placa~1, com quadros de 1024 pontos: FPGA e NumPy concordaram com
+97,6\,dB de relação sinal-erro, a 5,6 quadros por segundo.
+
+\paragraph{Salvar.} \emph{Salvar quadro} grava o último quadro num
+\arq{.mrph} (o \(x[n]\) como foi enviado à FPGA e o \(X[k]\) que voltou), que o
+comparador abre (seção~\ref{sec:mrph}).
+
+Como a placa não tem filtro \emph{anti-aliasing}, um tom acima de \(f_s/2\) na
+entrada aparece no espectro numa frequência falsa; a janela lembra isso ao lado
+da taxa escolhida.
 
 \section{Os módulos}
 
@@ -166,7 +237,8 @@ As janelas são finas; o que importa está nos módulos que elas usam.
     \arq{signal_panel.py} & o painel de sinal comum a todas as janelas \\
     \arq{tcp_panel.py} & o painel ``Placas do laboratório'': descoberta, escolha e estado das placas \\
     \arq{morphe_protocol.py} & o protocolo (capítulo~\ref{cap:protocolo}):
-      monta e decodifica as mensagens, abre as conexões, varre a rede \\
+      monta e decodifica as mensagens, abre as conexões, acha as placas na
+      rede \\
     \arq{morphe_config.py} & os limites do hardware, espelho do
       \arq{C/morphe_config.h} \\
     \arq{dsp_core.py} & geração de sinais, conversão para ponto fixo, a
@@ -203,6 +275,11 @@ NumPy (no IIR, no modelo em ponto fixo) sobre a mesma entrada e mostra a
 diferença. É o caminho para estudar um resultado depois, sem placa, ou para
 investigar um resultado estranho que um aluno trouxe. \arq{exemplos/} tem
 pacotes reais produzidos pela placa.
+
+O comparador abre FFTs de qualquer tamanho, não só de 1024 pontos: a
+referência é calculada com o tamanho do próprio arquivo. Assim ele confere
+também os quadros de 4096 e 16\,384 pontos do analisador espectral e as FFTs
+longas das outras janelas.
 
 \section{Sinais maiores que o hardware: processamento em blocos}
 \label{sec:blocos}

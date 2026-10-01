@@ -18,32 +18,45 @@ O cliente junta as placas que conhece de três fontes, sem repetir:
     das placas do laboratório, um IP por linha, com um comentário (placa,
     \emph{hostname}, MAC, cabo JTAG). É igual em todo computador, e é o que
     faz um computador recém-instalado achar as placas só com o
-    \texttt{git clone}. Se o DHCP trocar o IP de uma placa, corrige-se aqui,
-    faz-se \emph{commit}, e os computadores recebem no próximo
-    \texttt{git pull}. O \arq{morphe-up.sh} avisa quando prepara uma placa que
-    não está nessa lista.
+    \texttt{git clone}. O \emph{hostname} do comentário é o que identifica
+    cada placa. O IP escrito ali é só o ponto de partida: se o DHCP o trocar,
+    a busca por \emph{broadcast} (abaixo) acha a placa no endereço novo.
+    Corrigir o IP no arquivo continua útil, porque deixa a conexão imediata,
+    mas desde 30/09/2026 não é mais obrigatório.
   \item[\arq{.morphe-estado/placas}] local: toda placa que o
     \arq{morphe-up.sh} já preparou naquela instalação; a última fica também
     em \arq{.morphe-estado/placa}.
-  \item[a varredura da rede] um \texttt{PING} a cada endereço das sub-redes
-    prováveis (a da placa conhecida, a do próprio computador e as usadas
-    historicamente no laboratório), com até 64 conexões em paralelo e prazos
-    curtos. Leva alguns segundos.
+  \item[a busca na rede] primeiro, \textbf{um único pedido por
+    \emph{broadcast}} à porta de estado (seção~\ref{sec:porta-estado}),
+    enviado a toda a rede do laboratório (\texttt{172.16.255.255}) e a
+    \texttt{255.255.255.255}. Cada placa responde com o seu IP e o seu
+    \emph{hostname}, em menos de um segundo, qualquer que seja o endereço que
+    o DHCP lhe deu. Testado na estação em 30/09/2026: as duas placas
+    responderam. Só se nenhuma responder --- rede que bloqueia
+    \emph{broadcast}, ou servidor anterior a 28/09/2026 --- vale a varredura
+    antiga: um \texttt{PING} a cada endereço das sub-redes prováveis (a da
+    placa conhecida, a do próprio computador e as usadas historicamente no
+    laboratório), com até 64 conexões em paralelo e prazos curtos, que leva
+    alguns segundos.
 \end{description}
 
-As listas e a varredura trabalham juntas:
+As listas e a busca trabalham juntas:
 
 \begin{itemize}
-  \item \textbf{ao abrir}, o aplicativo conecta pela lista, na hora, e varre a
-    rede em segundo plano. Uma placa preparada que apareça fora da lista ---
-    quase sempre uma que trocou de IP por DHCP --- entra na lista local, passa a
-    disputar a escolha a partir da próxima abertura, e o painel avisa para
-    corrigir o \arq{placas.conf};
-  \item \textbf{se nenhuma placa da lista responder}, a varredura decide: o
+  \item \textbf{ao abrir}, o aplicativo conecta pela lista, na hora, e procura
+    na rede em segundo plano. Uma placa preparada que apareça fora da lista ---
+    quase sempre uma que trocou de IP por DHCP --- entra na lista local e passa
+    a disputar a escolha a partir da próxima abertura;
+  \item \textbf{se nenhuma placa da lista responder}, a busca decide: o
     aplicativo escolhe entre todas as que ela achar;
-  \item \textbf{o botão \emph{Procurar de novo}} junta a lista e uma varredura
+  \item \textbf{o botão \emph{Procurar de novo}} junta a lista e uma busca
     completa, e escolhe entre todas.
 \end{itemize}
+
+O \arq{morphe-up.sh} usa o mesmo \emph{broadcast}, mas procura pelo nome: o
+\arq{placas.conf} diz o \emph{hostname} da placa ligada a cada cabo JTAG, e o
+script prepara a placa que responder com aquele nome, no IP que ela tiver
+naquele dia (capítulo~\ref{cap:laboratorio}).
 
 Não se deve usar o \arq{morphe-up.sh} só para registrar uma placa: mesmo sem
 reprogramar a FPGA, ele reinicia o servidor e interrompe quem estiver no meio de
@@ -204,10 +217,12 @@ placas.
   \item \textbf{Troca automática de placa.} A escolha acontece ao abrir o
     aplicativo. Se a placa escolhida lotar, o painel mostra isso, mas quem
     troca é o aluno, com o botão \emph{Usar} de outra placa.
-  \item \textbf{Endereço fixo.} As placas pegam IP por DHCP, e o
-    \arq{placas.conf} precisa ser corrigido quando um muda. Uma reserva de DHCP
-    na TI, pelo MAC de cada placa, acabaria com isso.
 \end{enumerate}
+
+O \textbf{endereço fixo} estava nesta lista até 30/09/2026: as placas pegam IP
+por DHCP, e cada troca exigia corrigir o \arq{placas.conf}. Com a busca por
+\emph{broadcast}, o IP deixou de importar, e a reserva de DHCP na TI, antes
+proposta, ficou desnecessária.
 
 \section{Sintoma, causa e o que fazer}
 
@@ -231,14 +246,19 @@ placas.
       & \arq{./morphe-up.sh} \opt{deploy} \\
     \addlinespace
     O \arq{morphe-up.sh} avisa que a placa não está em \arq{placas.conf}
-      & o IP dela mudou por DHCP & corrigir o \arq{placas.conf}, \emph{commit}
-      e \texttt{git pull} nos computadores \\
+      & o IP dela mudou por DHCP & nada urgente: a busca a acha; corrigir o
+      IP no \arq{placas.conf} deixa a conexão imediata \\
+    \addlinespace
+    O aplicativo leva alguns segundos para achar as placas
+      & ninguém respondeu ao \emph{broadcast} e valeu a varredura antiga
+      & conferir com \arq{estado_placas.py}; servidor antigo pede
+        \arq{./morphe-up.sh} \opt{deploy} \\
     \addlinespace
     Operação recusada com ``FPGA não preparada'' & a placa foi ligada e ninguém
       programou o bitstream & \arq{./morphe-up.sh} na estação \\
     \addlinespace
-    Um computador só enxerga uma placa & o \arq{placas.conf} dele está velho
-      (e a varredura para na primeira) & \texttt{git pull} \\
+    Um computador só enxerga uma placa & o aplicativo dele está
+      desatualizado & \arq{/opt/morphe/atualizar.sh} \\
     \addlinespace
     ``o \emph{tether} de DE-SoC [1-x] pertence à conta \ldots'' & outra conta
       preparou aquela placa & usá-la como está ou pedir àquela conta um

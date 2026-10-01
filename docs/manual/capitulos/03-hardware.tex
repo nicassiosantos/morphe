@@ -348,6 +348,16 @@ deslocamento DC: por exemplo, 2\,V de deslocamento e no máximo 4\,Vpp, conferid
 no osciloscópio \emph{antes} de ligar à placa, com o terra do gerador no pino
 de terra do conector. A placa também não tem filtro \emph{anti-aliasing}.
 
+\paragraph{Referência de tensão.} \textbf{A placa não tem referência externa.}
+O LTC2308 usa a própria referência interna, de 2,5\,V, que um amplificador
+dentro do chip leva a 4,096\,V; é esse valor que define o fundo de escala e o
+passo de 1\,mV. O chip aceitaria uma referência externa, aplicada sobre o pino
+de referência dele, mas na DE1-SoC esses pinos não chegam ao conector J15, que
+traz só os oito canais, os 5\,V e o terra: usar uma referência externa
+exigiria mexer na placa. Por isso a exatidão absoluta de uma leitura é a da
+referência interna do chip, e a leitura de 3,3300\,V no pino de 3,3\,V da placa
+(seção~\ref{sec:adc-validado}) ainda precisa ser comparada com um multímetro.
+
 \subsection{Por que um controlador próprio}
 
 O projeto original trazia o controlador do \emph{University Program} da Intel
@@ -441,6 +451,7 @@ acompanha a taxa máxima: 2 milhões de amostras a 200\,kHz, em 10\,s, sem perda
 \end{table}
 
 \subsection{O que foi validado}
+\label{sec:adc-validado}
 
 Em 24/09/2026, na placa 1, com o bitstream que contém o ADC: as operações que
 já existiam continuam iguais (testes da FFT, do IIR e dos blocos); a entrada

@@ -24,7 +24,8 @@ como_dono() {
 }
 
 ANTES="$(como_dono git -C "$DIR" rev-parse --short HEAD)"
-echo "Morphe em $DIR (dono: $DONO), versao atual $ANTES. Buscando a nova..."
+RAMO="$(como_dono git -C "$DIR" rev-parse --abbrev-ref HEAD)"
+echo "Morphe em $DIR (dono: $DONO), ramo $RAMO, versao atual $ANTES. Buscando a nova..."
 
 if ! como_dono git -C "$DIR" pull -q --ff-only; then
     echo

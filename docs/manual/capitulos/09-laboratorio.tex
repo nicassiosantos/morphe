@@ -13,10 +13,10 @@ em serviço. Os detalhes, com o histórico de cada decisão, estão em
 
 Com as placas ligadas à rede e aos cabos USB-Blaster da estação, e a instalação
 de turma feita (seção~\ref{sec:turma}), a aula começa com um comando na
-estação, uma vez por placa:
+estação, que prepara todas as placas:
 
 \begin{center}
-\ttfamily cd /opt/morphe \&\& ./morphe-up.sh -{}-cable 'DE-SoC [1-2]' -{}-board 172.16.230.24
+\ttfamily cd /opt/morphe \&\& ./morphe-up.sh -{}-todas
 \end{center}
 
 \noindent e cada aluno, em qualquer computador, abre o aplicativo:
@@ -25,12 +25,16 @@ estação, uma vez por placa:
 \ttfamily cd /opt/morphe/Python \&\& python3 morphe\_app.py
 \end{center}
 
-Com uma placa só, o \arq{./morphe-up.sh} sem argumentos basta: ele acha o cabo e
-a placa sozinho. Com duas, o \opt{cable} diz qual cabo e o \opt{board} qual
-placa; na estação do laboratório, o cabo \texttt{DE-SoC [1-2]} é o da placa
-\texttt{172.16.230.24} e o \texttt{DE-SoC [1-3]} o da \texttt{172.16.230.52}.
-Depois de preparada, a placa fica pronta até ser desligada ou até a estação ser
-desligada (seção~\ref{sec:tether}).
+O \opt{todas} prepara, uma a uma, cada placa do \arq{placas.conf}, e no fim
+diz quais ficaram prontas; uma placa que falhe não impede as outras. Em
+30/09/2026, da conta \texttt{alunopds}: 2 de 2 prontas. Para preparar só uma
+placa, o \opt{cable} diz qual: na estação do laboratório, o cabo
+\texttt{DE-SoC [1-2]} é o da placa~1 (\texttt{de1soclinux}) e o
+\texttt{DE-SoC [1-3]} o da placa~2 (\texttt{de1soc-02}). O IP não precisa ser
+informado: o script acha a placa pelo nome. Com uma placa só, o
+\arq{./morphe-up.sh} sem argumentos basta. Depois de preparada, a placa fica
+pronta até ser desligada ou até a estação ser desligada
+(seção~\ref{sec:tether}).
 
 Antes dessa rotina, preparar a plataforma levava 9 passos, dois deles com SSH
 na placa e cinco pontos de conhecimento que só o autor tinha; a contagem está
@@ -70,6 +74,15 @@ perguntar, ele para. A placa conferida é a do \opt{board}; com só o
 Placa que não responde na porta de estado (desligada, ou com servidor antigo)
 não é conferida. O \opt{forca} pula a pergunta.
 
+\paragraph{Achar a placa do cabo.} A FPGA é programada pelo cabo JTAG, mas o
+servidor é reiniciado pela rede, e as duas coisas têm de ser a mesma placa. O
+\arq{placas.conf} diz o \emph{hostname} da placa de cada cabo; o script envia
+um \emph{broadcast} à porta de estado e fica com a placa que responder com
+aquele nome, no IP que ela tiver naquele dia. Um \opt{board} que aponte para
+outra placa é recusado. Antes de 30/09/2026 o script ficava com a primeira
+placa que respondesse, e com duas placas e só o \opt{cable} podia programar a
+FPGA de uma e reiniciar o servidor da outra.
+
 \paragraph{Descobrir o cabo.} O nome do cabo JTAG (\texttt{DE-SoC [1-1]},
 \texttt{[1-2]}, \ldots) depende da porta USB. O script o lê do
 \texttt{jtagconfig}, em vez de supor.
@@ -101,15 +114,18 @@ que os clientes leem (capítulo~\ref{cap:placas}).
     \textbf{Opção} & \textbf{O que faz} \\
     \midrule
     (nenhuma) & prepara a placa lembrada, ou a que achar na rede \\
-    \opt{board} \textit{ip} & prepara esta placa, e passa a lembrá-la \\
-    \opt{cable} \textit{nome} & usa este cabo JTAG, quando há mais de um \\
+    \opt{todas} & prepara, uma a uma, todas as placas do \arq{placas.conf} \\
+    \opt{cable} \textit{nome} & usa este cabo JTAG, quando há mais de um; a
+      placa é a que o \arq{placas.conf} associa a ele \\
+    \opt{board} \textit{ip} & prepara a placa neste IP (normalmente
+      desnecessário), e passa a lembrá-la \\
     \opt{deploy} & reenvia e recompila o servidor mesmo sem mudança \\
     \opt{skip-fpga} & só o servidor, sem reprogramar a FPGA \\
     \opt{forca} & não pergunta, mesmo com a placa em uso \\
     \opt{setup-ssh} & uma vez por placa e por conta: instala a chave SSH
       (seção~\ref{sec:ssh}) \\
     \opt{status} & mostra, placa a placa, o que está no ar e se o
-      \emph{tether} está vivo \\
+      \emph{tether} está vivo, e as placas que respondem na rede \\
     \opt{down} & encerra os \emph{tethers} de todas as placas \\
     \opt{down} \opt{stop-server} & e também para o servidor das placas \\
     \bottomrule
@@ -164,11 +180,11 @@ compilação do Quartus, e ajustam-se dono e permissões (os comandos estão em
 sistema já tem NumPy, Matplotlib e SciPy, e o aluno não pode instalar nada.
 
 \paragraph{Atualizar.} Como \arq{/opt/morphe} é um clone, atualizar é um
-\texttt{git pull} na conta do coordenador, sem \texttt{sudo}. Antes, confira o
-ramo com \texttt{git -C /opt/morphe branch -vv}: em 17/09/2026 um
+\texttt{git pull}, e o \arq{atualizar.sh} o faz num comando
+(seção~\ref{sec:atualizar}). Ele mostra o ramo: em 17/09/2026 um
 \texttt{pull} dizia ``\emph{Already up to date}'' num ramo errado, e duas
-preparações rodaram com código antigo. Depois de um \texttt{pull} que mude o
-servidor ou o bitstream, rode o \arq{morphe-up.sh} de novo.
+preparações rodaram com código antigo. Depois de uma atualização que mude o
+servidor ou o bitstream, rode o \arq{morphe-up.sh} \opt{todas} de novo.
 
 \paragraph{Qualquer conta prepara a placa.} Com o Quartus em \arq{/opt} e a
 regra do USB-Blaster liberando o cabo para todos, o aluno também roda o
@@ -276,17 +292,34 @@ pasta temporária e rodar o instalador de dentro dela: ele clona para o
 \arq{/opt/morphe} para o GitHub. Em 28/09/2026 o aplicativo foi instalado assim
 em todos os computadores do laboratório.
 
-\paragraph{Atualizar os computadores.} \textbf{O aplicativo não se atualiza
-sozinho.} Ele roda na conta do aluno, que não escreve no \arq{/opt/morphe}, e é
-bom que não escreva. Depois de uma mudança no repositório, cada computador
-precisa de um \texttt{git pull}, feito pela conta dona do \arq{/opt/morphe} (a
-que rodou o \texttt{sudo} na instalação), ou de uma nova execução do
-instalador, que também atualiza. Um aplicativo já aberto continua com a versão
-antiga até ser fechado. Mudanças no servidor ou no bitstream, além disso,
-exigem o \arq{morphe-up.sh} na estação: o \texttt{git pull} nos computadores
-só atualiza o aplicativo. Um temporizador do sistema que fizesse o
-\texttt{git pull} ao ligar o computador está proposto no
-capítulo~\ref{cap:limitacoes}.
+\paragraph{Atualizar os computadores.}
+\label{sec:atualizar}
+\textbf{O aplicativo não se atualiza sozinho.} Ele roda na conta do aluno, que
+não escreve no \arq{/opt/morphe}, e é bom que não escreva. Depois de uma
+mudança no repositório, cada computador, e também a estação, precisa de um
+comando, em qualquer conta com \texttt{sudo}:
+
+\begin{center}
+\ttfamily /opt/morphe/atualizar.sh
+\end{center}
+
+\noindent O script descobre qual conta é a dona do \arq{/opt/morphe} (a que
+rodou o \texttt{sudo} na instalação), faz o \texttt{git pull} como ela (pedindo
+a senha do \texttt{sudo} se quem roda for outra conta) e mostra a versão de
+antes, a de agora e a lista do que mudou. Ele só avança a versão: um arquivo
+modificado à mão nunca é sobrescrito, e nesse caso o script para e diz como ver
+qual é. Computadores instalados antes de 01/10/2026 ainda não têm o script e
+precisam, uma única vez, do comando antigo:
+
+\begin{center}
+\ttfamily sudo -u \$(stat -c \%U /opt/morphe) git -C /opt/morphe pull -{}-ff-only
+\end{center}
+
+Um aplicativo já aberto continua com a versão antiga até ser fechado. Mudanças
+no servidor ou no bitstream, além disso, exigem o \arq{morphe-up.sh} na
+estação: atualizar os computadores só atualiza o aplicativo. Um temporizador do
+sistema que fizesse a atualização sozinho, ao ligar o computador, está proposto
+no capítulo~\ref{cap:limitacoes}.
 
 \paragraph{A armadilha do \texttt{pip -{}-user}.} Duas vezes o aplicativo
 quebrou numa conta por um NumPy ou Matplotlib instalado com
@@ -327,11 +360,13 @@ fica vivo, então não há pressa. Para resolver:
     preserva o \emph{tether}, que já está contando desde a programação.
 \end{enumerate}
 
-Se o endereço novo for diferente do anterior dentro da rede certa (o DHCP
-pode trocá-lo), o \arq{morphe-up.sh} com o \opt{board} novo o registra, e os
-clientes o encontram na próxima vez que abrirem. Um endereço que não muda
-exige pedir à TI uma reserva de DHCP para o MAC de cada placa
-(\texttt{02:00:00:6d:70:01} e \texttt{:02}).
+Se o endereço novo for diferente do anterior, mas dentro da rede certa (o
+DHCP pode trocá-lo), não há nada a fazer: o aplicativo e o
+\arq{morphe-up.sh} acham a placa por \emph{broadcast}, pelo nome, no endereço
+que ela tiver (capítulo~\ref{cap:placas}). A reserva de DHCP na TI, antes
+proposta, deixou de ser necessária. O \emph{broadcast} só alcança a rede do
+laboratório: uma placa em outra rede continua invisível, e é o caso desta
+seção.
 
 \section{Uma placa nova}
 
@@ -377,9 +412,10 @@ só ligá-la. Os passos, detalhados em \arq{docs/NOVA-PLACA.md}:
       & servidor novo com bitstream antigo & \arq{./morphe-up.sh} com o
         bitstream que tem o ADC \\
     \addlinespace
-    O aplicativo abre e não acha placa & o IP de uma placa mudou e o
-      \arq{placas.conf} está velho, ou as placas não foram preparadas
-      & \texttt{git pull}; \arq{estado_placas.py}; \arq{./morphe-up.sh} \\
+    O aplicativo abre e não acha placa & as placas não foram preparadas,
+      ou o aplicativo está desatualizado
+      & \arq{estado_placas.py}; \arq{./morphe-up.sh} \opt{todas};
+        \arq{atualizar.sh} \\
     \addlinespace
     \texttt{Permission denied} no \arq{.morphe-estado} & arquivo antigo gravado
       por outra conta & corrigir dono e permissões uma vez (\arq{PREPARACAO.md});
@@ -387,6 +423,10 @@ só ligá-la. Os passos, detalhados em \arq{docs/NOVA-PLACA.md}:
     \addlinespace
     A senha da placa é pedida várias vezes & falta a chave desta conta
       & \opt{setup-ssh} \\
+    \addlinespace
+    O \arq{atualizar.sh} para com ``a atualização falhou'' & sem rede até o
+      GitHub, ou arquivo modificado à mão no \arq{/opt/morphe}
+      & conferir a rede; \texttt{git -C /opt/morphe status} \\
     \addlinespace
     \texttt{qsys-generate: not found} ou Quartus fora do \texttt{PATH}
       & terminal em \texttt{ksh}, que não lê o \arq{.bashrc} & digitar

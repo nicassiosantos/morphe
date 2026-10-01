@@ -66,8 +66,12 @@ quem vai preparar a aula; nunca com \texttt{sudo}.
 
 \section*{Preparar as placas (estação)}
 
-\cmd{cd /opt/morphe \&\& ./morphe-up.sh -{}-cable 'DE-SoC [1-2]' -{}-board 172.16.230.24}
-\cmd{./morphe-up.sh -{}-cable 'DE-SoC [1-3]' -{}-board 172.16.230.52}
+\cmd{cd /opt/morphe \&\& ./morphe-up.sh -{}-todas}
+
+Só uma placa:
+
+\cmd{./morphe-up.sh -{}-cable 'DE-SoC [1-2]'}
+\cmd{./morphe-up.sh -{}-cable 'DE-SoC [1-3]'}
 
 Ver o que está no ar, e se os \emph{tethers} estão vivos:
 
@@ -82,12 +86,17 @@ Ver o que está no ar, e se os \emph{tethers} estão vivos:
 
 \cmd{./morphe-up.sh -{}-setup-ssh -{}-board <ip>}
 
-\section*{Atualizar a instalação de turma (coordenador)}
+\section*{Atualizar (estação e qualquer computador)}
 
-\cmd{git -C /opt/morphe branch -vv}
-\cmd{cd /opt/morphe \&\& git pull}
+Numa conta com \texttt{sudo}, ou na conta dona do \arq{/opt/morphe}:
 
-\noindent e, se o servidor ou o bitstream mudaram, \arq{./morphe-up.sh} de novo.
+\cmd{/opt/morphe/atualizar.sh}
+
+\noindent Na estação, se o servidor ou o bitstream mudaram,
+\arq{./morphe-up.sh} \opt{todas} de novo. Computador instalado antes de
+01/10/2026, uma única vez:
+
+\cmd{sudo -u \$(stat -c \%U /opt/morphe) git -C /opt/morphe pull -{}-ff-only}
 
 \section*{Os outros computadores}
 
@@ -96,9 +105,7 @@ Instalar, numa conta com \texttt{sudo} (uma vez por computador):
 \cmd{git clone -b estagio/v1.1-1024pontos https://github.com/nicassiosantos/morphe.git /tmp/morphe-inst}
 \cmd{sudo /tmp/morphe-inst/instala-morphe.sh}
 
-Atualizar, na conta que instalou:
-
-\cmd{git -C /opt/morphe pull}
+Atualizar: \arq{/opt/morphe/atualizar.sh}, como acima.
 
 \noindent Só conferir, sem mudar nada: \texttt{sudo /opt/morphe/instala-morphe.sh -{}-verificar}.
 
@@ -137,8 +144,8 @@ Atualizar, na conta que instalou:
   \midrule
   tempo esgotado, FFT errada & \texttt{pgrep -af quartus\_pgm}; \arq{./morphe-up.sh} \\
   ``FPGA não preparada'' & \arq{./morphe-up.sh} \\
-  aplicativo não acha placa & rodar tudo de \arq{/opt/morphe}; conferir
-    \arq{.morphe-estado/placas} \\
+  aplicativo não acha placa & \arq{estado_placas.py};
+    \arq{./morphe-up.sh} \opt{todas} \\
   resultado inexplicável & \texttt{gen\_hps\_header.py -{}-check} \\
   aplicativo não abre & remover NumPy e Matplotlib do \texttt{pip -{}-user} \\
   \bottomrule

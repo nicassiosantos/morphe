@@ -44,7 +44,17 @@ captura contínua a 200\,kHz sem perda; \textbf{falta a validação com uma
 senoide do gerador de funções} (SINAD e ENOB medidos, e a continuidade das
 emendas entre blocos com um sinal que muda) e a comparação da leitura em 3,3\,V
 com um multímetro. O roteiro está em \arq{docs/COMPILAR-ADC.md}, passos 7c e
-7d, e no \arq{testa_adc.py}.
+7d, e no \arq{testa_adc.py}. Com a mesma senoide falta conferir na placa o modo
+\emph{ao vivo} da janela de aquisição e o analisador espectral, que em
+30/09/2026 foi testado na placa só com a entrada sem sinal.
+
+\paragraph{Um transitório no início da captura.} Com a entrada do canal~0 da
+placa~1 solta, toda captura começa perto de 2,4\,V e decai, em 40 a 50
+amostras, até um nível estável que depende da taxa (1,96\,V a 10\,kHz, 1,84\,V a
+50\,kHz). Parece efeito da entrada sem nada ligado, de alta impedância, que o
+próprio conversor carrega. Se o transitório continuar com o gerador ligado, é
+defeito da captura, afeta também a janela de aquisição, e precisa ser
+investigado.
 
 \paragraph{Não há filtro \emph{anti-aliasing}.} O sinal chega ao conversor sem
 filtro analógico. Um tom acima de \(f_s/2\) aparece dobrado no espectro. Para
@@ -67,14 +77,17 @@ durante a captura, são decisões ainda em aberto.
 
 \section{Infraestrutura}
 
-Descritas no capítulo~\ref{cap:placas}. Duas melhorias de 28/09/2026 resolveram
-a maior parte do que faltava: a \textbf{porta de estado} diz a qualquer
+Descritas no capítulo~\ref{cap:placas}. Três melhorias resolveram a maior
+parte do que faltava: a \textbf{porta de estado} (28/09/2026) diz a qualquer
 momento o que cada placa está fazendo, e o cliente escolhe a placa livre e menos
-usada; o \textbf{\arq{placas.conf}} versionado dá a todos os computadores a mesma
-lista de placas, sem varredura. O que continua faltando: \textbf{reserva} de
-placa (a escolha divide a turma, mas não impede duas pessoas na mesma placa),
-\textbf{troca automática de placa} durante o uso, e \textbf{IP fixo} para as
-placas (reserva de DHCP na TI).
+usada; o \textbf{\arq{placas.conf}} versionado (28/09/2026) dá a todos os
+computadores a mesma lista de placas; e a \textbf{busca por \emph{broadcast}}
+(30/09/2026) acha as placas pelo nome, no IP que tiverem, o que tornou
+desnecessária a reserva de DHCP. O que continua faltando: \textbf{reserva} de
+placa (a escolha divide a turma, mas não impede duas pessoas na mesma placa) e
+\textbf{troca automática de placa} durante o uso. Falta também testar dois
+computadores abrindo o aplicativo ao mesmo tempo: devem cair em placas
+diferentes.
 
 A mesma porta de estado protege quem está usando uma placa: o
 \arq{morphe-up.sh} a consulta antes de reprogramar e pergunta se deve
@@ -85,9 +98,10 @@ Quartus numa placa que está servindo a turma.
 \paragraph{Atualização dos computadores.} Em 28/09/2026 o Quartus e o
 aplicativo estavam em todos os computadores, cada um instalado pelo seu script
 (\arq{instala-quartus.sh} e \arq{instala-morphe.sh}). Mas o aplicativo não se
-atualiza sozinho: cada computador precisa de um \texttt{git pull} depois de uma
-mudança (seção~\ref{sec:turma} e seguintes), e com vários computadores isso
-acaba esquecido. A proposta é um temporizador do sistema (\emph{systemd timer}),
+atualiza sozinho: desde 01/10/2026 basta um comando por computador,
+\arq{/opt/morphe/atualizar.sh} (seção~\ref{sec:atualizar}), mas ainda é preciso
+lembrar de rodá-lo em cada um, e com vários computadores isso acaba esquecido.
+A proposta é um temporizador do sistema (\emph{systemd timer}),
 instalado pelo próprio \arq{instala-morphe.sh}, que atualize o
 \arq{/opt/morphe} como a conta dona, ao ligar o computador e a cada hora, só
 por avanço simples (\opt{ff-only}): um arquivo modificado à mão continua
@@ -97,8 +111,7 @@ protegido, porque nesse caso a atualização é recusada.
 (ela precisa ficar ligada durante a aula, e o \arq{morphe-up.sh} tem de rodar
 depois de cada boot), os cabos JTAG das placas, e a compilação do bitstream. O
 servidor SSH que ela ganhou em 23/09/2026 só servia para os outros computadores
-copiarem o Quartus, e pode ser desligado
-(\texttt{sudo systemctl disable -{}-now ssh}).
+copiarem o Quartus, e foi desligado em 30/09/2026.
 
 \section{Ideias que a plataforma já permite}
 
@@ -107,7 +120,9 @@ Com o que existe hoje, sem mudar o hardware:
 \begin{itemize}
   \item aula de amostragem e \emph{aliasing}, capturando um tom do gerador
     acima e abaixo de \(f_s/2\);
-  \item analisador de espectro, com capturas repetidas e a FFT da placa;
+  \item com o analisador espectral (seção~\ref{sec:analisador}): o espelho em
+    \(f_s - f\), o efeito da janela na amplitude de um tom, a resolução
+    \(f_s/N\) separando dois tons próximos;
   \item medir o próprio conversor (SINAD, ENOB) e comparar com os 74\,dB
     teóricos de 12 bits;
   \item multitaxa: capturar rápido e dizimar com o FIR da placa;
