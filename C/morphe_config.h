@@ -99,6 +99,13 @@
  * RAM como buffer circular. Quem o liga e o servidor, no OP_ADC_CONTINUO. */
 #define MORPHE_ADC_CFG_CONTINUO 0x40U
 
+/* ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ------------ */
+
+/* O soma.v processa SEMPRE MORPHE_SOMA_N_MAX amostras (N_SAMPLES do
+ * Verilog); o servidor completa com zeros e devolve so as n pedidas. As
+ * memorias soma_a, soma_b e soma_y tem 1024 palavras de 32 bits cada. */
+#define MORPHE_SOMA_N_MAX       1024
+
 /* ---- Rede -------------------------------------------------------------- */
 
 /* Porta TCP padrao do servidor (cliente pode sobrescrever). */

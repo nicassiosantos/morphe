@@ -13,7 +13,9 @@
  * da erro nenhum, so devolve tudo zero. Ver RESSALVAS.md, item 11. */
 //#define FPGA_ONCHIP_BASE       0xC8000000   /* mapa do DE1-SoC Computer -- errado aqui */
 #define FPGA_ONCHIP_BASE       0xC0000000
-#define FPGA_ONCHIP_SPAN       0x0003FFFF
+/* Ate 0x42FFF desde o modulo soma (soma_a/b/y em 0x40000-0x42FFF). Cresce
+ * quando uma memoria nova passa do fim: o _Static_assert do servidor avisa. */
+#define FPGA_ONCHIP_SPAN       0x0004FFFF
 #define FPGA_CHAR_BASE         0xC9000000
 #define FPGA_CHAR_SPAN         0x00001FFF
 

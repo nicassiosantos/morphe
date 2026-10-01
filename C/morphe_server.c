@@ -104,10 +104,27 @@
 #define _MORPHE_END_ADC 0
 #endif
 
+/* A soma, como o ADC, so entra quando o hps_0.h foi gerado de um .sopcinfo
+ * que a tem (tres memorias e dois PIOs). A protecao contra bitstream antigo
+ * e o sysid, que o servidor ja le por causa do ADC: por isso MORPHE_TEM_ADC
+ * tambem e exigido. */
+#if defined(SOMA_A_BASE) && defined(SOMA_B_BASE) && defined(SOMA_Y_BASE) && \
+    defined(SOMA_START_BASE) && defined(SOMA_DONE_BASE) && MORPHE_TEM_ADC
+#define MORPHE_TEM_SOMA 1
+#define _MORPHE_END_SOMA \
+    _MORPHE_MAX3( \
+        _MORPHE_END(SOMA_A_BASE, SOMA_A_SPAN), \
+        _MORPHE_END(SOMA_B_BASE, SOMA_B_SPAN), \
+        _MORPHE_END(SOMA_Y_BASE, SOMA_Y_SPAN))
+#else
+#define MORPHE_TEM_SOMA 0
+#define _MORPHE_END_SOMA 0
+#endif
+
 #define MORPHE_ONCHIP_MMAP_SPAN \
     _MORPHE_ROUND_UP( \
-        _MORPHE_MAX2(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
-                     _MORPHE_END_ADC), \
+        _MORPHE_MAX3(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
+                     _MORPHE_END_ADC, _MORPHE_END_SOMA), \
         _MORPHE_PAGE_SIZE)
 
 /* Saida maxima do FIR: derivada do span real de fir_yn no hps_0.h. */
@@ -128,6 +145,11 @@ _Static_assert(IIR_YN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Err
 _Static_assert(IIR_COEF_SPAN    >= MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO * (int)sizeof(int32_t), "Erro");
 #if MORPHE_TEM_ADC
 _Static_assert(ADC_BUF_SPAN     >= MORPHE_ADC_N_MAX * (int)sizeof(int32_t), "Erro");
+#endif
+#if MORPHE_TEM_SOMA
+_Static_assert(SOMA_A_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(SOMA_B_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(SOMA_Y_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
 #endif
 _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 
@@ -195,6 +217,14 @@ static volatile uint32_t *g_pio_iir_done     = NULL;
 static volatile uint32_t *g_pio_iir_error    = NULL;
 static volatile uint32_t *g_pio_iir_nsecoes  = NULL;
 
+#if MORPHE_TEM_SOMA
+static int32_t           *g_soma_a          = NULL;
+static int32_t           *g_soma_b          = NULL;
+static int32_t           *g_soma_y          = NULL;
+static volatile uint32_t *g_pio_soma_start  = NULL;
+static volatile uint32_t *g_pio_soma_done   = NULL;
+#endif
+
 #if MORPHE_TEM_ADC
 static volatile uint32_t *g_pio_adc_start     = NULL;
 static volatile uint32_t *g_pio_adc_done      = NULL;
@@ -254,6 +284,7 @@ static const char *nome_op(uint16_t op) {
         case MORPHE_OP_IIR:  return "iir";
         case MORPHE_OP_ADC:  return "adc";
         case MORPHE_OP_ADC_CONTINUO: return "adc_continuo";
+        case MORPHE_OP_SOMA: return "soma";
         default:             return "desconhecida";
     }
 }
@@ -477,6 +508,16 @@ static int fpga_init(void) {
     g_pio_adc_contador  = (volatile uint32_t *)((char *)g_lw_virt + ADC_CONTADOR_BASE);
 #endif
 
+#if MORPHE_TEM_SOMA
+    /* memorias: janela da ponte h2f (FPGA_ONCHIP_BASE) + offset do hps_0.h;
+     * PIOs: janela da ponte lightweight (LW_BRIDGE_BASE) + offset */
+    g_soma_a         = (int32_t *)((char *)g_fpga_virt + SOMA_A_BASE);
+    g_soma_b         = (int32_t *)((char *)g_fpga_virt + SOMA_B_BASE);
+    g_soma_y         = (int32_t *)((char *)g_fpga_virt + SOMA_Y_BASE);
+    g_pio_soma_start = (volatile uint32_t *)((char *)g_lw_virt + SOMA_START_BASE);
+    g_pio_soma_done  = (volatile uint32_t *)((char *)g_lw_virt + SOMA_DONE_BASE);
+#endif
+
     /* Nenhum acesso a FPGA aqui. Ate 21/09/2026 este ponto zerava os quatro
      * PIOs de start, e foi isso que derrubou a placa 2 no boot: com o
      * autostart, o servidor sobe 6 s depois do kernel, quando a FPGA ainda
@@ -503,6 +544,9 @@ static int fpga_preparada(void) {
 #if MORPHE_TEM_ADC
         /* so se o bitstream carregado tem o ADC: o PIO pode nao existir */
         if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_adc_start = 0;
+#endif
+#if MORPHE_TEM_SOMA
+        if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_soma_start = 0;
 #endif
         g_pios_zerados = 1;
         LOG("marca %s presente: FPGA preparada, PIOs de start zerados", MORPHE_MARCA_FPGA);
@@ -1486,6 +1530,95 @@ static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
     return 0;
 }
 
+/* SOMA: y = a + b no soma.v. Payload: a (n_x palavras) e depois b (n_h
+ * palavras), int32 Q15.16 -- o mesmo layout da CONV e do FIR, entao o
+ * molde e o handle_fir. O hardware processa sempre MORPHE_SOMA_N_MAX
+ * amostras: o que o cliente nao mandou vai como zero. */
+#if !MORPHE_TEM_SOMA
+static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
+    (void) dtype; (void) n_a; (void) n_b;
+    LOG("SOMA request recusado: servidor compilado sem a soma");
+    return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_OPCODE,
+                      "SOMA: este servidor foi compilado sem a soma (o hps_0.h nao tem "
+                      "soma_a: gere o soc_system e rode gen_hps_header.py)");
+}
+#else
+static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
+    LOG("SOMA request: dtype=%u, n_a=%u, n_b=%u", dtype, n_a, n_b);
+
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_SOMA, "SOMA");
+
+    /* Sem esta conferencia, um servidor novo numa placa com o bitstream
+     * antigo escreveria em 0x40000, onde nao ha memoria -- e acesso a
+     * endereco sem escravo trava o barramento do HPS. */
+    uint32_t ts = g_sysid[1];
+    if (ts != SYSID_QSYS_TIMESTAMP) {
+        char msg[192];
+        snprintf(msg, sizeof msg,
+                 "SOMA: o bitstream na FPGA (sysid %u) nao e o deste servidor (%u) -- "
+                 "rode ./morphe-up.sh com o .sof que tem a soma", ts, SYSID_QSYS_TIMESTAMP);
+        LOG("  -> %s", msg);
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
+    }
+
+    if (n_a == 0 || n_a > MORPHE_SOMA_N_MAX || n_b != n_a) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "SOMA: a e b com o mesmo tamanho, de 1 a %d",
+                 MORPHE_SOMA_N_MAX);
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_SIZE, msg);
+    }
+    uint32_t n = n_a;
+
+    /* 1. recebe a e b */
+    size_t payload_bytes = (size_t) 2 * n * 4;
+    static uint8_t rx_buf[RX_BUF_MAX];
+    if (payload_bytes > sizeof rx_buf)
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_SIZE, "SOMA: payload excedido");
+    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+
+    static int32_t a_buf[MORPHE_SOMA_N_MAX];
+    static int32_t b_buf[MORPHE_SOMA_N_MAX];
+    decode_samples_to_i32(rx_buf,         n, dtype, a_buf);
+    decode_samples_to_i32(rx_buf + n * 4, n, dtype, b_buf);
+
+    /* 2. escreve nas memorias da FPGA (porta s2), completando com zeros */
+    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++) g_soma_a[i] = (i < n) ? a_buf[i] : 0;
+    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++) g_soma_b[i] = (i < n) ? b_buf[i] : 0;
+
+    /* 3. dispara (borda de subida no start) e espera o done */
+    *g_pio_soma_start = 0;
+    usleep(1);
+    *g_pio_soma_start = 1;
+    if (wait_done(g_pio_soma_done, FPGA_DONE_TIMEOUT_MS) < 0) {
+        *g_pio_soma_start = 0;
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_FPGA_TIMEOUT, "SOMA: timeout");
+    }
+    *g_pio_soma_start = 0;      /* com start em 0, o soma.v volta ao repouso */
+
+    /* 4. le a saida */
+    static int32_t y_buf[MORPHE_SOMA_N_MAX];
+    for (uint32_t i = 0; i < n; i++) y_buf[i] = g_soma_y[i];
+
+    /* o mesmo .mrph de depuracao da CONV: a no lugar de x, b no de h */
+    save_debug_bundle_conv("soma", dtype, n, a_buf, n, b_buf, n, y_buf);
+
+    /* 5. responde */
+    static uint8_t tx_buf[TX_BUF_MAX];
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_SOMA, dtype, MORPHE_STATUS_OK, n);
+    if (dtype == MORPHE_DTYPE_INT32) {
+        for (uint32_t i = 0; i < n; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
+    } else {
+        for (uint32_t i = 0; i < n; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
+    }
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n * 4) < 0) return -1;
+
+    LOG("  -> SOMA OK: n=%u", n);
+    return 0;
+}
+#endif
+
 static int handle_ping(int sock) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1495,9 +1628,12 @@ static int handle_ping(int sock) {
      * sem ele, FPGA ainda sem o bitstream do Morphe, ou bitstream sem o ADC
      * (sysid diferente do hps_0.h). Ler o sysid e seguro depois da marca. */
     int preparada = fpga_preparada();
-    int adc_ok = 0;
+    int adc_ok = 0, soma_ok = 0;
 #if MORPHE_TEM_ADC
     adc_ok = preparada && g_sysid[1] == SYSID_QSYS_TIMESTAMP;
+#endif
+#if MORPHE_TEM_SOMA
+    soma_ok = adc_ok;          /* o mesmo bitstream, o mesmo sysid */
 #endif
 
     char body[512];
@@ -1505,12 +1641,13 @@ static int handle_ping(int sock) {
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
         "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
         "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
-        "adc_fs_min=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
+        "adc_fs_min=%d\nsoma_n_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
         MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
         MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
         adc_ok ? MORPHE_ADC_N_MAX : 0,
         MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
+        soma_ok ? MORPHE_SOMA_N_MAX : 0,
         uptime_s, preparada);
 
     uint8_t hdr[MORPHE_HEADER_SIZE];
@@ -1555,6 +1692,7 @@ static void serve_connection(int sock, const struct sockaddr_in *peer) {
         case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_ADC:  handle_adc(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC_CONTINUO: handle_adc_continuo(sock, dtype, n_x, n_h, flags); break;
+        case MORPHE_OP_SOMA: handle_soma(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");

@@ -26,6 +26,7 @@ from ifft_window import IFFTWindow
 from fir_window import FIRWindow
 from iir_window import IIRWindow
 from comparator_window import ComparatorWindow
+from soma_window import SomaWindow
 from tcp_panel import TcpConfigPanel
 
 # Créditos do rodapé, uma linha cada: (texto, perfil do LinkedIn ou ""). O
@@ -115,6 +116,7 @@ class MorpheMainWindow(tk.Tk):
             # ("Espectrograma  (sinal longo → FFTs na FPGA)", self._open_espectrograma),
             ("Filtro FIR  (FPGA)",             self._open_fir),
             ("Filtro IIR  (FPGA)",             self._open_iir),
+            ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
         ]
         for label, cmd in primary_actions:
             ttk.Button(
@@ -243,6 +245,9 @@ class MorpheMainWindow(tk.Tk):
 
     def _open_iir(self):
         IIRWindow(self)
+
+    def _open_soma(self):
+        SomaWindow(self)
 
     def _open_comparator(self):
         ComparatorWindow(self)

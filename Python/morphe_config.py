@@ -57,6 +57,11 @@ IIR_COEF_POR_SECAO: int = 5
 # Amostras e coeficientes em Q15.16, o mesmo da conv1d.
 IIR_FRAC_BITS: int = 16
 
+# ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ---------------
+# O bloco processa SEMPRE SOMA_N_MAX amostras; o servidor completa com zeros.
+# Espelho do MORPHE_SOMA_N_MAX do morphe_config.h.
+SOMA_N_MAX: int = 1024
+
 # ---- ADC (LTC2308, captura a fs fixa pelo adc_captura.v) ------------------
 # Amostras por captura: a RAM adc_buf tem 2^15 palavras.
 ADC_N_MAX: int = 32768

@@ -64,6 +64,7 @@ OP_IFFT = 5   # transformada inversa: mesmo IP da FFT, bit inverse=1
 OP_IIR  = 6   # cascata de biquads Q15.16 (iir_cascade.v); n_h = no. de secoes
 OP_ADC  = 7   # captura do LTC2308 (adc_captura.v); n_h = divisor, flags = config
 OP_ADC_CONTINUO = 8   # a mesma, sem limite de tamanho: resposta em blocos
+OP_SOMA = 9   # y = a + b (soma.v), modulo de exemplo do roteiro
 
 # Estado de cada bloco da resposta do OP_ADC_CONTINUO (ver morphe_protocol.h).
 ADC_BLOCO_SEGUE = 0
@@ -339,6 +340,21 @@ RESP_HEADER_SIZE = 20
 
 # ---- cliente TCP ----------------------------------------------------------
 
+def build_soma_request(a_q: np.ndarray, b_q: np.ndarray,
+                       dtype_code: int = DTYPE_INT32) -> bytes:
+    """Pedido da SOMA: o mesmo layout da CONV -- cabecalho com n_x = len(a)
+    e n_h = len(b), depois as amostras de a e as de b. a e b ja em Q15.16
+    (inteiros) e com o mesmo tamanho, de 1 a SOMA_N_MAX."""
+    if len(a_q) != len(b_q):
+        raise ValueError(f"a e b precisam do mesmo tamanho ({len(a_q)} != {len(b_q)})")
+    hdr = struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_SOMA, dtype_code, 0,
+        len(a_q), len(b_q),
+    )
+    return hdr + pack_samples(a_q, dtype_code) + pack_samples(b_q, dtype_code)
+
+
 class TcpClient:
     """Cliente simples: abre conexão, envia request, lê response e fecha."""
 
@@ -416,6 +432,16 @@ def decode_fir_response(resp: Response) -> np.ndarray:
     be = _np_dtype_be(resp.dtype_code)
     arr = np.frombuffer(resp.payload, dtype=be, count=resp.n_out)
     return arr.astype(np.float64)
+
+
+def decode_soma_response(resp: Response) -> np.ndarray:
+    """y = a + b em Q15.16 (inteiros), como a placa devolveu."""
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_SOMA:
+        raise ValueError(f"esperado opcode SOMA, veio {resp.opcode}")
+    be = _np_dtype_be(resp.dtype_code)
+    return np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
 
 
 def decode_iir_response(resp: Response) -> tuple[np.ndarray, bool]:
