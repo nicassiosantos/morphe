@@ -8,8 +8,8 @@ Cada quadro é um ciclo completo na placa:
   2. no PC: tira o nível DC (se pedido) e aplica a janela;
   3. a FPGA calcula a FFT (OP_FFT, 1024 pontos; N maior vira a FFT longa em
      quatro passos, N/1024 FFTs na placa);
-  4. a tela mostra o quadro no tempo e o espectro em dBV de pico, com o pico
-     marcado.
+  4. a tela mostra o quadro no tempo e o espectro completo (os N bins, de 0
+     a fs) em volts de pico, escala linear, com o pico marcado.
 Ao lado, o NumPy calcula a mesma FFT do mesmo x[n] janelado, e a tela mostra
 quanto as duas concordam: é a prova, a cada quadro, de que o espectro saiu
 mesmo da FPGA e com que precisão.
@@ -59,9 +59,9 @@ MEDIAS = {MEDIA_NENHUMA: 1, "Média de 4 quadros": 4, "Média de 16 quadros": 16
 
 # A tela confere se há quadro novo a cada TELA_MS.
 TELA_MS = 50
-# Eixo vertical do espectro, em dBV de pico. O ADC tem 1 mV por código; o
-# piso de ruído de um quadro de 1024 com janela fica em torno de -100 dBV.
-DB_MIN, DB_MAX = -120.0, 10.0
+# Eixo vertical do espectro: volts de pico, linear, de 0 até um pouco acima
+# do maior bin do quadro (no mínimo AMP_MIN, para o ruído não encher a tela).
+AMP_MIN = 0.01
 # Bins em volta de f = 0 que não contam na busca do pico (o que sobra do DC).
 BINS_DC = 3
 
@@ -83,8 +83,9 @@ def processar_quadro(volts: np.ndarray, fs: float, nome_janela: str,
     """Um quadro, da captura ao espectro. `fft` é quem calcula a FFT de
     len(volts) pontos (a da placa, na janela; a do NumPy, nos testes).
 
-    Devolve o x enviado à FFT, o X[k] que voltou, o espectro em dBV de pico
-    (meio espectro, f de 0 a fs/2), o pico, e a concordância com o NumPy.
+    Devolve o x enviado à FFT, o X[k] que voltou, o espectro completo em
+    volts de pico (os N bins, f de 0 a fs), o pico, e a concordância com o
+    NumPy.
     """
     x = np.asarray(volts, dtype=np.float64)
     n = x.size
@@ -95,13 +96,17 @@ def processar_quadro(volts: np.ndarray, fs: float, nome_janela: str,
     X = np.asarray(fft(x_env))
     t_fft = time.monotonic() - t0
 
-    # amplitude de pico de uma senoide: |X[k]| / (soma da janela / 2)
+    # amplitude de pico de uma senoide: |X[k]| / (soma da janela / 2). O tom
+    # aparece duas vezes, em f e em fs - f, e as duas linhas leem a mesma
+    # amplitude. O DC (k = 0) aparece uma vez só: ali o ganho é a soma inteira.
     ganho = np.sum(w) / 2.0
-    meio = X[: n // 2 + 1]
-    amp = np.abs(meio) / ganho
-    db = 20.0 * np.log10(np.maximum(amp, 1e-12))
-    f = np.arange(meio.size) * fs / n
+    amp = np.abs(X) / ganho
+    amp[0] /= 2.0
+    f = np.arange(n) * fs / n
 
+    # o pico se procura na metade de baixo (a de cima é o espelho); a
+    # frequência sai da parábola em dB, que se ajusta bem ao lóbulo da janela
+    db = 20.0 * np.log10(np.maximum(amp[: n // 2 + 1], 1e-12))
     busca = db.copy()
     busca[:BINS_DC] = -np.inf
     k = int(np.argmax(busca))
@@ -120,8 +125,8 @@ def processar_quadro(volts: np.ndarray, fs: float, nome_janela: str,
     erro = float(np.linalg.norm(X - ref))
     snr = (float("inf") if erro == 0.0
            else 20.0 * np.log10(float(np.linalg.norm(ref)) / erro))
-    return {"x": x, "x_env": x_env, "X": X, "f": f, "amp": amp, "db": db,
-            "k_pico": k, "f_pico": float(f_pico), "db_pico": float(db[k]),
+    return {"x": x, "x_env": x_env, "X": X, "f": f, "amp": amp,
+            "k_pico": k, "f_pico": float(f_pico), "amp_pico": float(amp[k]),
             "dc": dc, "t_fft": t_fft, "snr_numpy": snr, "fs": fs, "n": n}
 
 
@@ -265,9 +270,10 @@ class AnalisadorWindow(tk.Toplevel):
         fs_real = aq.fs_de(aq.divisor_para(fs))
         n = PONTOS[self.var_pontos.get()]
         self.var_info.set(
-            f"fs real {fs_real:.3f} Hz · de 0 a {fs_real / 2:g} Hz\n"
+            f"fs real {fs_real:.3f} Hz · espectro de 0 a {fs_real:g} Hz\n"
             f"resolução {fs_real / n:.3g} Hz · quadro de {1e3 * n / fs_real:.4g} ms\n"
-            "Sem filtro antialiasing: acima de fs/2 volta como alias.")
+            "Acima de fs/2 é o espelho da metade de baixo. Sem filtro\n"
+            "antialiasing: sinal acima de fs/2 na entrada volta como alias.")
         self._zera_media()
 
     def _zera_media(self):
@@ -368,10 +374,14 @@ class AnalisadorWindow(tk.Toplevel):
         (self._p_f,) = ax.plot([], [], "v", color=dsp.COLOR_PHASE, markersize=7)
         self._txt_pico = ax.text(0.99, 0.95, "", transform=ax.transAxes, ha="right",
                                  va="top", fontsize=9, color=theme.COLORS["text"])
-        ax.set_xlim(0, fs / 2 * self._esc_f)
-        ax.set_ylim(DB_MIN, DB_MAX)
+        ax.axvline(fs / 2 * self._esc_f, color=theme.COLORS["axis"], linewidth=0.8,
+                   linestyle=":")
+        ax.text(fs / 2 * self._esc_f, 0.98, " fs/2", transform=ax.get_xaxis_transform(),
+                ha="left", va="top", fontsize=8, color=theme.COLORS["text"])
+        ax.set_xlim(0, fs * self._esc_f)
+        ax.set_ylim(0, AMP_MIN)
         ax.set_xlabel(f"f ({self._un_f})")
-        ax.set_ylabel("dBV de pico")
+        ax.set_ylabel("amplitude (V de pico)")
         theme.style_plot_axes(ax)
         # títulos provisórios antes do tight_layout: ele reserva o espaço deles,
         # e os títulos de verdade (a cada quadro) cabem sem encostar na borda
@@ -413,15 +423,15 @@ class AnalisadorWindow(tk.Toplevel):
         fs, n = q["fs"], q["n"]
         self._l_t.set_data(np.arange(n) / fs * self._esc_t, q["x"])
         amp = self._acumula(q)
-        db = 20.0 * np.log10(np.maximum(amp, 1e-12))
-        self._l_f.set_data(q["f"] * self._esc_f, db)
-        busca = db.copy()
+        self._l_f.set_data(q["f"] * self._esc_f, amp)
+        topo = max(1.15 * float(np.max(amp)), AMP_MIN)
+        self.ax_f.set_ylim(0, topo)
+        busca = amp[: n // 2 + 1].copy()
         busca[:BINS_DC] = -np.inf
         k = int(np.argmax(busca))
         f_pico = q["f_pico"] if k == q["k_pico"] else q["f"][k]
-        self._p_f.set_data([f_pico * self._esc_f], [db[k] + 3])
-        self._txt_pico.set_text(f"pico: {f_pico:.2f} Hz, {db[k]:.1f} dBV "
-                                f"({amp[k] * 1e3:.1f} mV de pico)")
+        self._p_f.set_data([f_pico * self._esc_f], [amp[k] + 0.04 * topo])
+        self._txt_pico.set_text(f"pico: {f_pico:.2f} Hz, {amp[k] * 1e3:.1f} mV de pico")
         passos = n // dsp.MAX_FFT_INPUT_SIZE
         fft_txt = ("1 FFT de 1024 na FPGA" if passos == 1
                    else f"{passos} FFTs de 1024 na FPGA (quatro passos)")
@@ -437,7 +447,7 @@ class AnalisadorWindow(tk.Toplevel):
         snr_txt = "idênticas" if not np.isfinite(snr) else f"{snr:.1f} dB"
         self.var_medidas.set("\n".join([
             f"pico:         {f_pico:.2f} Hz",
-            f"amplitude:    {amp[k] * 1e3:.2f} mV ({db[k]:.1f} dBV)",
+            f"amplitude:    {amp[k] * 1e3:.2f} mV de pico",
             f"nível DC:     {q['dc']:.4f} V",
             f"captura ADC:  {q['t_cap'] * 1e3:.0f} ms",
             f"FFT na FPGA:  {q['t_fft'] * 1e3:.0f} ms",
