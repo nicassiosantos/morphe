@@ -8,6 +8,7 @@ Quartus/db/
 Quartus/incremental_db/
 Quartus/.qsys_edit/
 Quartus/*.qws
+Quartus/c5_pin_model_dump.txt
 Quartus/output_files/*
 !Quartus/output_files/soc_system_time_limited.sof
 !Quartus/output_files/soc_system_time_limited.cdf
