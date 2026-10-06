@@ -764,17 +764,22 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
         case MORPHE_OP_SOMA: handle_soma(sock, dtype, n_x, n_h); break;
 
 ========================================================================
-[51] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[51] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
-git checkout origin/estagio/modulo-soma -- Python/morphe_protocol.py Python/morphe_config.py
+./morphe-up.sh --cable 'CABO' --deploy
 
 ========================================================================
 [52] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
-git checkout origin/estagio/modulo-soma -- Python/soma_window.py Python/morphe_app.py
+git checkout origin/estagio/modulo-soma -- Python/morphe_protocol.py Python/morphe_config.py
 
 ========================================================================
 [53] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+git checkout origin/estagio/modulo-soma -- Python/soma_window.py Python/morphe_app.py
+
+========================================================================
+[54] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 # ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ---------------
 # O bloco processa SEMPRE SOMA_N_MAX amostras; o servidor completa com zeros.
@@ -782,12 +787,12 @@ git checkout origin/estagio/modulo-soma -- Python/soma_window.py Python/morphe_a
 SOMA_N_MAX: int = 1024
 
 ========================================================================
-[54] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[55] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 OP_SOMA = 9   # y = a + b (soma.v), modulo de exemplo do roteiro
 
 ========================================================================
-[55] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[56] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 def build_soma_request(a_q: np.ndarray, b_q: np.ndarray,
                        dtype_code: int = DTYPE_INT32) -> bytes:
@@ -804,7 +809,7 @@ def build_soma_request(a_q: np.ndarray, b_q: np.ndarray,
     return hdr + pack_samples(a_q, dtype_code) + pack_samples(b_q, dtype_code)
 
 ========================================================================
-[56] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[57] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 def decode_soma_response(resp: Response) -> np.ndarray:
     """y = a + b em Q15.16 (inteiros), como a placa devolveu."""
@@ -816,23 +821,23 @@ def decode_soma_response(resp: Response) -> np.ndarray:
     return np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
 
 ========================================================================
-[57] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[58] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 from soma_window import SomaWindow
 
 ========================================================================
-[58] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[59] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
             ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
 
 ========================================================================
-[59] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[60] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
     def _open_soma(self):
         SomaWindow(self)
 
 ========================================================================
-[60] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[61] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 """
 soma_window.py -- janela da SOMA: y[n] = a[n] + b[n] calculada na FPGA.
@@ -1004,21 +1009,21 @@ class SomaWindow(tk.Toplevel):
         messagebox.showerror("Erro na soma", str(err))
 
 ========================================================================
-[61] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[62] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 python3 Python/morphe_app.py
 
 ========================================================================
-[62] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[63] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 ./morphe-up.sh --down
 
 ========================================================================
-[63] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[64] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 cd /opt/morphe
 
 ========================================================================
-[64] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[65] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 ./morphe-up.sh --cable 'CABO'

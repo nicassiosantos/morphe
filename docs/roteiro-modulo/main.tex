@@ -1754,10 +1754,39 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
 \begin{cuidado}
 A conferência do \emph{bitstream} (\emph{sysid}) no topo do fluxograma não é
 enfeite: se a placa estiver com um \arq{.sof} sem a soma, escrever em
-\texttt{0x40000} trava a placa, como o \texttt{devmem} da A6. O servidor
-não precisa ser compilado à mão: o \texttt{-{}-deploy} do \arq{morphe-up.sh}
-envia e recompila.
+\texttt{0x40000} trava a placa, como o \texttt{devmem} da A6.
 \end{cuidado}
+
+\begin{faca}
+\textbf{Mande o servidor novo para a placa.} Até aqui você só mudou os
+arquivos no seu clone; a placa continua rodando o servidor antigo, que
+\textbf{não conhece} o opcode 9. Na estação, de dentro de
+\arq{~/meu-modulo}, com o mesmo \texttt{CABO} da A5:
+\begin{lstlisting}[style=sh]
+./morphe-up.sh --cable 'CABO' --deploy
+\end{lstlisting}
+\end{faca}
+
+\begin{porque}
+O \texttt{-{}-deploy} copia os arquivos de \arq{C/} para a pasta
+\arq{~/morphe} da placa, compila o servidor \textbf{lá}, no ARM
+(\texttt{make -B morphe\_server}), e o reinicia. Não precisa compilar nada
+à mão. Toda vez que mudar um arquivo de \arq{C/}, rode-o de novo; se não
+mudou nada, ele percebe (compara a impressão digital dos arquivos) e só
+confere a placa.
+\end{porque}
+
+\begin{confira}
+\begin{itemize}
+  \item o \arq{morphe-up.sh} termina com os testes \texttt{4/4};
+  \item na placa (\texttt{ssh root@}\emph{IP da placa}),
+    \texttt{grep -c MORPHE\_OP\_SOMA \textasciitilde/morphe/morphe\_server.c}
+    dá um número maior que zero (0 = a placa ainda tem as fontes antigas).
+\end{itemize}
+Se, no fim da B6, o aplicativo disser \emph{opcode desconhecido}, é este
+passo que faltou --- ou o aplicativo está ligado na \textbf{outra} placa:
+veja o IP em ``Placas do laboratório'' e clique em \menu{Usar} na sua.
+\end{confira}
 
 \etapa{B6}{O aplicativo, e o teste final}
 
@@ -2135,6 +2164,7 @@ faixa amarela \emph{IP upgrade recommended}, ou \emph{Used \ldots\ 23.1 (instead
 o Quartus não acha o módulo & \arq{.v} fora de \arq{Quartus/} ou fora da lista do projeto \\ \addlinespace
 \texttt{devmem} lê sempre 0 & o \texttt{external\_connection} não foi exportado, ou o fio não chega ao módulo no \arq{ghrd_top.v} \\ \addlinespace
 a placa some da rede & acesso a endereço sem componente: \texttt{devmem} antes de gravar, ou \arq{hps_0.h} diferente do \arq{.sof} \\ \addlinespace
+o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: faltou o \texttt{-{}-deploy} do fim da B5, ou o aplicativo está ligado na outra placa (veja ``Placas do laboratório'') \\ \addlinespace
 operações antigas param de funcionar & usou \emph{Assign Base Addresses}: os endereços mudaram \\ \addlinespace
 \texttt{\_Static\_assert} falha ao compilar o servidor & faltou o \texttt{FPGA\_ONCHIP\_SPAN} \\ \addlinespace
 a placa para depois de cerca de uma hora & sem a licença ativa; use o \arq{morphe-up.sh}, sem \texttt{sudo} \\ \addlinespace
