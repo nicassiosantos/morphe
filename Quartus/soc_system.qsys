@@ -625,6 +625,54 @@
          type = "String";
       }
    }
+   element soma_teste_a
+   {
+      datum _sortIndex
+      {
+         value = "59";
+         type = "int";
+      }
+   }
+   element soma_teste_a.s1
+   {
+      datum baseAddress
+      {
+         value = "336";
+         type = "String";
+      }
+   }
+   element soma_teste_b
+   {
+      datum _sortIndex
+      {
+         value = "60";
+         type = "int";
+      }
+   }
+   element soma_teste_b.s1
+   {
+      datum baseAddress
+      {
+         value = "352";
+         type = "String";
+      }
+   }
+   element soma_teste_y
+   {
+      datum _sortIndex
+      {
+         value = "61";
+         type = "int";
+      }
+   }
+   element soma_teste_y.s1
+   {
+      datum baseAddress
+      {
+         value = "368";
+         type = "String";
+      }
+   }
    element fpga_only_master
    {
       datum _sortIndex
@@ -912,6 +960,21 @@
  <interface
    name="soma_done"
    internal="soma_done.external_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="soma_teste_a"
+   internal="soma_teste_a.external_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="soma_teste_b"
+   internal="soma_teste_b.external_connection"
+   type="conduit"
+   dir="end" />
+ <interface
+   name="soma_teste_y"
+   internal="soma_teste_y.external_connection"
    type="conduit"
    dir="end" />
  <module name="clk_0" kind="clock_source" version="20.1" enabled="1">
@@ -2406,6 +2469,48 @@
   <parameter name="simDrivenValue" value="0" />
   <parameter name="width" value="1" />
  </module>
+ <module name="soma_teste_a" kind="altera_avalon_pio" version="20.1" enabled="1">
+  <parameter name="bitClearingEdgeCapReg" value="false" />
+  <parameter name="bitModifyingOutReg" value="false" />
+  <parameter name="captureEdge" value="false" />
+  <parameter name="clockRate" value="50000000" />
+  <parameter name="direction" value="Output" />
+  <parameter name="edgeType" value="RISING" />
+  <parameter name="generateIRQ" value="false" />
+  <parameter name="irqType" value="LEVEL" />
+  <parameter name="resetValue" value="0" />
+  <parameter name="simDoTestBenchWiring" value="false" />
+  <parameter name="simDrivenValue" value="0" />
+  <parameter name="width" value="32" />
+ </module>
+ <module name="soma_teste_b" kind="altera_avalon_pio" version="20.1" enabled="1">
+  <parameter name="bitClearingEdgeCapReg" value="false" />
+  <parameter name="bitModifyingOutReg" value="false" />
+  <parameter name="captureEdge" value="false" />
+  <parameter name="clockRate" value="50000000" />
+  <parameter name="direction" value="Output" />
+  <parameter name="edgeType" value="RISING" />
+  <parameter name="generateIRQ" value="false" />
+  <parameter name="irqType" value="LEVEL" />
+  <parameter name="resetValue" value="0" />
+  <parameter name="simDoTestBenchWiring" value="false" />
+  <parameter name="simDrivenValue" value="0" />
+  <parameter name="width" value="32" />
+ </module>
+ <module name="soma_teste_y" kind="altera_avalon_pio" version="20.1" enabled="1">
+  <parameter name="bitClearingEdgeCapReg" value="false" />
+  <parameter name="bitModifyingOutReg" value="false" />
+  <parameter name="captureEdge" value="false" />
+  <parameter name="clockRate" value="50000000" />
+  <parameter name="direction" value="Input" />
+  <parameter name="edgeType" value="RISING" />
+  <parameter name="generateIRQ" value="false" />
+  <parameter name="irqType" value="LEVEL" />
+  <parameter name="resetValue" value="0" />
+  <parameter name="simDoTestBenchWiring" value="false" />
+  <parameter name="simDrivenValue" value="0" />
+  <parameter name="width" value="32" />
+ </module>
  <connection
    kind="avalon"
    version="20.1"
@@ -3243,6 +3348,51 @@
    version="20.1"
    start="clk_0.clk_reset"
    end="soma_done.reset" />
+ <connection
+   kind="avalon"
+   version="20.1"
+   start="hps_0.h2f_lw_axi_master"
+   end="soma_teste_a.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0150" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection kind="clock" version="20.1" start="clk_0.clk" end="soma_teste_a.clk" />
+ <connection
+   kind="reset"
+   version="20.1"
+   start="clk_0.clk_reset"
+   end="soma_teste_a.reset" />
+ <connection
+   kind="avalon"
+   version="20.1"
+   start="hps_0.h2f_lw_axi_master"
+   end="soma_teste_b.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0160" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection kind="clock" version="20.1" start="clk_0.clk" end="soma_teste_b.clk" />
+ <connection
+   kind="reset"
+   version="20.1"
+   start="clk_0.clk_reset"
+   end="soma_teste_b.reset" />
+ <connection
+   kind="avalon"
+   version="20.1"
+   start="hps_0.h2f_lw_axi_master"
+   end="soma_teste_y.s1">
+  <parameter name="arbitrationPriority" value="1" />
+  <parameter name="baseAddress" value="0x0170" />
+  <parameter name="defaultConnection" value="false" />
+ </connection>
+ <connection kind="clock" version="20.1" start="clk_0.clk" end="soma_teste_y.clk" />
+ <connection
+   kind="reset"
+   version="20.1"
+   start="clk_0.clk_reset"
+   end="soma_teste_y.reset" />
  <interconnectRequirement for="$system" name="qsys_mm.clockCrossingAdapter" value="HANDSHAKE" />
  <interconnectRequirement for="$system" name="qsys_mm.maxAdditionalLatency" value="1" />
 </system>

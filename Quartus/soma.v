@@ -18,10 +18,8 @@
 //      zeros o que o cliente nao mandou) e entao poe done = 1;
 //   3. o HPS le a saida e poe start = 0; com start em 0, done volta a 0.
 //
-// Formato: Q15.16 com sinal, como todo o Morphe. Somar dois numeros Q15.16
-// da outro Q15.16 -- a virgula nao muda --, mas a soma pode passar de 32 bits.
-// Em vez de deixar dar a volta (um positivo grande virar negativo), satura:
-// a conta e feita em 33 bits e o resultado e limitado a faixa de 32.
+// A conta (Q15.16, com saturacao) fica no soma_core.v; este modulo so le a[n]
+// e b[n] das memorias, passa pelo nucleo e grava y[n].
 //
 // Leitura e escrita das memorias: os mesmos memory_read_controller e
 // memory_write_controller que o conv1d e o iir_cascade usam. Cada leitura
@@ -92,17 +90,14 @@ module soma #(
     reg  [DATA_WIDTH-1:0]   wr_data;
     wire                    wr_done;
 
-    // --- a conta: 33 bits, depois satura em 32 ---
-    localparam signed [DATA_WIDTH:0] MAXV = {2'b00, {(DATA_WIDTH-1){1'b1}}};  //  2^31 - 1
-    localparam signed [DATA_WIDTH:0] MINV = {2'b11, {(DATA_WIDTH-1){1'b0}}};  // -2^31
+    // --- a conta: o mesmo nucleo testado sozinho na Parte A do roteiro ---
+    wire [DATA_WIDTH-1:0] soma_sat;
 
-    wire signed [DATA_WIDTH:0] soma_larga =
-        $signed({a_data[DATA_WIDTH-1], a_data}) + $signed({b_data[DATA_WIDTH-1], b_data});
-
-    wire [DATA_WIDTH-1:0] soma_sat =
-        (soma_larga > MAXV) ? MAXV[DATA_WIDTH-1:0] :
-        (soma_larga < MINV) ? MINV[DATA_WIDTH-1:0] :
-                              soma_larga[DATA_WIDTH-1:0];
+    soma_core #(.DATA_WIDTH(DATA_WIDTH)) u_conta (
+        .a (a_data),
+        .b (b_data),
+        .y (soma_sat)
+    );
 
     always @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin

@@ -459,6 +459,12 @@ wire [SOMA_DATA_WIDTH-1:0]        soma_y_readdata;
 wire [SOMA_DATA_WIDTH-1:0]        soma_y_writedata;
 wire [3:0]                        soma_y_byteenable = 4'b1111;
 
+// --- teste isolado do nucleo (roteiro, Parte A): tres PIOs de 32 bits ---
+// o HPS escreve a e b e le y; o soma_core_teste fica entre eles
+wire [31:0]                       soma_teste_a;    // HPS -> FPGA
+wire [31:0]                       soma_teste_b;    // HPS -> FPGA
+wire [31:0]                       soma_teste_y;    // FPGA -> HPS
+
 
 /* -------------------------------------------------------------------------------------------
  * 4. FIR WRAPPER PERIPHERAL SIGNALS
@@ -858,6 +864,20 @@ soma #(
 );
 
 // ===========================================================================================
+// INSTANTIATION: soma_core sozinho, para o teste pela serial (roteiro, Parte A)
+// ===========================================================================================
+// Os PIOs soma_teste_a/b entram direto no nucleo, e a saida vai para o PIO
+// soma_teste_y. Sem memorias e sem start/done: o HPS escreve a e b e ja pode
+// ler y. Fica no projeto final como ponto de depuracao da conta.
+soma_core #(
+    .DATA_WIDTH (32)
+) soma_core_teste (
+    .a (soma_teste_a),
+    .b (soma_teste_b),
+    .y (soma_teste_y)
+);
+
+// ===========================================================================================
 // INSTANTIATION: FIR Filter (using conv1d hardware accelerator)
 // ===========================================================================================
 conv1d #(
@@ -1081,6 +1101,10 @@ soc_system u0 (
     // ======================================================
     .soma_start_export       (soma_start),
     .soma_done_export        (soma_done),
+
+    .soma_teste_a_export     (soma_teste_a),
+    .soma_teste_b_export     (soma_teste_b),
+    .soma_teste_y_export     (soma_teste_y),
 
     .soma_a_address          (soma_a_address),
     .soma_a_clken            (soma_a_clken),
