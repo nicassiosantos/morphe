@@ -55,7 +55,7 @@
 % --- caixas ---
 \newtcolorbox{porque}{colback=fpga!4,colframe=fpga!70!black,boxrule=0.4pt,arc=2pt,
   title=O que é e por quê,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
-\newtcolorbox{faca}{colback=white,colframe=black!60,boxrule=0.4pt,arc=2pt,
+\newtcolorbox{faca}{breakable,colback=white,colframe=black!60,boxrule=0.4pt,arc=2pt,
   title=Faça,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
 \newtcolorbox{confira}{colback=green!5,colframe=green!45!black,boxrule=0.4pt,arc=2pt,
   title=Confira,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
@@ -1297,28 +1297,138 @@ Igual à A4, com mais fios: cada memória exportada vira 7 portas em
 \end{center}
 
 \begin{faca}
+No \arq{ghrd_top.v}, quatro acréscimos, todos \textbf{além} dos da A4 (não
+apague os \texttt{soma\_teste}: eles continuam servindo para depurar a
+conta). Use Ctrl+F para achar os lugares.
 \begin{enumerate}
-  \item No \arq{ghrd_top.v}, quatro acréscimos (o gabarito tem todos; veja
-    com \texttt{git diff} da página~\pageref{pag:gabarito}): os
-    \texttt{localparam} \texttt{SOMA\_\ldots}; os \texttt{wire}; as portas
-    novas em \texttt{u0}; a instância \texttt{soma\_inst}.
-  \item Compilar, \texttt{python3 gen\_hps\_header.py} e
-    \texttt{./morphe-up.sh -{}-cable 'CABO' -{}-deploy}, como na A5 (o
-    mesmo cabo de lá; se mudou de porta, \texttt{jtagconfig} de novo).
+  \item \textbf{os parâmetros}: junto dos outros \texttt{localparam}, logo
+    depois da linha que tem \texttt{localparam ADC\_DIV\_MIN}:
+\begin{lstlisting}[language=Verilog]
+// --- SOMA (modulo de exemplo do roteiro: y[n] = a[n] + b[n], soma.v) ---
+localparam SOMA_DATA_WIDTH = 32;
+localparam SOMA_ADDR_WIDTH = 10;        // 1024 amostras
+localparam SOMA_N_SAMPLES  = 1024;
+\end{lstlisting}
+  \item \textbf{os fios}: logo depois dos três \texttt{wire} \texttt{soma\_teste}
+    da A4:
+\begin{lstlisting}[language=Verilog]
+// --- Controle (PIOs) ---
+wire                              soma_start;      // HPS -> FPGA
+wire                              soma_done;       // FPGA -> HPS
+
+// --- SRAM a[n]: o HPS escreve, o soma.v le ---
+wire [SOMA_ADDR_WIDTH-1:0]        soma_a_address;
+wire                              soma_a_clken;
+wire                              soma_a_chipselect;
+wire                              soma_a_write;
+wire [SOMA_DATA_WIDTH-1:0]        soma_a_readdata;
+wire [SOMA_DATA_WIDTH-1:0]        soma_a_writedata;
+wire [3:0]                        soma_a_byteenable = 4'b1111;
+
+// --- SRAM b[n]: o HPS escreve, o soma.v le ---
+wire [SOMA_ADDR_WIDTH-1:0]        soma_b_address;
+wire                              soma_b_clken;
+wire                              soma_b_chipselect;
+wire                              soma_b_write;
+wire [SOMA_DATA_WIDTH-1:0]        soma_b_readdata;
+wire [SOMA_DATA_WIDTH-1:0]        soma_b_writedata;
+wire [3:0]                        soma_b_byteenable = 4'b1111;
+
+// --- SRAM y[n]: o soma.v escreve, o HPS le ---
+wire [SOMA_ADDR_WIDTH-1:0]        soma_y_address;
+wire                              soma_y_clken;
+wire                              soma_y_chipselect;
+wire                              soma_y_write;
+wire [SOMA_DATA_WIDTH-1:0]        soma_y_readdata;
+wire [SOMA_DATA_WIDTH-1:0]        soma_y_writedata;
+wire [3:0]                        soma_y_byteenable = 4'b1111;
+\end{lstlisting}
+  \item \textbf{as portas de \texttt{u0}}: dentro de \texttt{soc\_system u0
+    (}, logo depois da linha \texttt{.soma\_teste\_y\_export} da A4. Todas
+    terminam em vírgula, porque há outras portas depois:
+\begin{lstlisting}[language=Verilog]
+    .soma_start_export       (soma_start),
+    .soma_done_export        (soma_done),
+
+    .soma_a_address          (soma_a_address),
+    .soma_a_clken            (soma_a_clken),
+    .soma_a_chipselect       (soma_a_chipselect),
+    .soma_a_write            (soma_a_write),
+    .soma_a_readdata         (soma_a_readdata),
+    .soma_a_writedata        (soma_a_writedata),
+    .soma_a_byteenable       (soma_a_byteenable),
+
+    .soma_b_address          (soma_b_address),
+    .soma_b_clken            (soma_b_clken),
+    .soma_b_chipselect       (soma_b_chipselect),
+    .soma_b_write            (soma_b_write),
+    .soma_b_readdata         (soma_b_readdata),
+    .soma_b_writedata        (soma_b_writedata),
+    .soma_b_byteenable       (soma_b_byteenable),
+
+    .soma_y_address          (soma_y_address),
+    .soma_y_clken            (soma_y_clken),
+    .soma_y_chipselect       (soma_y_chipselect),
+    .soma_y_write            (soma_y_write),
+    .soma_y_readdata         (soma_y_readdata),
+    .soma_y_writedata        (soma_y_writedata),
+    .soma_y_byteenable       (soma_y_byteenable),
+\end{lstlisting}
+  \item \textbf{o módulo}: logo depois do \texttt{soma\_core\_teste} da A4,
+    antes do \texttt{endmodule}:
+\begin{lstlisting}[language=Verilog]
+soma #(
+    .DATA_WIDTH  (SOMA_DATA_WIDTH),
+    .N_SAMPLES   (SOMA_N_SAMPLES),
+    .ADDR_N_BITS (SOMA_ADDR_WIDTH)
+) soma_inst (
+    .clk     (CLOCK_50),
+    .reset_n (hps_fpga_reset_n),
+
+    // PIOs de controle (Platform Designer)
+    .start   (soma_start),          // HPS -> FPGA
+    .done    (soma_done),           // FPGA -> HPS
+
+    // a[n]: porta s1 da memoria soma_a
+    .a_sram_readdata   (soma_a_readdata),
+    .a_sram_address    (soma_a_address),
+    .a_sram_chipselect (soma_a_chipselect),
+    .a_sram_clken      (soma_a_clken),
+    .a_sram_write      (soma_a_write),
+
+    // b[n]: porta s1 da memoria soma_b
+    .b_sram_readdata   (soma_b_readdata),
+    .b_sram_address    (soma_b_address),
+    .b_sram_chipselect (soma_b_chipselect),
+    .b_sram_clken      (soma_b_clken),
+    .b_sram_write      (soma_b_write),
+
+    // y[n]: porta s1 da memoria soma_y
+    .y_sram_address    (soma_y_address),
+    .y_sram_wdata      (soma_y_writedata),
+    .y_sram_chipselect (soma_y_chipselect),
+    .y_sram_clken      (soma_y_clken),
+    .y_sram_write      (soma_y_write)
+);
+\end{lstlisting}
 \end{enumerate}
+Salve (Ctrl+S). Depois: compile, \texttt{python3 gen\_hps\_header.py} e
+\texttt{./morphe-up.sh -{}-cable 'CABO' -{}-deploy}, como na A5 (o mesmo
+cabo de lá; se mudou de porta, \texttt{jtagconfig} de novo).
 \end{faca}
+
+\begin{porque}
+Cada memória tem duas portas: o HPS usa uma, por dentro de \texttt{u0};
+a outra é exportada e vem para o \arq{soma.v} por esses fios. Alguns fios
+vão só até \texttt{u0}, e não até o \arq{soma.v}: o \arq{soma.v} só
+\textbf{lê} \(a\) e \(b\) (o \texttt{write} delas fica em 0, e o
+\texttt{writedata} não é usado) e só \textbf{escreve} \(y\) (o
+\texttt{y\_readdata} não é usado). O \texttt{byteenable} fixo em
+\texttt{4'b1111} quer dizer ``a palavra inteira, os 4 bytes''.
+\end{porque}
 
 \tela[0.8\linewidth]{q05-ghrd-top}{a instância \texttt{soma\_inst} no
 \arq{ghrd_top.v}}
-
-\begin{lstlisting}[language=Verilog]
-// em u0 (soc_system):
-.soma_start_export  (soma_start),
-.soma_done_export   (soma_done),
-.soma_a_address     (soma_a_address),
-.soma_a_readdata    (soma_a_readdata),
-// ... clken, chipselect, write, writedata, byteenable, e o mesmo para b e y
-\end{lstlisting}
 
 \begin{confira}
 \texttt{grep SOMA\_ ../C/hps\_0.h} mostra \texttt{SOMA\_A\_BASE 0x40000}
