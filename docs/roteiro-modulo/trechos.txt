@@ -1,0 +1,234 @@
+Trechos do roteiro do modulo (docs/roteiro-modulo/roteiro-modulo.pdf),
+em texto puro, para copiar e colar sem perder as quebras de linha.
+Os numeros [N] seguem a ordem em que os trechos aparecem no PDF.
+
+========================================================================
+[1] Antes de começar / O código
+========================================================================
+cd ~
+
+========================================================================
+[2] Antes de começar / O código
+========================================================================
+git clone -b estagio/v1.1-1024pontos https://github.com/nicassiosantos/morphe.git meu-modulo
+
+========================================================================
+[3] Antes de começar / O código
+========================================================================
+cd meu-modulo
+
+========================================================================
+[4] Antes de começar / O código
+========================================================================
+git switch -c modulo-soma-teste
+
+========================================================================
+[5] Antes de começar / O código
+========================================================================
+git diff estagio/v1.1-1024pontos origin/estagio/modulo-soma -- Quartus/ghrd_top.v
+
+========================================================================
+[6] Antes de começar / O código
+========================================================================
+git show origin/estagio/modulo-soma:Quartus/soma_core.v > Quartus/soma_core.v
+
+========================================================================
+[7] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
+========================================================================
+module soma_core #(
+    parameter DATA_WIDTH = 32
+)(
+    input  wire [DATA_WIDTH-1:0] a,     // Q15.16
+    input  wire [DATA_WIDTH-1:0] b,     // Q15.16
+    output wire [DATA_WIDTH-1:0] y      // Q15.16, saturado
+);
+    // os limites de 32 bits com sinal, escritos em 33 bits
+    localparam signed [DATA_WIDTH:0] MAXV = {2'b00, {(DATA_WIDTH-1){1'b1}}};  //  2^31 - 1
+    localparam signed [DATA_WIDTH:0] MINV = {2'b11, {(DATA_WIDTH-1){1'b0}}};  // -2^31
+
+    // estende o sinal para 33 bits e soma: aqui nao ha estouro
+    wire signed [DATA_WIDTH:0] soma_larga =
+        $signed({a[DATA_WIDTH-1], a}) + $signed({b[DATA_WIDTH-1], b});
+
+    // volta para 32 bits, saturando
+    assign y = (soma_larga > MAXV) ? MAXV[DATA_WIDTH-1:0] :
+               (soma_larga < MINV) ? MINV[DATA_WIDTH-1:0] :
+                                     soma_larga[DATA_WIDTH-1:0];
+endmodule
+
+========================================================================
+[8] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
+========================================================================
+git show origin/estagio/modulo-soma:Quartus/testbench/tb_soma_core.v > testbench/tb_soma_core.v
+
+========================================================================
+[9] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
+========================================================================
+iverilog -o /tmp/tb.vvp testbench/tb_soma_core.v soma_core.v
+
+========================================================================
+[10] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
+========================================================================
+vvp /tmp/tb.vvp
+
+========================================================================
+[11] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
+========================================================================
+// --- teste isolado do nucleo (roteiro, Parte A): tres PIOs de 32 bits ---
+wire [31:0] soma_teste_a;    // HPS -> FPGA
+wire [31:0] soma_teste_b;    // HPS -> FPGA
+wire [31:0] soma_teste_y;    // FPGA -> HPS
+
+========================================================================
+[12] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
+========================================================================
+    .soma_teste_a_export     (soma_teste_a),
+    .soma_teste_b_export     (soma_teste_b),
+    .soma_teste_y_export     (soma_teste_y),
+
+========================================================================
+[13] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
+========================================================================
+soma_core #(
+    .DATA_WIDTH (32)
+) soma_core_teste (
+    .a (soma_teste_a),
+    .b (soma_teste_b),
+    .y (soma_teste_y)
+);
+
+========================================================================
+[14] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+========================================================================
+python3 gen_hps_header.py
+
+========================================================================
+[15] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+========================================================================
+./morphe-up.sh --cable 'DE-SoC [1-2]' --deploy
+
+========================================================================
+[16] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+sudo screen /dev/ttyUSB0 115200
+
+========================================================================
+[17] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+cd ~/morphe
+
+========================================================================
+[18] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+./devmem 0xFF200150 32 0x00018000
+
+========================================================================
+[19] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+./devmem 0xFF200160 32 0x00024000
+
+========================================================================
+[20] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+./devmem 0xFF200170
+
+========================================================================
+[21] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+python3 -c "print(hex(round(1.5 * 65536) & 0xFFFFFFFF))"
+
+========================================================================
+[22] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+python3 -c "v = 0xFFFF8000; print((v - 2**32 if v >> 31 else v) / 65536)"
+
+========================================================================
+[23] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+========================================================================
+root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x00018000
+root@de1soc-02:~/morphe# ./devmem 0xFF200160 32 0x00024000
+root@de1soc-02:~/morphe# ./devmem 0xFF200170
+0x0003C000
+root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0xFFFF0000; ./devmem 0xFF200160 32 0x00008000; ./devmem 0xFF200170
+0xFFFF8000
+root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x00640000; ./devmem 0xFF200160 32 0xFF9C0000; ./devmem 0xFF200170
+0x00000000
+root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x75300000; ./devmem 0xFF200160 32 0x75300000; ./devmem 0xFF200170
+0x7FFFFFFF
+root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x8AD00000; ./devmem 0xFF200160 32 0x8AD00000; ./devmem 0xFF200170
+0x80000000
+
+========================================================================
+[24] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
+========================================================================
+git show origin/estagio/modulo-soma:Quartus/soma.v > Quartus/soma.v
+
+========================================================================
+[25] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
+========================================================================
+wire [DATA_WIDTH-1:0] soma_sat;
+
+soma_core #(.DATA_WIDTH(DATA_WIDTH)) u_conta (
+    .a (a_data),        // a[n], vindo da memoria
+    .b (b_data),        // b[n], vindo da memoria
+    .y (soma_sat)       // vai para a memoria de y
+);
+
+========================================================================
+[26] Parte B --- integrar ao Morphe / B4 O topo e a compilação
+========================================================================
+// em u0 (soc_system):
+.soma_start_export  (soma_start),
+.soma_done_export   (soma_done),
+.soma_a_address     (soma_a_address),
+.soma_a_readdata    (soma_a_readdata),
+// ... clken, chipselect, write, writedata, byteenable, e o mesmo para b e y
+
+========================================================================
+[27] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+========================================================================
+git checkout origin/estagio/modulo-soma -- C/morphe_server.c C/morphe_protocol.h
+
+========================================================================
+[28] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+========================================================================
+git checkout origin/estagio/modulo-soma -- C/morphe_config.h C/address_map_arm.h
+
+========================================================================
+[29] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+========================================================================
+g_soma_a         = (int32_t *)((char *)g_fpga_virt + SOMA_A_BASE);              /* ponte larga */
+g_pio_soma_start = (volatile uint32_t *)((char *)g_lw_virt + SOMA_START_BASE);  /* ponte leve  */
+
+g_soma_a[i] = valor;        /* escreve a palavra i da memoria */
+*g_pio_soma_start = 1;      /* liga o start */
+
+========================================================================
+[30] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+git checkout origin/estagio/modulo-soma -- Python/morphe_protocol.py Python/morphe_config.py
+
+========================================================================
+[31] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+git checkout origin/estagio/modulo-soma -- Python/soma_window.py Python/morphe_app.py
+
+========================================================================
+[32] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+python3 Python/morphe_app.py
+
+========================================================================
+[33] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+./morphe-up.sh --down
+
+========================================================================
+[34] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+cd /opt/morphe
+
+========================================================================
+[35] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+========================================================================
+./morphe-up.sh --cable 'DE-SoC [1-2]'
