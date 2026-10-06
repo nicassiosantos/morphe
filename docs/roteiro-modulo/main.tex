@@ -198,6 +198,16 @@ git show origin/estagio/modulo-soma:Quartus/soma_core.v > Quartus/soma_core.v
 \end{lstlisting}
 \end{pronto}
 
+\begin{cuidado}
+Copiar código deste PDF pode juntar tudo numa linha só (depende do leitor de
+PDF). Os mesmos trechos estão em texto puro no
+\arq{docs/roteiro-modulo/trechos.txt} do gabarito, na ordem em que aparecem
+aqui; copie de lá:
+\begin{lstlisting}[style=sh]
+git show origin/estagio/modulo-soma:docs/roteiro-modulo/trechos.txt
+\end{lstlisting}
+\end{cuidado}
+
 \subsection*{As pastas e os arquivos}
 
 \begin{center}
@@ -443,7 +453,9 @@ Para cada PIO:
   \item no \menu{IP Catalog}, à esquerda: \nr{1} digite \texttt{pio},
     \nr{2} escolha \emph{PIO (Parallel I/O) Intel FPGA IP} e \nr{3} clique
     em \menu{+ Add\ldots};
-  \item na janela de parâmetros: \emph{Width} \textbf{32} e a direção ---
+  \item abre a janela de parâmetros com o nome provisório \texttt{pio\_0}
+    no topo (é normal: o nome certo vem no item seguinte). Nela:
+    \emph{Width} \textbf{32} e a direção ---
     \emph{Output} para \texttt{soma\_teste\_a} e \texttt{soma\_teste\_b},
     \emph{Input} para \texttt{soma\_teste\_y} ---, e \menu{Finish};
   \item o PIO entra no fim da lista com um nome como \texttt{pio\_0}: botão
@@ -605,11 +617,36 @@ confira com
 python3 gen_hps_header.py
 \end{lstlisting}
   \item Na \textbf{estação} (é onde estão os cabos das placas), de dentro de
-    \arq{~/meu-modulo}, fora do horário de aula:
+    \arq{~/meu-modulo}, fora do horário de aula, grave a placa. No lugar de
+    \texttt{CABO}, o nome do cabo da \textbf{sua} placa (veja o quadro
+    abaixo), entre aspas simples:
 \begin{lstlisting}[style=sh]
-./morphe-up.sh --cable 'DE-SoC [1-2]' --deploy
+./morphe-up.sh --cable 'CABO' --deploy
 \end{lstlisting}
 \end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{Qual é o cabo da sua placa.} Cada placa tem o seu USB-Blaster, e o
+Quartus dá a cada um o nome \texttt{DE-SoC [1-N]}. O número entre colchetes
+é a porta USB da estação: \textbf{muda} se o cabo trocar de porta. Por isso
+não há um nome fixo para copiar. Para descobrir:
+\begin{enumerate}
+  \item liste os cabos que a estação enxerga:
+\begin{lstlisting}[style=sh]
+jtagconfig
+\end{lstlisting}
+    Cada cabo aparece numa linha como \texttt{1) DE-SoC [1-2]}; o nome é o
+    que vem depois do \texttt{1)}, com os colchetes.
+  \item se houver mais de um, \textbf{desconecte da estação} o USB-Blaster
+    da sua placa (a USB que \emph{não} é a marcada UART), rode
+    \texttt{jtagconfig} de novo e veja qual nome sumiu: é o seu. Ligue o
+    cabo de volta e confira que o nome voltou igual.
+\end{enumerate}
+O \arq{placas.conf}, na raiz do repositório, anota na última coluna o cabo
+de cada placa; serve de pista, mas pode estar velho se alguém mudou o cabo
+de porta. Se o cabo e a placa não baterem, o \arq{morphe-up.sh} recusa e diz
+qual placa encontrou --- nada é gravado na placa errada.
 \end{faca}
 
 \tela[0.5\linewidth]{q07-menu-processing}{\menu{Processing}\seta\menu{Start Compilation}}
@@ -665,7 +702,14 @@ compilou na pasta \arq{~/morphe} da placa.
 \end{porque}
 
 \begin{faca}
-No computador ligado à USB da placa:
+No computador ligado à USB marcada UART da placa, descubra o nome da serial:
+com o cabo UART \textbf{desligado}, rode o comando abaixo; ligue o cabo e
+rode de novo. O nome que apareceu (\texttt{/dev/ttyUSB0},
+\texttt{/dev/ttyUSB1}\ldots) é o da sua placa.
+\begin{lstlisting}[style=sh]
+ls /dev/ttyUSB*
+\end{lstlisting}
+Abra a serial, trocando \texttt{/dev/ttyUSB0} pelo nome que você achou:
 \begin{lstlisting}[style=sh]
 sudo screen /dev/ttyUSB0 115200
 \end{lstlisting}
@@ -1037,7 +1081,8 @@ Igual à A4, com mais fios: cada memória exportada vira 7 portas em
     \texttt{localparam} \texttt{SOMA\_\ldots}; os \texttt{wire}; as portas
     novas em \texttt{u0}; a instância \texttt{soma\_inst}.
   \item Compilar, \texttt{python3 gen\_hps\_header.py} e
-    \texttt{./morphe-up.sh -{}-cable 'DE-SoC [1-2]' -{}-deploy}, como na A5.
+    \texttt{./morphe-up.sh -{}-cable 'CABO' -{}-deploy}, como na A5 (o
+    mesmo cabo de lá; se mudou de porta, \texttt{jtagconfig} de novo).
 \end{enumerate}
 \end{faca}
 
@@ -1221,8 +1266,9 @@ e de \arq{/opt/morphe}:
 cd /opt/morphe
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-./morphe-up.sh --cable 'DE-SoC [1-2]'
+./morphe-up.sh --cable 'CABO'
 \end{lstlisting}
+com o mesmo \texttt{CABO} da A5.
 \end{faca}
 
 % =============================================================================
