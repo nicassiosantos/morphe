@@ -77,6 +77,7 @@
   aboveskip=4pt, belowskip=4pt,
   literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
            {ã}{{\~a}}1 {õ}{{\~o}}1 {ç}{{\c c}}1 {→}{{$\rightarrow$}}1
+           {Ã}{{\~A}}1 {Ç}{{\c C}}1 {à}{{\`a}}1 {ê}{{\^e}}1 {ô}{{\^o}}1 {—}{{---}}1
 }
 \lstdefinestyle{sh}{language=bash,keywordstyle=\color{black}}
 
@@ -615,6 +616,12 @@ confira com
   \item No terminal, de dentro de \arq{~/meu-modulo/Quartus/}:
 \begin{lstlisting}[style=sh]
 python3 gen_hps_header.py
+\end{lstlisting}
+  \item Traga do gabarito o \texttt{devmem} da A6 (o programa, a regra
+    \texttt{make devmem} e o \arq{morphe-up.sh} que o envia à placa), de
+    dentro de \arq{~/meu-modulo}:
+\begin{lstlisting}[style=sh]
+git checkout origin/estagio/modulo-soma -- C/devmem.c C/Makefile morphe-up.sh
 \end{lstlisting}
   \item Na \textbf{estação} (é onde estão os cabos das placas), de dentro de
     \arq{~/meu-modulo}, fora do horário de aula, grave a placa. No lugar de
@@ -1462,15 +1469,17 @@ ficam as memórias e os PIOs (do \arq{hps_0.h}) e o que fazer com o pedido.
 \end{center}
 
 \begin{faca}
-Traga os quatro arquivos prontos do gabarito (de \arq{~/meu-modulo}):
+Duas formas, escolha uma. A rápida: traga os quatro arquivos prontos do
+gabarito (de \arq{~/meu-modulo}):
 \begin{lstlisting}[style=sh]
 git checkout origin/estagio/modulo-soma -- C/morphe_server.c C/morphe_protocol.h
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
 git checkout origin/estagio/modulo-soma -- C/morphe_config.h C/address_map_arm.h
 \end{lstlisting}
-Só esses quatro: o \arq{C/hps_0.h} \textbf{não} vem do gabarito, ele é o
-que você gerou.
+Ou, para entender cada mudança, faça à mão com os trechos completos logo
+abaixo da tabela. Nos dois casos, o \arq{C/hps_0.h} \textbf{não} vem do
+gabarito: ele é o que você gerou.
 \end{faca}
 
 O que mudou em cada um, e por quê:
@@ -1501,6 +1510,246 @@ g_pio_soma_start = (volatile uint32_t *)((char *)g_lw_virt + SOMA_START_BASE);  
 g_soma_a[i] = valor;        /* escreve a palavra i da memoria */
 *g_pio_soma_start = 1;      /* liga o start */
 \end{lstlisting}
+
+\subsubsection*{Os trechos completos, arquivo por arquivo}
+
+Abra cada arquivo num editor de texto (\texttt{gedit}, por exemplo) e use Ctrl+F para achar os lugares.
+
+\begin{faca}
+\textbf{\arq{C/morphe_protocol.h}}
+\begin{enumerate}
+  \item o número da operação: logo depois da linha \texttt{\#define MORPHE\_OP\_ADC\_CONTINUO}:
+\begin{lstlisting}[language=C]
+#define MORPHE_OP_SOMA     9U   /* y = a + b (soma.v), modulo de exemplo do roteiro */
+\end{lstlisting}
+  \item (só documentação) no comentário do topo, a linha da lista de opcodes passa a terminar em \texttt{9=SOMA)}, e antes da linha \texttt{ADC\_CONTINUO -> igual ao ADC} entra:
+\begin{lstlisting}[language=C]
+ *   SOMA     -> n_x amostras de a, seguidas de n_h amostras de b (int32
+ *               Q15.16, como na CONV). n_x == n_h, de 1 a
+ *               MORPHE_SOMA_N_MAX. A resposta traz n_x amostras de
+ *               y = a + b, saturada em 32 bits.
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{\arq{C/morphe_config.h}}
+\begin{enumerate}
+  \item antes da linha \texttt{/* -{}-{}-{}- Rede}:
+\begin{lstlisting}[language=C]
+/* ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ------------ */
+
+/* O soma.v processa SEMPRE MORPHE_SOMA_N_MAX amostras (N_SAMPLES do
+ * Verilog); o servidor completa com zeros e devolve so as n pedidas. As
+ * memorias soma_a, soma_b e soma_y tem 1024 palavras de 32 bits cada. */
+#define MORPHE_SOMA_N_MAX       1024
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{\arq{C/address_map_arm.h}}
+\begin{enumerate}
+  \item \textbf{troque} a linha \texttt{\#define FPGA\_ONCHIP\_SPAN 0x0003FFFF} por:
+\begin{lstlisting}[language=C]
+/* Ate 0x42FFF desde o modulo soma (soma_a/b/y em 0x40000-0x42FFF). Cresce
+ * quando uma memoria nova passa do fim: o _Static_assert do servidor avisa. */
+#define FPGA_ONCHIP_SPAN       0x0004FFFF
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{\arq{C/morphe_server.c}}, em nove lugares:
+\begin{enumerate}
+  \item depois do bloco do ADC (o \texttt{\#endif} logo abaixo de \texttt{\#define \_MORPHE\_END\_ADC 0}), e \textbf{no lugar} do \texttt{\#define MORPHE\_ONCHIP\_MMAP\_SPAN} que vem em seguida (apague o antigo; o novo é o do fim deste trecho):
+\begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
+/* A soma, como o ADC, so entra quando o hps_0.h foi gerado de um .sopcinfo
+ * que a tem (tres memorias e dois PIOs). A protecao contra bitstream antigo
+ * e o sysid, que o servidor ja le por causa do ADC: por isso MORPHE_TEM_ADC
+ * tambem e exigido. */
+#if defined(SOMA_A_BASE) && defined(SOMA_B_BASE) && defined(SOMA_Y_BASE) && \
+    defined(SOMA_START_BASE) && defined(SOMA_DONE_BASE) && MORPHE_TEM_ADC
+#define MORPHE_TEM_SOMA 1
+#define _MORPHE_END_SOMA \
+    _MORPHE_MAX3( \
+        _MORPHE_END(SOMA_A_BASE, SOMA_A_SPAN), \
+        _MORPHE_END(SOMA_B_BASE, SOMA_B_SPAN), \
+        _MORPHE_END(SOMA_Y_BASE, SOMA_Y_SPAN))
+#else
+#define MORPHE_TEM_SOMA 0
+#define _MORPHE_END_SOMA 0
+#endif
+
+#define MORPHE_ONCHIP_MMAP_SPAN \
+    _MORPHE_ROUND_UP( \
+        _MORPHE_MAX3(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
+                     _MORPHE_END_ADC, _MORPHE_END_SOMA), \
+        _MORPHE_PAGE_SIZE)
+\end{lstlisting}
+  \item antes da linha \texttt{\_Static\_assert(MORPHE\_ONCHIP\_MMAP\_SPAN}:
+\begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
+#if MORPHE_TEM_SOMA
+_Static_assert(SOMA_A_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(SOMA_B_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(SOMA_Y_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
+#endif
+\end{lstlisting}
+  \item os ponteiros: logo depois da linha \texttt{g\_pio\_iir\_nsecoes = NULL;}:
+\begin{lstlisting}[language=C]
+#if MORPHE_TEM_SOMA
+static int32_t           *g_soma_a          = NULL;
+static int32_t           *g_soma_b          = NULL;
+static int32_t           *g_soma_y          = NULL;
+static volatile uint32_t *g_pio_soma_start  = NULL;
+static volatile uint32_t *g_pio_soma_done   = NULL;
+#endif
+\end{lstlisting}
+  \item o nome da operação, nos logs: em \texttt{nome\_op()}, depois de \texttt{case MORPHE\_OP\_ADC\_CONTINUO: return "adc\_continuo";}:
+\begin{lstlisting}[language=C]
+        case MORPHE_OP_SOMA: return "soma";
+\end{lstlisting}
+  \item os endereços: em \texttt{fpga\_init()}, depois do \texttt{\#endif} que vem logo abaixo da linha \texttt{g\_pio\_adc\_contador = \ldots}:
+\begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
+#if MORPHE_TEM_SOMA
+    /* memorias: janela da ponte h2f (FPGA_ONCHIP_BASE) + offset do hps_0.h;
+     * PIOs: janela da ponte lightweight (LW_BRIDGE_BASE) + offset */
+    g_soma_a         = (int32_t *)((char *)g_fpga_virt + SOMA_A_BASE);
+    g_soma_b         = (int32_t *)((char *)g_fpga_virt + SOMA_B_BASE);
+    g_soma_y         = (int32_t *)((char *)g_fpga_virt + SOMA_Y_BASE);
+    g_pio_soma_start = (volatile uint32_t *)((char *)g_lw_virt + SOMA_START_BASE);
+    g_pio_soma_done  = (volatile uint32_t *)((char *)g_lw_virt + SOMA_DONE_BASE);
+#endif
+\end{lstlisting}
+  \item zerar o \texttt{start} quando a FPGA fica pronta: em \texttt{fpga\_preparada()}, depois do \texttt{\#endif} que vem logo abaixo de \texttt{*g\_pio\_adc\_start = 0;}:
+\begin{lstlisting}[language=C]
+#if MORPHE_TEM_SOMA
+        if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_soma_start = 0;
+#endif
+\end{lstlisting}
+  \item a função que atende o pedido (o fluxograma acima): \textbf{antes} da linha \texttt{static int handle\_ping(int sock) \{}:
+\begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
+/* SOMA: y = a + b no soma.v. Payload: a (n_x palavras) e depois b (n_h
+ * palavras), int32 Q15.16 -- o mesmo layout da CONV e do FIR, entao o
+ * molde e o handle_fir. O hardware processa sempre MORPHE_SOMA_N_MAX
+ * amostras: o que o cliente nao mandou vai como zero. */
+#if !MORPHE_TEM_SOMA
+static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
+    (void) dtype; (void) n_a; (void) n_b;
+    LOG("SOMA request recusado: servidor compilado sem a soma");
+    return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_OPCODE,
+                      "SOMA: este servidor foi compilado sem a soma (o hps_0.h nao tem "
+                      "soma_a: gere o soc_system e rode gen_hps_header.py)");
+}
+#else
+static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
+    LOG("SOMA request: dtype=%u, n_a=%u, n_b=%u", dtype, n_a, n_b);
+
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_SOMA, "SOMA");
+
+    /* Sem esta conferencia, um servidor novo numa placa com o bitstream
+     * antigo escreveria em 0x40000, onde nao ha memoria -- e acesso a
+     * endereco sem escravo trava o barramento do HPS. */
+    uint32_t ts = g_sysid[1];
+    if (ts != SYSID_QSYS_TIMESTAMP) {
+        char msg[192];
+        snprintf(msg, sizeof msg,
+                 "SOMA: o bitstream na FPGA (sysid %u) nao e o deste servidor (%u) -- "
+                 "rode ./morphe-up.sh com o .sof que tem a soma", ts, SYSID_QSYS_TIMESTAMP);
+        LOG("  -> %s", msg);
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
+    }
+
+    if (n_a == 0 || n_a > MORPHE_SOMA_N_MAX || n_b != n_a) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "SOMA: a e b com o mesmo tamanho, de 1 a %d",
+                 MORPHE_SOMA_N_MAX);
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_SIZE, msg);
+    }
+    uint32_t n = n_a;
+
+    /* 1. recebe a e b */
+    size_t payload_bytes = (size_t) 2 * n * 4;
+    static uint8_t rx_buf[RX_BUF_MAX];
+    if (payload_bytes > sizeof rx_buf)
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_SIZE, "SOMA: payload excedido");
+    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+
+    static int32_t a_buf[MORPHE_SOMA_N_MAX];
+    static int32_t b_buf[MORPHE_SOMA_N_MAX];
+    decode_samples_to_i32(rx_buf,         n, dtype, a_buf);
+    decode_samples_to_i32(rx_buf + n * 4, n, dtype, b_buf);
+
+    /* 2. escreve nas memorias da FPGA (porta s2), completando com zeros */
+    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++) g_soma_a[i] = (i < n) ? a_buf[i] : 0;
+    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++) g_soma_b[i] = (i < n) ? b_buf[i] : 0;
+
+    /* 3. dispara (borda de subida no start) e espera o done */
+    *g_pio_soma_start = 0;
+    usleep(1);
+    *g_pio_soma_start = 1;
+    if (wait_done(g_pio_soma_done, FPGA_DONE_TIMEOUT_MS) < 0) {
+        *g_pio_soma_start = 0;
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_FPGA_TIMEOUT, "SOMA: timeout");
+    }
+    *g_pio_soma_start = 0;      /* com start em 0, o soma.v volta ao repouso */
+
+    /* 4. le a saida */
+    static int32_t y_buf[MORPHE_SOMA_N_MAX];
+    for (uint32_t i = 0; i < n; i++) y_buf[i] = g_soma_y[i];
+
+    /* o mesmo .mrph de depuracao da CONV: a no lugar de x, b no de h */
+    save_debug_bundle_conv("soma", dtype, n, a_buf, n, b_buf, n, y_buf);
+
+    /* 5. responde */
+    static uint8_t tx_buf[TX_BUF_MAX];
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_SOMA, dtype, MORPHE_STATUS_OK, n);
+    if (dtype == MORPHE_DTYPE_INT32) {
+        for (uint32_t i = 0; i < n; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
+    } else {
+        for (uint32_t i = 0; i < n; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
+    }
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n * 4) < 0) return -1;
+
+    LOG("  -> SOMA OK: n=%u", n);
+    return 0;
+}
+#endif
+\end{lstlisting}
+  \item o PING passa a dizer se a soma está disponível: em \texttt{handle\_ping()}, \textbf{troque} tudo da linha \texttt{int preparada = fpga\_preparada();} até a linha \texttt{uptime\_s, preparada);} por:
+\begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
+    int preparada = fpga_preparada();
+    int adc_ok = 0, soma_ok = 0;
+#if MORPHE_TEM_ADC
+    adc_ok = preparada && g_sysid[1] == SYSID_QSYS_TIMESTAMP;
+#endif
+#if MORPHE_TEM_SOMA
+    soma_ok = adc_ok;          /* o mesmo bitstream, o mesmo sysid */
+#endif
+
+    char body[512];
+    int body_len = snprintf(body, sizeof body,
+        "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
+        "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
+        "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
+        "adc_fs_min=%d\nsoma_n_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
+        MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
+        MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
+        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
+        adc_ok ? MORPHE_ADC_N_MAX : 0,
+        MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
+        soma_ok ? MORPHE_SOMA_N_MAX : 0,
+        uptime_s, preparada);
+\end{lstlisting}
+  \item o despacho: em \texttt{serve\_connection()}, depois da linha \texttt{case MORPHE\_OP\_ADC\_CONTINUO: \ldots}:
+\begin{lstlisting}[language=C]
+        case MORPHE_OP_SOMA: handle_soma(sock, dtype, n_x, n_h); break;
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
 
 \begin{cuidado}
 A conferência do \emph{bitstream} (\emph{sysid}) no topo do fluxograma não é
@@ -1534,13 +1783,17 @@ tem o mesmo formato da convolução, que também manda dois sinais:
 \end{center}
 
 \begin{faca}
-Traga os quatro arquivos prontos do gabarito:
+Duas formas, escolha uma. A rápida: traga os quatro arquivos prontos do
+gabarito:
 \begin{lstlisting}[style=sh]
 git checkout origin/estagio/modulo-soma -- Python/morphe_protocol.py Python/morphe_config.py
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
 git checkout origin/estagio/modulo-soma -- Python/soma_window.py Python/morphe_app.py
 \end{lstlisting}
+Ou faça à mão com os trechos completos logo abaixo do quadro ``Já existe''.
+Em Python, a \textbf{indentação} (os espaços no começo da linha) faz parte
+do código: cole cada trecho com os espaços que ele tem.
 \end{faca}
 
 \begin{center}\small
@@ -1563,6 +1816,253 @@ conversão para Q15.16 (\texttt{float\_to\_q1516}, em \arq{dsp_core.py}) e o
 cliente já apontado para a placa escolhida
 (\texttt{self.master.tcp\_panel.make\_client()}).
 \end{pronto}
+
+\subsubsection*{Os trechos completos, arquivo por arquivo}
+
+\begin{faca}
+\textbf{\arq{Python/morphe_config.py}}
+\begin{enumerate}
+  \item antes da linha \texttt{\# -{}-{}-{}- ADC (LTC2308}:
+\begin{lstlisting}[language=Python]
+# ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ---------------
+# O bloco processa SEMPRE SOMA_N_MAX amostras; o servidor completa com zeros.
+# Espelho do MORPHE_SOMA_N_MAX do morphe_config.h.
+SOMA_N_MAX: int = 1024
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{\arq{Python/morphe_protocol.py}}
+\begin{enumerate}
+  \item logo depois da linha \texttt{OP\_ADC\_CONTINUO = 8}:
+\begin{lstlisting}[language=Python]
+OP_SOMA = 9   # y = a + b (soma.v), modulo de exemplo do roteiro
+\end{lstlisting}
+  \item o pedido: antes da linha \texttt{class TcpClient:}:
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\scriptsize]
+def build_soma_request(a_q: np.ndarray, b_q: np.ndarray,
+                       dtype_code: int = DTYPE_INT32) -> bytes:
+    """Pedido da SOMA: o mesmo layout da CONV -- cabecalho com n_x = len(a)
+    e n_h = len(b), depois as amostras de a e as de b. a e b ja em Q15.16
+    (inteiros) e com o mesmo tamanho, de 1 a SOMA_N_MAX."""
+    if len(a_q) != len(b_q):
+        raise ValueError(f"a e b precisam do mesmo tamanho ({len(a_q)} != {len(b_q)})")
+    hdr = struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_SOMA, dtype_code, 0,
+        len(a_q), len(b_q),
+    )
+    return hdr + pack_samples(a_q, dtype_code) + pack_samples(b_q, dtype_code)
+\end{lstlisting}
+  \item a resposta: antes da linha \texttt{def decode\_iir\_response}:
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\scriptsize]
+def decode_soma_response(resp: Response) -> np.ndarray:
+    """y = a + b em Q15.16 (inteiros), como a placa devolveu."""
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_SOMA:
+        raise ValueError(f"esperado opcode SOMA, veio {resp.opcode}")
+    be = _np_dtype_be(resp.dtype_code)
+    return np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{\arq{Python/morphe_app.py}}
+\begin{enumerate}
+  \item logo depois da linha \texttt{from comparator\_window import ComparatorWindow}:
+\begin{lstlisting}[language=Python]
+from soma_window import SomaWindow
+\end{lstlisting}
+  \item o botão do menu: em \texttt{primary\_actions}, depois da linha do \texttt{"Filtro IIR  (FPGA)"}:
+\begin{lstlisting}[language=Python]
+            ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
+\end{lstlisting}
+  \item o que o botão faz: logo depois do método \texttt{\_open\_iir}:
+\begin{lstlisting}[language=Python]
+    def _open_soma(self):
+        SomaWindow(self)
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{faca}
+\textbf{\arq{Python/soma_window.py}} (arquivo novo): crie e cole o arquivo inteiro.
+\end{faca}
+
+\begin{lstlisting}[language=Python,basicstyle=\ttfamily\scriptsize]
+"""
+soma_window.py -- janela da SOMA: y[n] = a[n] + b[n] calculada na FPGA.
+
+Modulo de exemplo do roteiro "Como adicionar um modulo ao Morphe"
+(docs/roteiro-modulo). Mostra o minimo que uma janela nova precisa, sempre
+reaproveitando o que ja existe:
+
+  - os dois sinais vem do SignalPanel, o mesmo de todas as janelas;
+  - o desenho e o _stem_signal da janela de convolucao;
+  - a conversao para Q15.16 e a volta sao as do dsp_core;
+  - a placa e a do painel "Placas do laboratorio" (master.tcp_panel);
+  - o pedido vai em uma thread, para a janela nao congelar esperando a rede.
+
+A referencia e a mesma conta em ponto fixo no NumPy, com a mesma saturacao
+do soma.v: a comparacao com a FPGA tem de dar igualdade BIT A BIT.
+"""
+from __future__ import annotations
+
+import threading
+import tkinter as tk
+from tkinter import ttk, messagebox
+from typing import Optional
+
+import numpy as np
+
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+import dsp_core as dsp
+import morphe_theme as theme
+from conv_window import _stem_signal
+from morphe_config import SOMA_N_MAX
+from morphe_protocol import DTYPE_INT32, build_soma_request, decode_soma_response
+from plot_toolbar import PlotToolbar
+from signal_panel import SignalPanel
+
+
+def soma_referencia(a_q: np.ndarray, b_q: np.ndarray) -> np.ndarray:
+    """A conta do soma.v em NumPy: soma em 64 bits e satura na faixa de 32."""
+    s = np.asarray(a_q, dtype=np.int64) + np.asarray(b_q, dtype=np.int64)
+    return np.clip(s, dsp.Q_MIN, dsp.Q_MAX)
+
+
+class SomaWindow(tk.Toplevel):
+    def __init__(self, master):
+        super().__init__(master)
+        self.title("Morphe — Soma via FPGA (exemplo do roteiro)")
+        self.geometry("1240x820")
+        self.configure(bg=theme.COLORS["bg"])
+        theme.setup_styles(self)
+
+        self.a_sig: Optional[dsp.Signal] = None
+        self.b_sig: Optional[dsp.Signal] = None
+        self.y_sig: Optional[dsp.Signal] = None
+
+        self.status = tk.StringVar(value="Gere a[n] e b[n] e clique em Somar na FPGA.")
+        theme.make_status_bar(self, self.status).pack(side="bottom", fill="x")
+
+        root = ttk.Frame(self, style="Main.TFrame", padding=12)
+        root.pack(fill="both", expand=True)
+        lado = ttk.Frame(root, style="Main.TFrame")
+        lado.pack(side="left", fill="y", padx=(0, 12))
+        self._build_sidebar(lado)
+        area = ttk.Frame(root, style="Main.TFrame")
+        area.pack(side="right", fill="both", expand=True)
+        self._build_plots(area)
+        self._redraw()
+
+    # ------------------------------------------------------------------
+    def _build_sidebar(self, parent):
+        self.a_panel = SignalPanel(parent, title="Sinal a[n]", on_generate=self._on_gen_a,
+                                   default_N=32, default_type="Senóide", max_N=SOMA_N_MAX)
+        self.a_panel.pack(fill="x")
+        self.b_panel = SignalPanel(parent, title="Sinal b[n]", on_generate=self._on_gen_b,
+                                   default_N=32, default_type="Degrau unitário", max_N=SOMA_N_MAX)
+        self.b_panel.pack(fill="x", pady=(8, 0))
+
+        op = ttk.LabelFrame(parent, text=" Operação ", style="Card.TLabelframe",
+                            padding=(14, 12, 14, 14))
+        op.pack(fill="x", pady=(12, 0))
+        ttk.Label(op, style="SectionHint.TLabel", wraplength=300, justify="left",
+                  text=f"Até {SOMA_N_MAX} amostras, em Q15.16. Se os tamanhos forem "
+                       "diferentes, o menor é completado com zeros.").pack(anchor="w", pady=(0, 8))
+        self.btn = ttk.Button(op, text="Somar na FPGA", style="Primary.TButton",
+                              command=self._on_somar)
+        self.btn.pack(fill="x")
+
+    def _build_plots(self, parent):
+        self.fig = Figure(figsize=(7, 8), dpi=100)
+        self.fig.patch.set_facecolor(theme.COLORS["bg"])
+        self.ax_a = self.fig.add_subplot(311)
+        self.ax_b = self.fig.add_subplot(312)
+        self.ax_y = self.fig.add_subplot(313)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.toolbar = PlotToolbar(self.canvas)
+
+    def _redraw(self):
+        _stem_signal(self.ax_a, self.a_sig, "a[n]", dsp.COLOR_X)
+        _stem_signal(self.ax_b, self.b_sig, "b[n]", dsp.COLOR_H)
+        _stem_signal(self.ax_y, self.y_sig, "y[n] = a[n] + b[n] (FPGA)", dsp.COLOR_Y)
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+
+    # ------------------------------------------------------------------
+    def _on_gen_a(self, panel: SignalPanel):
+        try:
+            self.a_sig = panel.build()
+            self._redraw()
+        except Exception as e:
+            messagebox.showerror("Erro em a[n]", str(e))
+
+    def _on_gen_b(self, panel: SignalPanel):
+        try:
+            self.b_sig = panel.build()
+            self._redraw()
+        except Exception as e:
+            messagebox.showerror("Erro em b[n]", str(e))
+
+    def _on_somar(self):
+        if self.a_sig is None or self.b_sig is None:
+            messagebox.showwarning("Atenção", "Gere a[n] e b[n] antes.")
+            return
+        try:
+            client = self.master.tcp_panel.make_client()
+        except Exception as e:
+            messagebox.showerror("Configuração", str(e))
+            return
+
+        # mesmo tamanho para os dois; o indice n vem de a[n]
+        n = max(self.a_sig.x.size, self.b_sig.x.size)
+        a_q = dsp.float_to_q1516(dsp.pad_zeros_to(self.a_sig.x, n))
+        b_q = dsp.float_to_q1516(dsp.pad_zeros_to(self.b_sig.x, n))
+        n0 = int(self.a_sig.n[0]) if self.a_sig.n.size else 0
+
+        self.btn.config(state="disabled")
+        self.status.set(f"Enviando {n} amostras de a e de b à FPGA...")
+
+        def worker():
+            try:
+                resp = client.request(build_soma_request(a_q, b_q, DTYPE_INT32))
+                y_q = decode_soma_response(resp)
+                self.after(0, lambda: self._on_resultado(y_q, a_q, b_q, n0))
+            except Exception as e:
+                self.after(0, lambda err=e: self._on_erro(err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_resultado(self, y_q, a_q, b_q, n0):
+        ref = soma_referencia(a_q, b_q)
+        iguais = int(np.sum(y_q == ref))
+        n = y_q.size
+        self.y_sig = dsp.Signal(n=np.arange(n) + n0, x=dsp.q1516_to_float(y_q),
+                                description=f"{n} amostras, Q15.16")
+        self._redraw()
+        self.btn.config(state="normal")
+        if iguais == n:
+            self.status.set(f"OK: as {n} amostras da FPGA são iguais, bit a bit, "
+                            "à soma em ponto fixo feita no NumPy.")
+        else:
+            self.status.set(f"ATENÇÃO: só {iguais} de {n} amostras iguais à referência.")
+
+    def _on_erro(self, err: Exception):
+        self.btn.config(state="normal")
+        self.status.set("Erro — ver mensagem.")
+        messagebox.showerror("Erro na soma", str(err))
+\end{lstlisting}
+
 
 \begin{faca}
 \textbf{O teste final.} De \arq{~/meu-modulo}, num computador do laboratório:
