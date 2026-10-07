@@ -16,6 +16,28 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 07/10/2026 — ADC validado com senoide do gerador de funções
+
+Validado pelo estagiário no laboratório, com o gerador de funções no CH0 (pino 2 do J15,
+terra no pino 10): senoide de 1 kHz com offset DC de ~2 V, amplitude dentro de 0 a 4 V,
+conferida antes no osciloscópio.
+
+- **`testa_adc.py <placa> senoide --f 1000`**: todas as verificações ok — em cada fs, a
+  frequência medida dentro de 0,1 % de 1 kHz (o que confere a própria fs), sem saturar e
+  ENOB acima de 9 bits.
+- **`testa_adc.py <placa> continuo --f 1000`** (10 s a 200 kHz, 2 milhões de amostras):
+  todas as verificações ok — captura completa, sem salto nas fronteiras de bloco. Na
+  captura inteira: **f = 1000,013 Hz** (13 ppm), **SINAD 56,1 dB, ENOB 9,03**.
+- **Leitura do ENOB:** 9,03 passa no critério do teste (> 9), mas com pouca folga e
+  longe dos ~11,9 bits que o LTC2308 promete. O número mede o conversor **junto com o
+  gerador** (ruído e harmônicas dele entram na SINAD); separar um do outro exigiria um
+  gerador melhor ou um filtro na entrada. Não foi investigado.
+- **Não registrado:** a placa usada e os números de cada fs do teste `senoide`.
+
+Com isto, o ADC está validado com sinal alternado. Em DC, o registrado é o 3,3 V da
+placa lido como 3,3300 V e o terra; a comparação com o multímetro no mesmo ponto segue
+sem registro.
+
 ## 01/10/2026 — Analisador linear, atualização em um comando, pasta Quartus limpa
 
 - **Analisador espectral sem dB e com o espectro completo**, a pedido: eixo em volts de
