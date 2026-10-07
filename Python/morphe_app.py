@@ -27,6 +27,7 @@ from fir_window import FIRWindow
 from iir_window import IIRWindow
 from comparator_window import ComparatorWindow
 from soma_window import SomaWindow
+from conv_aluno_window import ConvAlunoWindow
 from tcp_panel import TcpConfigPanel
 
 # Créditos do rodapé, uma linha cada: (texto, perfil do LinkedIn ou ""). O
@@ -117,6 +118,7 @@ class MorpheMainWindow(tk.Tk):
             ("Filtro FIR  (FPGA)",             self._open_fir),
             ("Filtro IIR  (FPGA)",             self._open_iir),
             ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
+            ("Convolução do aluno  (conv_aluno × conv1d)", self._open_conv_aluno),
         ]
         for label, cmd in primary_actions:
             ttk.Button(
@@ -248,6 +250,9 @@ class MorpheMainWindow(tk.Tk):
 
     def _open_soma(self):
         SomaWindow(self)
+
+    def _open_conv_aluno(self):
+        ConvAlunoWindow(self)
 
     def _open_comparator(self):
         ComparatorWindow(self)

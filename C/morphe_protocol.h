@@ -11,7 +11,7 @@
  *   uint32 magic    = 0x4D52504D ('MRPM')
  *   uint16 version  = 1
  *   uint16 opcode   (1=CONV, 2=FFT, 3=PING, 4=FIR, 5=IFFT, 6=IIR, 7=ADC,
- *                    8=ADC_CONTINUO, 9=SOMA)
+ *                    8=ADC_CONTINUO, 9=SOMA, 10=CONV_ALUNO)
  *   uint16 dtype    (1=int32, 2=float32)
  *   uint16 flags    (0)
  *   uint32 n_x      (comprimento de x)
@@ -38,6 +38,10 @@
  *               Q15.16, como na CONV). n_x == n_h, de 1 a
  *               MORPHE_SOMA_N_MAX. A resposta traz n_x amostras de
  *               y = a + b, saturada em 32 bits.
+ *   CONV_ALUNO -> igual a CONV (x e depois h, int32 Q15.16, de 1 a
+ *               MORPHE_CONV_ALUNO_N_MAX cada), mas calculada pelo
+ *               conv_aluno.v, o modulo que o aluno escreve no roteiro da
+ *               convolucao. Resposta: n_x + n_h - 1 amostras de y.
  *   ADC_CONTINUO -> igual ao ADC, mas n_x = total de amostras sem o limite
  *               da RAM (0 = ate o cliente parar). A resposta e diferente:
  *               o cabecalho (status OK, n_out = 0, extra = divisor) e depois
@@ -81,6 +85,7 @@
 #define MORPHE_OP_ADC      7U   /* captura do LTC2308 a fs fixa (adc_captura.v) */
 #define MORPHE_OP_ADC_CONTINUO 8U   /* a mesma, sem limite de tamanho, em blocos */
 #define MORPHE_OP_SOMA     9U   /* y = a + b (soma.v), modulo de exemplo do roteiro */
+#define MORPHE_OP_CONV_ALUNO 10U /* convolucao do aluno (conv_aluno.v), roteiro da convolucao */
 
 /* Estado de cada bloco da resposta do ADC_CONTINUO. */
 #define MORPHE_ADC_BLOCO_SEGUE    0U

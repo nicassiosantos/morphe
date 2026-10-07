@@ -65,6 +65,7 @@ OP_IIR  = 6   # cascata de biquads Q15.16 (iir_cascade.v); n_h = no. de secoes
 OP_ADC  = 7   # captura do LTC2308 (adc_captura.v); n_h = divisor, flags = config
 OP_ADC_CONTINUO = 8   # a mesma, sem limite de tamanho: resposta em blocos
 OP_SOMA = 9   # y = a + b (soma.v), modulo de exemplo do roteiro
+OP_CONV_ALUNO = 10   # convolucao do aluno (conv_aluno.v), roteiro da convolucao
 
 # Estado de cada bloco da resposta do OP_ADC_CONTINUO (ver morphe_protocol.h).
 ADC_BLOCO_SEGUE = 0
@@ -355,6 +356,19 @@ def build_soma_request(a_q: np.ndarray, b_q: np.ndarray,
     return hdr + pack_samples(a_q, dtype_code) + pack_samples(b_q, dtype_code)
 
 
+def build_conv_aluno_request(x_q: np.ndarray, h_q: np.ndarray,
+                             dtype_code: int = DTYPE_INT32) -> bytes:
+    """Pedido da CONV_ALUNO: o mesmo layout da CONV -- cabecalho com
+    n_x = len(x) e n_h = len(h), depois as amostras de x e as de h, ja em
+    Q15.16 (inteiros), de 1 a CONV_ALUNO_N_MAX cada."""
+    hdr = struct.pack(
+        ">IHHHHII",
+        MAGIC_REQ, VERSION, OP_CONV_ALUNO, dtype_code, 0,
+        len(x_q), len(h_q),
+    )
+    return hdr + pack_samples(x_q, dtype_code) + pack_samples(h_q, dtype_code)
+
+
 class TcpClient:
     """Cliente simples: abre conexão, envia request, lê response e fecha."""
 
@@ -440,6 +454,16 @@ def decode_soma_response(resp: Response) -> np.ndarray:
         raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
     if resp.opcode != OP_SOMA:
         raise ValueError(f"esperado opcode SOMA, veio {resp.opcode}")
+    be = _np_dtype_be(resp.dtype_code)
+    return np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
+
+
+def decode_conv_aluno_response(resp: Response) -> np.ndarray:
+    """y = x * h em Q15.16 (inteiros), como o conv_aluno.v devolveu."""
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_CONV_ALUNO:
+        raise ValueError(f"esperado opcode CONV_ALUNO, veio {resp.opcode}")
     be = _np_dtype_be(resp.dtype_code)
     return np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
 

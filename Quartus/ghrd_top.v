@@ -269,6 +269,12 @@ localparam ADC_ADDR_WIDTH = 15;         // 32768 amostras na RAM adc_buf
 localparam SOMA_DATA_WIDTH = 32;
 localparam SOMA_ADDR_WIDTH = 10;        // 1024 amostras
 localparam SOMA_N_SAMPLES  = 1024;
+
+// --- CONV_ALUNO (roteiro da convolucao: o aluno escreve o conv_aluno.v) ---
+localparam CONV_ALUNO_DATA_WIDTH  = 32;
+localparam CONV_ALUNO_X_ADDR_BITS = 10;   // x: 1024 amostras
+localparam CONV_ALUNO_H_ADDR_BITS = 10;   // h: 1024 amostras
+localparam CONV_ALUNO_Y_ADDR_BITS = 11;   // y: 2047 amostras (nx + nh - 1)
 localparam ADC_DIV_MIN    = 250;        // 50 MHz / 250 = 200 kHz, a fs maxima
 
 localparam CONV1d_DATA_WIDTH    = 32;
@@ -464,6 +470,35 @@ wire [3:0]                        soma_y_byteenable = 4'b1111;
 wire [31:0]                       soma_teste_a;    // HPS -> FPGA
 wire [31:0]                       soma_teste_b;    // HPS -> FPGA
 wire [31:0]                       soma_teste_y;    // FPGA -> HPS
+
+
+/* -------------------------------------------------------------------------------------------
+ * 3-quinquies. CONV_ALUNO PERIPHERAL SIGNALS (roteiro da convolucao)
+ * ------------------------------------------------------------------------------------------- */
+// --- Controle (PIOs) ---
+wire                                    conv_aluno_start;   // HPS -> FPGA
+wire                                    conv_aluno_done;    // FPGA -> HPS
+wire [CONV_ALUNO_X_ADDR_BITS:0]         conv_aluno_nx;      // HPS -> FPGA, 1..1024
+wire [CONV_ALUNO_H_ADDR_BITS:0]         conv_aluno_nh;      // HPS -> FPGA, 1..1024
+
+// --- SRAM x[n]: o HPS escreve, o conv_aluno le ---
+wire [CONV_ALUNO_X_ADDR_BITS-1:0]       conv_aluno_x_address;
+wire [CONV_ALUNO_DATA_WIDTH-1:0]        conv_aluno_x_readdata;
+wire [CONV_ALUNO_DATA_WIDTH-1:0]        conv_aluno_x_writedata = {CONV_ALUNO_DATA_WIDTH{1'b0}};
+wire [3:0]                              conv_aluno_x_byteenable = 4'b1111;
+
+// --- SRAM h[n]: o HPS escreve, o conv_aluno le ---
+wire [CONV_ALUNO_H_ADDR_BITS-1:0]       conv_aluno_h_address;
+wire [CONV_ALUNO_DATA_WIDTH-1:0]        conv_aluno_h_readdata;
+wire [CONV_ALUNO_DATA_WIDTH-1:0]        conv_aluno_h_writedata = {CONV_ALUNO_DATA_WIDTH{1'b0}};
+wire [3:0]                              conv_aluno_h_byteenable = 4'b1111;
+
+// --- SRAM y[n]: o conv_aluno escreve, o HPS le ---
+wire [CONV_ALUNO_Y_ADDR_BITS-1:0]       conv_aluno_y_address;
+wire [CONV_ALUNO_DATA_WIDTH-1:0]        conv_aluno_y_readdata;
+wire [CONV_ALUNO_DATA_WIDTH-1:0]        conv_aluno_y_writedata;
+wire                                    conv_aluno_y_write;
+wire [3:0]                              conv_aluno_y_byteenable = 4'b1111;
 
 
 /* -------------------------------------------------------------------------------------------
@@ -878,6 +913,42 @@ soma_core #(
 );
 
 // ===========================================================================================
+// INSTANTIATION: CONV_ALUNO (roteiro da convolucao: o aluno escreve o conv_aluno.v)
+// ===========================================================================================
+// A porta s1 de cada memoria fica sempre habilitada (chipselect = clken = 1):
+// o conv_aluno so ve um endereco e um dado, com UM ciclo de latencia na
+// leitura. x e h nunca sao escritas por este lado (write = 0); y e escrita
+// quando o modulo poe y_we = 1.
+conv_aluno #(
+    .DATA_WIDTH  (CONV_ALUNO_DATA_WIDTH),
+    .X_ADDR_BITS (CONV_ALUNO_X_ADDR_BITS),
+    .H_ADDR_BITS (CONV_ALUNO_H_ADDR_BITS),
+    .Y_ADDR_BITS (CONV_ALUNO_Y_ADDR_BITS)
+) conv_aluno_inst (
+    .clk     (CLOCK_50),
+    .reset_n (hps_fpga_reset_n),
+
+    // PIOs de controle (Platform Designer)
+    .start   (conv_aluno_start),    // HPS -> FPGA
+    .done    (conv_aluno_done),     // FPGA -> HPS
+    .nx      (conv_aluno_nx),
+    .nh      (conv_aluno_nh),
+
+    // x[k]: porta s1 da memoria conv_aluno_x
+    .x_addr  (conv_aluno_x_address),
+    .x_data  (conv_aluno_x_readdata),
+
+    // h[k]: porta s1 da memoria conv_aluno_h
+    .h_addr  (conv_aluno_h_address),
+    .h_data  (conv_aluno_h_readdata),
+
+    // y[n]: porta s1 da memoria conv_aluno_y
+    .y_addr  (conv_aluno_y_address),
+    .y_data  (conv_aluno_y_writedata),
+    .y_we    (conv_aluno_y_write)
+);
+
+// ===========================================================================================
 // INSTANTIATION: FIR Filter (using conv1d hardware accelerator)
 // ===========================================================================================
 conv1d #(
@@ -1129,6 +1200,38 @@ soc_system u0 (
     .soma_y_readdata         (soma_y_readdata),
     .soma_y_writedata        (soma_y_writedata),
     .soma_y_byteenable       (soma_y_byteenable),
+
+    // ======================================================
+    //  CUSTOM DSP EXPORTS: CONV_ALUNO (roteiro da convolucao)
+    // ======================================================
+    .conv_aluno_start_export     (conv_aluno_start),
+    .conv_aluno_done_export      (conv_aluno_done),
+    .conv_aluno_nx_export        (conv_aluno_nx),
+    .conv_aluno_nh_export        (conv_aluno_nh),
+
+    .conv_aluno_x_address        (conv_aluno_x_address),
+    .conv_aluno_x_clken          (1'b1),
+    .conv_aluno_x_chipselect     (1'b1),
+    .conv_aluno_x_write          (1'b0),
+    .conv_aluno_x_readdata       (conv_aluno_x_readdata),
+    .conv_aluno_x_writedata      (conv_aluno_x_writedata),
+    .conv_aluno_x_byteenable     (conv_aluno_x_byteenable),
+
+    .conv_aluno_h_address        (conv_aluno_h_address),
+    .conv_aluno_h_clken          (1'b1),
+    .conv_aluno_h_chipselect     (1'b1),
+    .conv_aluno_h_write          (1'b0),
+    .conv_aluno_h_readdata       (conv_aluno_h_readdata),
+    .conv_aluno_h_writedata      (conv_aluno_h_writedata),
+    .conv_aluno_h_byteenable     (conv_aluno_h_byteenable),
+
+    .conv_aluno_y_address        (conv_aluno_y_address),
+    .conv_aluno_y_clken          (1'b1),
+    .conv_aluno_y_chipselect     (1'b1),
+    .conv_aluno_y_write          (conv_aluno_y_write),
+    .conv_aluno_y_readdata       (conv_aluno_y_readdata),
+    .conv_aluno_y_writedata      (conv_aluno_y_writedata),
+    .conv_aluno_y_byteenable     (conv_aluno_y_byteenable),
 
 
     

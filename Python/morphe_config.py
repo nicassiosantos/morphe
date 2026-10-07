@@ -62,6 +62,11 @@ IIR_FRAC_BITS: int = 16
 # Espelho do MORPHE_SOMA_N_MAX do morphe_config.h.
 SOMA_N_MAX: int = 1024
 
+# ---- CONV_ALUNO (roteiro da convolucao: o aluno escreve o conv_aluno.v) ----
+# x e h de 1 a CONV_ALUNO_N_MAX amostras; y com nx + nh - 1.
+# Espelho do MORPHE_CONV_ALUNO_N_MAX do morphe_config.h.
+CONV_ALUNO_N_MAX: int = 1024
+
 # ---- ADC (LTC2308, captura a fs fixa pelo adc_captura.v) ------------------
 # Amostras por captura: a RAM adc_buf tem 2^15 palavras.
 ADC_N_MAX: int = 32768

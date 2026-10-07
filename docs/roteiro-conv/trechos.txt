@@ -1,0 +1,201 @@
+Trechos do roteiro da convolucao (docs/roteiro-conv/roteiro-conv.pdf),
+em texto puro, para copiar e colar sem perder as quebras de linha.
+Os numeros [N] seguem a ordem em que os trechos aparecem no PDF.
+
+========================================================================
+[1] Antes de começar
+========================================================================
+cd ~
+
+========================================================================
+[2] Antes de começar
+========================================================================
+git clone -b estagio/modulo-conv https://github.com/nicassiosantos/morphe.git minha-conv
+
+========================================================================
+[3] Antes de começar
+========================================================================
+cd minha-conv
+
+========================================================================
+[4] Antes de começar
+========================================================================
+git switch -c minha-conv
+
+========================================================================
+[5] Parte A --- construir o módulo / A2 Da tabela a dois laços
+========================================================================
+para n = 0 até nx + nh - 2:             # uma LINHA da tabela
+    acc = 0
+    para k = kmin(n) até kmax(n):       # as casas coloridas
+        acc = acc + x[k] * h[n - k]
+    y[n] = acc                          # a soma da linha
+
+========================================================================
+[6] Parte A --- construir o módulo / A3 O que entra e o que sai do módulo
+========================================================================
+module conv_aluno #(
+    parameter DATA_WIDTH  = 32,
+    parameter X_ADDR_BITS = 10,     // x: ate 1024 amostras
+    parameter H_ADDR_BITS = 10,     // h: ate 1024 amostras
+    parameter Y_ADDR_BITS = 11      // y: ate 2047 amostras (nx + nh - 1)
+)(
+    input  wire                          clk,       // 50 MHz
+    input  wire                          reset_n,   // ativo em 0
+
+    // --- controle (PIOs) ---
+    input  wire                          start,     // HPS -> FPGA
+    output reg                           done,      // FPGA -> HPS
+    input  wire [X_ADDR_BITS:0]          nx,        // amostras de x, 1 a 1024
+    input  wire [H_ADDR_BITS:0]          nh,        // amostras de h, 1 a 1024
+
+    // --- memoria de x[k] (so leitura) ---
+    output reg  [X_ADDR_BITS-1:0]        x_addr,
+    input  wire signed [DATA_WIDTH-1:0]  x_data,
+
+    // --- memoria de h[k] (so leitura) ---
+    output reg  [H_ADDR_BITS-1:0]        h_addr,
+    input  wire signed [DATA_WIDTH-1:0]  h_data,
+
+    // --- memoria de y[n] (so escrita) ---
+    output reg  [Y_ADDR_BITS-1:0]        y_addr,
+    output reg  signed [DATA_WIDTH-1:0]  y_data,
+    output reg                           y_we
+);
+
+========================================================================
+[7] Parte A --- construir o módulo / A5 Simular antes de compilar
+========================================================================
+iverilog -g2005 -o /tmp/tb_conv.vvp testbench/tb_conv_aluno.v conv_aluno.v
+
+========================================================================
+[8] Parte A --- construir o módulo / A5 Simular antes de compilar
+========================================================================
+vvp /tmp/tb_conv.vvp
+
+========================================================================
+[9] Parte A --- construir o módulo / A5 Simular antes de compilar
+========================================================================
+ok    Exemplo 2 do artigo  (nx=4 nh=4, 81 ciclos)
+ok    1 x 1, fracao e sinal  (nx=1 nh=1, 9 ciclos)
+ok    h maior que x  (nx=3 nh=6, 91 ciclos)
+ok    aleatorio 50 x 17  (nx=50 nh=17, 3535 ciclos)
+ok    x com 1024 amostras  (nx=1024 nh=3, 14343 ciclos)
+ok    h com 1024 amostras  (nx=3 nh=1024, 14343 ciclos)
+ok    segunda rodada seguida  (nx=4 nh=4, 81 ciclos)
+TUDO OK
+
+========================================================================
+[10] Parte A --- construir o módulo / A6 Compilar e gravar a placa
+========================================================================
+python3 gen_hps_header.py
+
+========================================================================
+[11] Parte A --- construir o módulo / A6 Compilar e gravar a placa
+========================================================================
+./morphe-up.sh --cable 'CABO' --deploy
+
+========================================================================
+[12] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+sudo screen /dev/ttyUSB0 115200
+
+========================================================================
+[13] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+cd ~/morphe
+
+========================================================================
+[14] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xFF200180 32 0
+
+========================================================================
+[15] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xFF2001A0 32 4
+
+========================================================================
+[16] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xFF2001B0 32 4
+
+========================================================================
+[17] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC0043000 32 0x00010000
+
+========================================================================
+[18] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC0043004 32 0x00020000
+
+========================================================================
+[19] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC0043008 32 0x00030000
+
+========================================================================
+[20] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC004300C 32 0x00010000
+
+========================================================================
+[21] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC0046000 32 0x00010000
+
+========================================================================
+[22] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC0046004 32 0x00020000
+
+========================================================================
+[23] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC0046008 32 0x00010000
+
+========================================================================
+[24] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xC004600C 32 0xFFFF0000
+
+========================================================================
+[25] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xFF200180 32 1
+
+========================================================================
+[26] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xFF200190
+
+========================================================================
+[27] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+for a in 00 04 08 0C 10 14 18; do ./devmem 0xC00440$a; done
+
+========================================================================
+[28] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
+========================================================================
+./devmem 0xFF200180 32 0
+
+========================================================================
+[29] Parte B --- usar no Morphe e comparar com o conv1d / B2 O Exemplo 2 no aplicativo
+========================================================================
+python3 Python/morphe_app.py
+
+========================================================================
+[30] Parte B --- usar no Morphe e comparar com o conv1d / B4 Devolver a placa à turma
+========================================================================
+./morphe-up.sh --down
+
+========================================================================
+[31] Parte B --- usar no Morphe e comparar com o conv1d / B4 Devolver a placa à turma
+========================================================================
+cd /opt/morphe
+
+========================================================================
+[32] Parte B --- usar no Morphe e comparar com o conv1d / B4 Devolver a placa à turma
+========================================================================
+./morphe-up.sh --cable 'CABO'

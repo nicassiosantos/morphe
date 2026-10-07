@@ -106,6 +106,15 @@
  * memorias soma_a, soma_b e soma_y tem 1024 palavras de 32 bits cada. */
 #define MORPHE_SOMA_N_MAX       1024
 
+/* ---- CONV_ALUNO (roteiro da convolucao: o aluno escreve o conv_aluno.v) -- */
+
+/* x e h de 1 a MORPHE_CONV_ALUNO_N_MAX amostras cada; y com nx + nh - 1.
+ * Memorias conv_aluno_x e conv_aluno_h de 1024 palavras, conv_aluno_y de
+ * 2048. Ao contrario do conv1d, o modulo recebe nx e nh (dois PIOs) e
+ * calcula so as amostras pedidas. */
+#define MORPHE_CONV_ALUNO_N_MAX 1024
+#define MORPHE_CONV_ALUNO_Y_MAX (2 * MORPHE_CONV_ALUNO_N_MAX - 1)  /* = 2047 */
+
 /* ---- Rede -------------------------------------------------------------- */
 
 /* Porta TCP padrao do servidor (cliente pode sobrescrever). */

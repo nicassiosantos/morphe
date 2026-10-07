@@ -121,10 +121,26 @@
 #define _MORPHE_END_SOMA 0
 #endif
 
+/* A convolucao do aluno: mesma regra da soma (memorias e PIOs no hps_0.h,
+ * e o sysid para recusar bitstream antigo). */
+#if defined(CONV_ALUNO_X_BASE) && defined(CONV_ALUNO_H_BASE) && defined(CONV_ALUNO_Y_BASE) && \
+    defined(CONV_ALUNO_START_BASE) && defined(CONV_ALUNO_DONE_BASE) && \
+    defined(CONV_ALUNO_NX_BASE) && defined(CONV_ALUNO_NH_BASE) && MORPHE_TEM_ADC
+#define MORPHE_TEM_CONV_ALUNO 1
+#define _MORPHE_END_CONV_ALUNO \
+    _MORPHE_MAX3( \
+        _MORPHE_END(CONV_ALUNO_X_BASE, CONV_ALUNO_X_SPAN), \
+        _MORPHE_END(CONV_ALUNO_H_BASE, CONV_ALUNO_H_SPAN), \
+        _MORPHE_END(CONV_ALUNO_Y_BASE, CONV_ALUNO_Y_SPAN))
+#else
+#define MORPHE_TEM_CONV_ALUNO 0
+#define _MORPHE_END_CONV_ALUNO 0
+#endif
+
 #define MORPHE_ONCHIP_MMAP_SPAN \
     _MORPHE_ROUND_UP( \
-        _MORPHE_MAX3(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
-                     _MORPHE_END_ADC, _MORPHE_END_SOMA), \
+        _MORPHE_MAX4(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
+                     _MORPHE_END_ADC, _MORPHE_END_SOMA, _MORPHE_END_CONV_ALUNO), \
         _MORPHE_PAGE_SIZE)
 
 /* Saida maxima do FIR: derivada do span real de fir_yn no hps_0.h. */
@@ -150,6 +166,11 @@ _Static_assert(ADC_BUF_SPAN     >= MORPHE_ADC_N_MAX * (int)sizeof(int32_t), "Err
 _Static_assert(SOMA_A_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(SOMA_B_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
 _Static_assert(SOMA_Y_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
+#endif
+#if MORPHE_TEM_CONV_ALUNO
+_Static_assert(CONV_ALUNO_X_SPAN >= MORPHE_CONV_ALUNO_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(CONV_ALUNO_H_SPAN >= MORPHE_CONV_ALUNO_N_MAX * (int)sizeof(int32_t), "Erro");
+_Static_assert(CONV_ALUNO_Y_SPAN >= MORPHE_CONV_ALUNO_Y_MAX * (int)sizeof(int32_t), "Erro");
 #endif
 _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 
@@ -225,6 +246,16 @@ static volatile uint32_t *g_pio_soma_start  = NULL;
 static volatile uint32_t *g_pio_soma_done   = NULL;
 #endif
 
+#if MORPHE_TEM_CONV_ALUNO
+static int32_t           *g_conv_aluno_x         = NULL;
+static int32_t           *g_conv_aluno_h         = NULL;
+static int32_t           *g_conv_aluno_y         = NULL;
+static volatile uint32_t *g_pio_conv_aluno_start = NULL;
+static volatile uint32_t *g_pio_conv_aluno_done  = NULL;
+static volatile uint32_t *g_pio_conv_aluno_nx    = NULL;
+static volatile uint32_t *g_pio_conv_aluno_nh    = NULL;
+#endif
+
 #if MORPHE_TEM_ADC
 static volatile uint32_t *g_pio_adc_start     = NULL;
 static volatile uint32_t *g_pio_adc_done      = NULL;
@@ -285,6 +316,7 @@ static const char *nome_op(uint16_t op) {
         case MORPHE_OP_ADC:  return "adc";
         case MORPHE_OP_ADC_CONTINUO: return "adc_continuo";
         case MORPHE_OP_SOMA: return "soma";
+        case MORPHE_OP_CONV_ALUNO: return "conv_aluno";
         default:             return "desconhecida";
     }
 }
@@ -518,6 +550,16 @@ static int fpga_init(void) {
     g_pio_soma_done  = (volatile uint32_t *)((char *)g_lw_virt + SOMA_DONE_BASE);
 #endif
 
+#if MORPHE_TEM_CONV_ALUNO
+    g_conv_aluno_x         = (int32_t *)((char *)g_fpga_virt + CONV_ALUNO_X_BASE);
+    g_conv_aluno_h         = (int32_t *)((char *)g_fpga_virt + CONV_ALUNO_H_BASE);
+    g_conv_aluno_y         = (int32_t *)((char *)g_fpga_virt + CONV_ALUNO_Y_BASE);
+    g_pio_conv_aluno_start = (volatile uint32_t *)((char *)g_lw_virt + CONV_ALUNO_START_BASE);
+    g_pio_conv_aluno_done  = (volatile uint32_t *)((char *)g_lw_virt + CONV_ALUNO_DONE_BASE);
+    g_pio_conv_aluno_nx    = (volatile uint32_t *)((char *)g_lw_virt + CONV_ALUNO_NX_BASE);
+    g_pio_conv_aluno_nh    = (volatile uint32_t *)((char *)g_lw_virt + CONV_ALUNO_NH_BASE);
+#endif
+
     /* Nenhum acesso a FPGA aqui. Ate 21/09/2026 este ponto zerava os quatro
      * PIOs de start, e foi isso que derrubou a placa 2 no boot: com o
      * autostart, o servidor sobe 6 s depois do kernel, quando a FPGA ainda
@@ -547,6 +589,9 @@ static int fpga_preparada(void) {
 #endif
 #if MORPHE_TEM_SOMA
         if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_soma_start = 0;
+#endif
+#if MORPHE_TEM_CONV_ALUNO
+        if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_conv_aluno_start = 0;
 #endif
         g_pios_zerados = 1;
         LOG("marca %s presente: FPGA preparada, PIOs de start zerados", MORPHE_MARCA_FPGA);
@@ -1619,6 +1664,99 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
 }
 #endif
 
+/* CONV_ALUNO: a convolucao do conv_aluno.v, o modulo que o aluno escreve no
+ * roteiro da convolucao. Payload igual ao da CONV (x e depois h, int32
+ * Q15.16); o molde e o handle_soma. Diferenca para o conv1d: o modulo
+ * recebe nx e nh pelos PIOs e calcula so as nx + nh - 1 amostras pedidas. */
+#if !MORPHE_TEM_CONV_ALUNO
+static int handle_conv_aluno(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
+    (void) dtype; (void) n_x; (void) n_h;
+    LOG("CONV_ALUNO request recusado: servidor compilado sem o conv_aluno");
+    return send_error(sock, MORPHE_OP_CONV_ALUNO, MORPHE_STATUS_BAD_OPCODE,
+                      "CONV_ALUNO: este servidor foi compilado sem o conv_aluno (o hps_0.h "
+                      "nao tem conv_aluno_x: gere o soc_system e rode gen_hps_header.py)");
+}
+#else
+static int handle_conv_aluno(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
+    LOG("CONV_ALUNO request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
+
+    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_CONV_ALUNO, "CONV_ALUNO");
+
+    /* bitstream antigo: nao ha memoria em 0x43000, e acesso a endereco sem
+     * escravo trava o barramento do HPS */
+    uint32_t ts = g_sysid[1];
+    if (ts != SYSID_QSYS_TIMESTAMP) {
+        char msg[192];
+        snprintf(msg, sizeof msg,
+                 "CONV_ALUNO: o bitstream na FPGA (sysid %u) nao e o deste servidor (%u) -- "
+                 "rode ./morphe-up.sh com o .sof que tem o conv_aluno", ts, SYSID_QSYS_TIMESTAMP);
+        LOG("  -> %s", msg);
+        return send_error(sock, MORPHE_OP_CONV_ALUNO, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
+    }
+
+    if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_ALUNO_N_MAX || n_h > MORPHE_CONV_ALUNO_N_MAX) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "CONV_ALUNO: n_x e n_h devem estar em [1, %d]",
+                 MORPHE_CONV_ALUNO_N_MAX);
+        return send_error(sock, MORPHE_OP_CONV_ALUNO, MORPHE_STATUS_BAD_SIZE, msg);
+    }
+    uint32_t n_out = n_x + n_h - 1;
+
+    /* 1. recebe x e h */
+    size_t payload_bytes = (size_t)(n_x + n_h) * 4;
+    static uint8_t rx_buf[RX_BUF_MAX];
+    if (payload_bytes > sizeof rx_buf)
+        return send_error(sock, MORPHE_OP_CONV_ALUNO, MORPHE_STATUS_BAD_SIZE, "CONV_ALUNO: payload excedido");
+    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+
+    static int32_t x_buf[MORPHE_CONV_ALUNO_N_MAX];
+    static int32_t h_buf[MORPHE_CONV_ALUNO_N_MAX];
+    decode_samples_to_i32(rx_buf,           n_x, dtype, x_buf);
+    decode_samples_to_i32(rx_buf + n_x * 4, n_h, dtype, h_buf);
+
+    /* 2. escreve x, h e os tamanhos na FPGA. y e zerada antes: se o modulo
+     * do aluno nao gravar alguma amostra, ela volta 0, e nao o resultado
+     * da rodada anterior. */
+    for (uint32_t i = 0; i < n_x; i++)   g_conv_aluno_x[i] = x_buf[i];
+    for (uint32_t i = 0; i < n_h; i++)   g_conv_aluno_h[i] = h_buf[i];
+    for (uint32_t i = 0; i < n_out; i++) g_conv_aluno_y[i] = 0;
+    *g_pio_conv_aluno_nx = n_x;
+    *g_pio_conv_aluno_nh = n_h;
+
+    /* 3. dispara (borda de subida no start) e espera o done */
+    *g_pio_conv_aluno_start = 0;
+    usleep(1);
+    *g_pio_conv_aluno_start = 1;
+    if (wait_done(g_pio_conv_aluno_done, FPGA_DONE_TIMEOUT_MS) < 0) {
+        *g_pio_conv_aluno_start = 0;
+        return send_error(sock, MORPHE_OP_CONV_ALUNO, MORPHE_STATUS_FPGA_TIMEOUT,
+                          "CONV_ALUNO: timeout (o done do conv_aluno nao subiu em 5 s)");
+    }
+    *g_pio_conv_aluno_start = 0;    /* com start em 0, o modulo volta ao repouso */
+
+    /* 4. le a saida */
+    static int32_t y_buf[MORPHE_CONV_ALUNO_Y_MAX];
+    for (uint32_t i = 0; i < n_out; i++) y_buf[i] = g_conv_aluno_y[i];
+
+    save_debug_bundle_conv("conv_aluno", dtype, n_x, x_buf, n_h, h_buf, n_out, y_buf);
+
+    /* 5. responde */
+    static uint8_t tx_buf[TX_BUF_MAX];
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_CONV_ALUNO, dtype, MORPHE_STATUS_OK, n_out);
+    if (dtype == MORPHE_DTYPE_INT32) {
+        for (uint32_t i = 0; i < n_out; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
+    } else {
+        for (uint32_t i = 0; i < n_out; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
+    }
+    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n_out * 4) < 0) return -1;
+
+    LOG("  -> CONV_ALUNO OK: n_out=%u", n_out);
+    return 0;
+}
+#endif
+
 static int handle_ping(int sock) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1628,12 +1766,15 @@ static int handle_ping(int sock) {
      * sem ele, FPGA ainda sem o bitstream do Morphe, ou bitstream sem o ADC
      * (sysid diferente do hps_0.h). Ler o sysid e seguro depois da marca. */
     int preparada = fpga_preparada();
-    int adc_ok = 0, soma_ok = 0;
+    int adc_ok = 0, soma_ok = 0, conv_aluno_ok = 0;
 #if MORPHE_TEM_ADC
     adc_ok = preparada && g_sysid[1] == SYSID_QSYS_TIMESTAMP;
 #endif
 #if MORPHE_TEM_SOMA
     soma_ok = adc_ok;          /* o mesmo bitstream, o mesmo sysid */
+#endif
+#if MORPHE_TEM_CONV_ALUNO
+    conv_aluno_ok = adc_ok;
 #endif
 
     char body[512];
@@ -1641,13 +1782,14 @@ static int handle_ping(int sock) {
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
         "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
         "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
-        "adc_fs_min=%d\nsoma_n_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
+        "adc_fs_min=%d\nsoma_n_max=%d\nconv_aluno_n_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
         MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
         MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
         adc_ok ? MORPHE_ADC_N_MAX : 0,
         MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
         soma_ok ? MORPHE_SOMA_N_MAX : 0,
+        conv_aluno_ok ? MORPHE_CONV_ALUNO_N_MAX : 0,
         uptime_s, preparada);
 
     uint8_t hdr[MORPHE_HEADER_SIZE];
@@ -1693,6 +1835,7 @@ static void serve_connection(int sock, const struct sockaddr_in *peer) {
         case MORPHE_OP_ADC:  handle_adc(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC_CONTINUO: handle_adc_continuo(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_SOMA: handle_soma(sock, dtype, n_x, n_h); break;
+        case MORPHE_OP_CONV_ALUNO: handle_conv_aluno(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");

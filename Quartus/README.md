@@ -20,6 +20,7 @@ completo, com o porquê de cada passo, está no capítulo 10 do manual.
 | `iir_cascade.v`, `iir_sos.v`, `iir_biquad_mac.v` | o filtro IIR em seções de segunda ordem |
 | `adc_captura.v` | o controlador próprio do ADC LTC2308 (leitura e captura) |
 | `soma.v` | y = a + b: o módulo de exemplo do roteiro `docs/roteiro-modulo` (só na branch `estagio/modulo-soma`) |
+| `conv_aluno.v` | a convolução que o aluno escreve no roteiro `docs/roteiro-conv` (só as portas; só na branch `estagio/modulo-conv`) |
 | `memory_read_controller.v`, `memory_write_controller.v` | leitura e escrita nas memórias de porta dupla, usados pelos aceleradores |
 | `soc_system.qsys` → `soc_system/` | o sistema do Platform Designer: HPS, pontes, memórias, PIOs |
 | `fft_core.qsys` → `fft_core/` | o núcleo de FFT da Intel (IP licenciada, gera o `_time_limited.sof`) |

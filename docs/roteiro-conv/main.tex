@@ -1,0 +1,961 @@
+% =============================================================================
+% Roteiro pratico: implementar a convolucao discreta na FPGA do Morphe.
+% O aluno escreve so o conv_aluno.v; memorias, PIOs, topo, servidor C e
+% aplicativo ja estao prontos na branch estagio/modulo-conv. Compila no
+% Overleaf com pdfLaTeX (suba main.tex e a pasta prints/) ou com Tectonic.
+% Base teorica: Ojeda Gonzalez e Lamin, "Um exemplo didatico para o ensino da
+% convolucao discreta", Revista Univap 25(49), p. 13-24, 2019.
+% =============================================================================
+\documentclass[11pt,a4paper,oneside]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[brazilian]{babel}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{microtype}
+\setlength{\emergencystretch}{3em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\graphicspath{{prints/}}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\setlist{itemsep=1pt,topsep=3pt}
+\usepackage[most]{tcolorbox}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,calc,shapes.geometric,decorations.pathreplacing,automata}
+\usepackage{dirtree}
+\usepackage[hidelinks]{hyperref}
+
+% --- cores: azul = aplicativo, verde = HPS, laranja = FPGA ---
+\definecolor{cli}{HTML}{2563EB}
+\definecolor{hps}{HTML}{15803D}
+\definecolor{fpga}{HTML}{C2410C}
+\definecolor{fundo}{HTML}{F3F4F6}
+\definecolor{cinza}{HTML}{6B7280}
+\definecolor{verm}{HTML}{DC2626}
+\definecolor{voce}{HTML}{7C3AED}
+
+\newcommand{\arq}[1]{{\upshape\ttfamily\detokenize{#1}}}
+\newcommand{\menu}[1]{\textsf{\textbf{#1}}}
+\newcommand{\seta}{\,\(\rightarrow\)\,}
+\newcommand{\nr}[1]{\tikz[baseline=-0.6ex]\node[circle,fill=verm,text=white,
+  font=\bfseries\scriptsize,inner sep=1pt,minimum size=4mm]{#1};}
+
+\newcommand{\tela}[3][\linewidth]{%
+  \begin{center}
+  {\setlength{\fboxsep}{0pt}\fcolorbox{black!25}{white}{\includegraphics[width=\dimexpr#1-1pt\relax]{#2}}}\\[1pt]
+  {\footnotesize\color{cinza}#3}
+  \end{center}}
+
+% --- caixas ---
+\newtcolorbox{porque}{colback=fpga!4,colframe=fpga!70!black,boxrule=0.4pt,arc=2pt,
+  title=O que é e por quê,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{faca}{breakable,colback=white,colframe=black!60,boxrule=0.4pt,arc=2pt,
+  title=Faça,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{confira}{breakable,colback=green!5,colframe=green!45!black,boxrule=0.4pt,arc=2pt,
+  title=Confira,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{cuidado}{colback=orange!7,colframe=orange!75!black,boxrule=0.4pt,arc=2pt,
+  title=Cuidado,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{pronto}{colback=blue!4,colframe=blue!55!black,boxrule=0.4pt,arc=2pt,
+  title=Já está pronto,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{pense}{colback=voce!5,colframe=voce!70!black,boxrule=0.4pt,arc=2pt,
+  title=Pense,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+
+% --- código ---
+\lstset{
+  basicstyle=\ttfamily\footnotesize, backgroundcolor=\color{fundo},
+  commentstyle=\color{cinza}, keywordstyle=\color{cli}\bfseries,
+  stringstyle=\color{fpga}, frame=single, framerule=0pt, framesep=3pt,
+  xleftmargin=4pt, xrightmargin=4pt, breaklines=true, columns=fullflexible,
+  keepspaces=true, showstringspaces=false, upquote=true,
+  aboveskip=4pt, belowskip=4pt,
+  literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+           {ã}{{\~a}}1 {õ}{{\~o}}1 {ç}{{\c c}}1 {→}{{$\rightarrow$}}1
+           {←}{{$\leftarrow$}}1 {·}{{$\cdot$}}1 {Ã}{{\~A}}1 {Ç}{{\c C}}1 {à}{{\`a}}1 {ê}{{\^e}}1 {ô}{{\^o}}1 {—}{{---}}1
+}
+\lstdefinestyle{sh}{language=bash,keywordstyle=\color{black}}
+
+% --- estilos dos diagramas ---
+\tikzset{
+  bloco/.style={draw,rounded corners=2pt,align=center,font=\small,
+                minimum height=0.9cm,inner sep=4pt},
+  cli/.style={bloco,fill=cli!10,draw=cli},
+  hps/.style={bloco,fill=hps!10,draw=hps},
+  fpga/.style={bloco,fill=fpga!10,draw=fpga},
+  voce/.style={bloco,fill=voce!12,draw=voce,very thick},
+  seta/.style={-{Stealth[length=2mm]},thick},
+  rot/.style={font=\scriptsize,midway},
+  passo/.style={rounded corners=2pt,fill=black,text=white,font=\bfseries\scriptsize,
+                inner sep=2pt,minimum size=5mm},
+}
+\newcommand{\passo}[1]{\tikz[baseline=-0.6ex]\node[passo]{#1};}
+
+\newcommand{\novo}{\textcolor{voce}{\sffamily\bfseries\scriptsize\ VOCÊ ESCREVE}}
+\newcommand{\ok}{\textcolor{hps}{\sffamily\bfseries\scriptsize\ PRONTO}}
+\newcommand{\gera}{\textcolor{cinza}{\sffamily\bfseries\scriptsize\ GERADO (não editar)}}
+
+\newcommand{\etapa}[2]{\subsection*{\passo{#1}\ \ #2}\addcontentsline{toc}{subsection}{#1\ \ #2}}
+
+\title{\textbf{A convolução discreta na FPGA do Morphe}\\[3pt]
+  \large Roteiro prático --- você escreve o módulo; o resto já está pronto}
+\author{Antonio Nicassio Santos Lima \quad
+  {\small Estágio LabPS/UEFS --- supervisão: Prof.\ Armando S.\ Sanca}}
+\date{outubro de 2026}
+
+\begin{document}
+\maketitle
+
+Neste roteiro você escreve, em Verilog, um bloco de hardware que calcula a
+\textbf{convolução discreta}
+\[
+  y[n] \;=\; x[n] * h[n] \;=\; \sum_{k} x[k]\,h[n-k]
+\]
+e o compara com a convolução que o Morphe já tem na FPGA (o \arq{conv1d.v}).
+A teoria vem do artigo \emph{Um exemplo didático para o ensino da convolução
+discreta} (A.~Ojeda González e I.~C.~P.~Lamin, \emph{Revista Univap},
+v.~25, n.~49, p.~13--24, dez.~2019): o método da \textbf{tabela} que ele
+propõe é, quase sem mudança, o circuito que você vai construir.
+
+Tudo em volta do seu módulo já está pronto. Você só escreve o corpo do
+\arq{conv_aluno.v}:
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.5cm]
+  \node[cli,minimum width=2.4cm] (app) {aplicativo\\\scriptsize Python};
+  \node[hps,right=0.9cm of app,minimum width=2.4cm] (srv) {servidor C\\\scriptsize no ARM da placa};
+  \node[fpga,right=0.9cm of srv,minimum width=2.6cm,minimum height=1.9cm] (mem)
+     {memórias\\ \(x\), \(h\), \(y\)\\ e PIOs\\\scriptsize start, done, \(n_x\), \(n_h\)};
+  \node[voce,right=0.9cm of mem,minimum width=2.4cm,minimum height=1.9cm] (al)
+     {\arq{conv_aluno.v}\\[2pt]\scriptsize\textbf{você escreve}};
+  \draw[seta,<->] (app) -- node[rot,above]{rede} (srv);
+  \draw[seta,<->] (srv) -- node[rot,above]{pontes} (mem);
+  \draw[seta,<->] (mem) -- (al);
+  \node[fit=(app)(srv)(mem),draw=hps,dashed,rounded corners,inner sep=5pt,
+        label={[font=\small\bfseries,text=hps]above:pronto (branch \texttt{estagio/modulo-conv})}] {};
+  \node[fpga,fill=black!5,draw=black!40,below=0.7cm of al,minimum width=2.4cm] (cv)
+     {\arq{conv1d.v}\\\scriptsize a do Morphe};
+  \draw[seta,dashed,black!50] (mem.south) |- node[rot,below,pos=0.75,black!70]{mesmos \(x\) e \(h\)} (cv.west);
+  \draw[seta,<->,dashed,black!60] (al.south) -- node[rot,right,black!70]{compare} (cv.north);
+\end{tikzpicture}
+\end{center}
+
+\begin{itemize}
+  \item \textbf{Parte A} --- construir o módulo: da tabela do artigo aos dois
+    laços, das portas à máquina de estados; simular, compilar e testar
+    \textbf{sozinho}, pela serial da placa, com o Exemplo 2 do artigo.
+  \item \textbf{Parte B} --- usar no Morphe: a janela \menu{Convolução do
+    aluno} manda os mesmos \(x\) e \(h\) para o seu módulo e para o
+    \arq{conv1d}, e mostra a diferença amostra a amostra.
+\end{itemize}
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.2cm,
+    e/.style={bloco,minimum width=1.85cm,minimum height=1.05cm,font=\scriptsize}]
+  \node[e,fill=black!5]        (a1) {\passo{A1}\\a tabela\\do artigo};
+  \node[e,fill=black!5,right=of a1] (a2) {\passo{A2}\\dois\\laços};
+  \node[e,voce,right=of a2]    (a3) {\passo{A3}\\portas e\\tempos};
+  \node[e,voce,right=of a3]    (a4) {\passo{A4}\\escrever o\\módulo};
+  \node[e,voce,right=of a4]    (a5) {\passo{A5}\\simular};
+  \node[e,fpga,right=of a5]    (a6) {\passo{A6}\\compilar\\e gravar};
+  \node[e,hps,right=of a6]     (a7) {\passo{A7}\\testar pela\\serial};
+  \foreach \i/\j in {a1/a2,a2/a3,a3/a4,a4/a5,a5/a6,a6/a7} \draw[seta] (\i)--(\j);
+  \node[e,cli,below=0.9cm of a3] (b1) {\passo{B1}\\o caminho\\pronto};
+  \node[e,cli,right=of b1]       (b2) {\passo{B2}\\Exemplo 2\\no app};
+  \node[e,cli,right=of b2]       (b3) {\passo{B3}\\comparar\\com o conv1d};
+  \node[e,fill=black!5,right=of b3] (b4) {\passo{B4}\\devolver\\a placa};
+  \foreach \i/\j in {b1/b2,b2/b3,b3/b4} \draw[seta] (\i)--(\j);
+\end{tikzpicture}
+\end{center}
+
+% =============================================================================
+\section*{Antes de começar}
+% =============================================================================
+
+\begin{faca}
+Na estação ou num computador do laboratório, num terminal (digite
+\texttt{bash} primeiro: em \texttt{ksh} os comandos do Quartus não são
+encontrados). Um clone \textbf{seu}, na sua pasta, um comando por vez:
+\begin{lstlisting}[style=sh]
+cd ~
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+git clone -b estagio/modulo-conv https://github.com/nicassiosantos/morphe.git minha-conv
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+cd minha-conv
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+git switch -c minha-conv
+\end{lstlisting}
+\end{faca}
+
+\begin{porque}
+O \arq{/opt/morphe} é a cópia que a turma usa: mexer nela muda o Morphe de
+todos. O clone na sua pasta é só seu, e a branch nova guarda o seu trabalho
+separado. A branch \texttt{estagio/modulo-conv} já tem tudo o que este
+roteiro chama de ``pronto''.
+\end{porque}
+
+\begin{cuidado}
+Copiar código do PDF pode juntar as linhas. Os mesmos trechos, em texto puro
+e na mesma ordem, estão em \arq{docs/roteiro-conv/trechos.txt}.
+\end{cuidado}
+
+\begin{center}
+\begin{minipage}{0.95\linewidth}
+\small
+\dirtree{%
+.1 minha-conv/.
+.2 Quartus/\DTcomment{\textcolor{fpga}{FPGA --- abrir no Quartus 20.1}}.
+.3 conv\_aluno.v\DTcomment{\novo{} --- só as portas; o corpo é seu (A4)}.
+.3 testbench/tb\_conv\_aluno.v\DTcomment{\ok{} --- a simulação da A5}.
+.3 conv1d.v\DTcomment{\ok{} --- a convolução do Morphe, para comparar}.
+.3 soc\_system.qsys\DTcomment{\ok{} --- memórias e PIOs do conv\_aluno}.
+.3 ghrd\_top.v\DTcomment{\ok{} --- o conv\_aluno já ligado a eles}.
+.3 soc\_system/, output\_files/\DTcomment{\gera{} na A6}.
+.2 C/\DTcomment{\textcolor{hps}{servidor no ARM da placa}}.
+.3 morphe\_server.c\DTcomment{\ok{} --- opcode \texttt{CONV\_ALUNO}}.
+.3 hps\_0.h\DTcomment{\gera{} na A6 --- os endereços}.
+.2 Python/\DTcomment{\textcolor{cli}{aplicativo}}.
+.3 conv\_aluno\_window.py\DTcomment{\ok{} --- a janela da Parte B}.
+.2 docs/roteiro-conv/\DTcomment{este roteiro e o \texttt{trechos.txt}}.
+}
+\end{minipage}
+\end{center}
+
+\begin{faca}
+Abra o projeto no \textbf{Quartus 20.1} (menu de aplicativos, \menu{Quartus
+Prime Lite 20.1}): \menu{File}\seta\menu{Open Project\ldots}\seta
+\arq{~/minha-conv/Quartus/soc_system.qpf}. No \emph{Project Navigator}, troque
+\menu{Hierarchy} por \menu{Files} e dê duplo clique em \arq{conv_aluno.v}.
+\end{faca}
+
+\begin{center}
+\begin{minipage}[t]{0.47\linewidth}\centering
+\tela{q01-abrir-projeto}{\menu{File}\seta\menu{Open Project\ldots}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.47\linewidth}\centering
+\tela{q02-arquivos}{\menu{Files}: os arquivos do projeto}
+\end{minipage}
+\end{center}
+
+\begin{cuidado}
+\textbf{Sempre o 20.1.} Se aparecer \emph{IP upgrade recommended} ou
+\emph{Used \ldots\ 23.1 (instead of 20.1)}, você abriu outra versão: feche
+\textbf{sem salvar}.
+\end{cuidado}
+
+% =============================================================================
+\section*{Parte A --- construir o módulo}
+\addcontentsline{toc}{section}{Parte A}
+% =============================================================================
+
+\etapa{A1}{A convolução pela tabela do artigo}
+
+O artigo resolve o seu \textbf{Exemplo 2} montando uma tabela: na linha de
+cima, \(x[k]\); em cada linha de baixo, \(h[n-k]\) --- o \(h\)
+\emph{invertido} e \emph{deslizado} \(n\) casas para a direita. Multiplica
+coluna a coluna e soma a linha: o resultado é \(y[n]\).
+
+Na FPGA não há índice negativo: a memória começa no endereço 0. Por isso
+guardamos os sinais a partir do 0 e a origem do tempo fica por conta do
+aplicativo (B2). No Exemplo 2, \(x = \{1, 2, 3, 1\}\) e
+\(h = \{1, 2, 1, -1\}\):
+
+\begin{center}
+\renewcommand{\arraystretch}{1.15}
+\newcommand{\z}{\color{black!30}0}
+\newcommand{\cor}[1]{\cellcolor{voce!15}#1}
+\begin{tabular}{@{}c|cccc|c|cc@{}}
+\toprule
+ & \(k=0\) & \(k=1\) & \(k=2\) & \(k=3\) & & & \\
+\(x[k]\) & 1 & 2 & 3 & 1 & & \(k_{\min}\) & \(k_{\max}\) \\
+\midrule
+\(n=0\colon\ h[0-k]\) & \cor{1} & \z & \z & \z & \(y[0]=1\cdot1=\mathbf{1}\) & 0 & 0 \\
+\(n=1\colon\ h[1-k]\) & \cor{2} & \cor{1} & \z & \z & \(y[1]=2+2=\mathbf{4}\) & 0 & 1 \\
+\(n=2\colon\ h[2-k]\) & \cor{1} & \cor{2} & \cor{1} & \z & \(y[2]=1+4+3=\mathbf{8}\) & 0 & 2 \\
+\(n=3\colon\ h[3-k]\) & \cor{\(-1\)} & \cor{1} & \cor{2} & \cor{1} & \(y[3]=-1+2+6+1=\mathbf{8}\) & 0 & 3 \\
+\(n=4\colon\ h[4-k]\) & \z & \cor{\(-1\)} & \cor{1} & \cor{2} & \(y[4]=-2+3+2=\mathbf{3}\) & 1 & 3 \\
+\(n=5\colon\ h[5-k]\) & \z & \z & \cor{\(-1\)} & \cor{1} & \(y[5]=-3+1=\mathbf{-2}\) & 2 & 3 \\
+\(n=6\colon\ h[6-k]\) & \z & \z & \z & \cor{\(-1\)} & \(y[6]=\mathbf{-1}\) & 3 & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+O resultado, \(\{1, 4, 8, 8, 3, -2, -1\}\), é o da Equação (17) do artigo. Lá,
+\(h\) começa em \(n=-1\), então \(y\) também começa em \(n=-1\); aqui, tudo
+começa em 0. Os valores são os mesmos, só a origem do eixo muda.
+
+\begin{porque}
+Duas coisas da tabela viram hardware:
+\begin{itemize}
+  \item \textbf{as casas em cinza não custam nada}: lá \(x[k]\) ou
+    \(h[n-k]\) não existe, e o produto é zero. O artigo também as descarta (é
+    o ``intervalo que exclui os produtos iguais a zero''). Só as casas
+    coloridas, de \(k_{\min}\) a \(k_{\max}\), precisam de conta;
+  \item \textbf{uma linha de cada vez}: cada linha só precisa de um
+    acumulador. Somou a linha, gravou \(y[n]\), zera e passa para a próxima.
+\end{itemize}
+São \(n_x + n_h - 1\) linhas: 4 + 4 - 1 = 7 no exemplo.
+\end{porque}
+
+\etapa{A2}{Da tabela a dois laços}
+
+As casas coloridas da linha \(n\) são as colunas onde \(x[k]\) \textbf{e}
+\(h[n-k]\) existem ao mesmo tempo:
+\[
+  \underbrace{0 \le k \le n_x - 1}_{x[k] \text{ existe}}
+  \qquad\text{e}\qquad
+  \underbrace{0 \le n-k \le n_h - 1}_{h[n-k] \text{ existe}}
+  \;\Longleftrightarrow\; n - n_h + 1 \le k \le n
+\]
+\[
+  k_{\min} = \max(0,\; n - n_h + 1)
+  \qquad\qquad
+  k_{\max} = \min(n,\; n_x - 1)
+\]
+Confira nas duas últimas colunas da tabela. Com isso, a tabela inteira é:
+
+\begin{lstlisting}
+para n = 0 até nx + nh - 2:             # uma LINHA da tabela
+    acc = 0
+    para k = kmin(n) até kmax(n):       # as casas coloridas
+        acc = acc + x[k] * h[n - k]
+    y[n] = acc                          # a soma da linha
+\end{lstlisting}
+
+\begin{pense}
+Faça a tabela com \(x = \{2, 1\}\) e \(h = \{1, 1, 1\}\) (\(n_x = 2\),
+\(n_h = 3\)). Quantas linhas? Quais \(k_{\min}\) e \(k_{\max}\) em cada uma? Em
+alguma linha \(k_{\min} > k_{\max}\)? (Resposta: 4 linhas,
+\(y = \{2, 3, 3, 1\}\); nunca, porque toda linha tem pelo menos uma casa
+colorida.)
+\end{pense}
+
+\etapa{A3}{O que entra e o que sai do módulo}
+
+O \arq{conv_aluno.v} já tem as portas. Não mude nomes nem larguras: é por
+eles que o topo (\arq{ghrd_top.v}) o liga às memórias e aos PIOs.
+
+\begin{center}
+\begin{tikzpicture}[font=\small,lb/.style={font=\scriptsize\ttfamily,above,midway}]
+  \node[voce,minimum width=3.2cm,minimum height=6.0cm] (m) at (0,0) {};
+  \node[font=\bfseries] at (0,2.6) {\arq{conv_aluno}};
+  % controle, a esquerda
+  \node[hps,minimum width=2.3cm,minimum height=2.6cm] (pio) at (-4.55,1.2) {PIOs\\\scriptsize o ARM escreve\\\scriptsize e lê};
+  \draw[seta] (-3.4,2.2) -- node[lb]{start} (-1.6,2.2);
+  \draw[seta] (-3.4,1.6) -- node[lb]{nx} (-1.6,1.6);
+  \draw[seta] (-3.4,1.0) -- node[lb]{nh} (-1.6,1.0);
+  \draw[seta] (-1.6,0.4) -- node[lb]{done} (-3.4,0.4);
+  \draw[seta] (-3.4,-1.6) node[left,font=\scriptsize]{50 MHz} -- node[lb]{clk} (-1.6,-1.6);
+  \draw[seta] (-3.4,-2.3) -- node[lb]{reset\_n} (-1.6,-2.3);
+  % memorias, a direita
+  \node[fpga,minimum width=2.3cm,minimum height=1.1cm] (rx) at (4.6,2.05) {RAM \(x\)\\\scriptsize 1024 palavras};
+  \node[fpga,minimum width=2.3cm,minimum height=1.1cm] (rh) at (4.6,0.25) {RAM \(h\)\\\scriptsize 1024 palavras};
+  \node[fpga,minimum width=2.3cm,minimum height=1.7cm] (ry) at (4.6,-1.9) {RAM \(y\)\\\scriptsize 2048 palavras};
+  \draw[seta] (1.6,2.3) -- node[lb]{x\_addr} (3.45,2.3);
+  \draw[seta] (3.45,1.8) -- node[lb]{x\_data} (1.6,1.8);
+  \draw[seta] (1.6,0.5) -- node[lb]{h\_addr} (3.45,0.5);
+  \draw[seta] (3.45,0.0) -- node[lb]{h\_data} (1.6,0.0);
+  \draw[seta] (1.6,-1.3) -- node[lb]{y\_addr} (3.45,-1.3);
+  \draw[seta] (1.6,-1.9) -- node[lb]{y\_data} (3.45,-1.9);
+  \draw[seta] (1.6,-2.5) -- node[lb]{y\_we} (3.45,-2.5);
+  \node[font=\scriptsize,cinza,align=left,anchor=west] at (5.9,0.25) {o ARM escreve\\\(x\) e \(h\) e lê \(y\)\\pela outra porta\\de cada RAM};
+\end{tikzpicture}
+\end{center}
+
+\begin{lstlisting}[language=Verilog]
+module conv_aluno #(
+    parameter DATA_WIDTH  = 32,
+    parameter X_ADDR_BITS = 10,     // x: ate 1024 amostras
+    parameter H_ADDR_BITS = 10,     // h: ate 1024 amostras
+    parameter Y_ADDR_BITS = 11      // y: ate 2047 amostras (nx + nh - 1)
+)(
+    input  wire                          clk,       // 50 MHz
+    input  wire                          reset_n,   // ativo em 0
+
+    // --- controle (PIOs) ---
+    input  wire                          start,     // HPS -> FPGA
+    output reg                           done,      // FPGA -> HPS
+    input  wire [X_ADDR_BITS:0]          nx,        // amostras de x, 1 a 1024
+    input  wire [H_ADDR_BITS:0]          nh,        // amostras de h, 1 a 1024
+
+    // --- memoria de x[k] (so leitura) ---
+    output reg  [X_ADDR_BITS-1:0]        x_addr,
+    input  wire signed [DATA_WIDTH-1:0]  x_data,
+
+    // --- memoria de h[k] (so leitura) ---
+    output reg  [H_ADDR_BITS-1:0]        h_addr,
+    input  wire signed [DATA_WIDTH-1:0]  h_data,
+
+    // --- memoria de y[n] (so escrita) ---
+    output reg  [Y_ADDR_BITS-1:0]        y_addr,
+    output reg  signed [DATA_WIDTH-1:0]  y_data,
+    output reg                           y_we
+);
+\end{lstlisting}
+
+\subsubsection*{O \texttt{start} e o \texttt{done}}
+
+\begin{center}
+\begin{tikzpicture}[x=0.75cm,y=0.5cm,font=\scriptsize]
+  \node[anchor=east] at (0,2) {start};
+  \draw[thick] (0,1.6) -- (2,1.6) -- (2,2.4) -- (13,2.4) -- (13,1.6) -- (16,1.6);
+  \node[anchor=east] at (0,0) {done};
+  \draw[thick] (0,-0.4) -- (11,-0.4) -- (11,0.4) -- (14,0.4) -- (14,-0.4) -- (16,-0.4);
+  \draw[decorate,decoration={brace,amplitude=4pt}] (2,2.7) -- (11,2.7)
+     node[midway,above=4pt]{o módulo calcula as \(n_x+n_h-1\) amostras};
+  \draw[dashed,cinza] (2,-1) -- (2,3.4);  \node[below,cinza] at (2,-1) {\passo{1}};
+  \draw[dashed,cinza] (11,-1) -- (11,3.4); \node[below,cinza] at (11,-1) {\passo{2}};
+  \draw[dashed,cinza] (13,-1) -- (13,3.4); \node[below,cinza] at (13,-1) {\passo{3}};
+\end{tikzpicture}
+\end{center}
+
+\begin{enumerate}[label=\protect\passo{\arabic*}]
+  \item o ARM escreve \(x\), \(h\), \(n_x\) e \(n_h\) e sobe o
+    \texttt{start}: é a \textbf{borda de subida} que dispara (guarde o
+    \texttt{start} do ciclo anterior num registrador e compare);
+  \item terminou de gravar \(y\): \texttt{done = 1}, e fica em 1;
+  \item o ARM leu \(y\) e baixou o \texttt{start}: \texttt{done} volta a 0 e o
+    módulo espera o próximo \texttt{start}.
+\end{enumerate}
+
+\subsubsection*{Ler a memória leva um ciclo}
+
+A memória é \textbf{síncrona}: ela registra o endereço na borda do relógio e
+só entrega o dado depois dela. Se o \texttt{x\_addr} é um registrador que
+você muda num estado, o dado certo só pode ser usado \textbf{dois estados
+depois} --- por isso a ESPERA no meio:
+
+\begin{center}
+\begin{tikzpicture}[x=2.3cm,y=0.55cm,font=\scriptsize]
+  \node[anchor=east] at (-0.05,3) {clk};
+  \foreach \i in {0,...,3} \draw[thick] (\i,2.6) -- (\i,3.4) -- (\i+0.5,3.4) -- (\i+0.5,2.6) -- (\i+1,2.6);
+  \node[anchor=east] at (-0.05,1.5) {estado};
+  \foreach \i/\t in {0/ENDEREÇO,1/ESPERA,2/MULTIPLICA,3/\ldots} {
+     \draw (\i,1.1) rectangle (\i+1,1.9); \node at (\i+0.5,1.5) {\t}; }
+  \node[anchor=east] at (-0.05,0) {x\_addr};
+  \draw (0,-0.4) rectangle (1,0.4); \node at (0.5,0) {anterior};
+  \draw[fill=voce!15] (1,-0.4) rectangle (4,0.4); \node at (2.5,0) {\(k\)};
+  \node[anchor=east] at (-0.05,-1.5) {x\_data};
+  \draw (0,-1.9) rectangle (2,-1.1); \node[fill=white,inner sep=1pt] at (1,-1.5) {lixo (endereço anterior)};
+  \draw[fill=voce!15] (2,-1.9) rectangle (4,-1.1); \node at (3,-1.5) {\(x[k]\): pode usar};
+  \draw[dashed,verm] (1,-2.3) -- (1,3.6);
+  \draw[dashed,verm] (2,-2.3) -- (2,3.6);
+  \node[below,verm,align=center] at (1,-2.3) {o registrador\\recebe \(k\)};
+  \node[below,verm,align=center] at (2,-2.3) {a RAM registra \(k\)\\e entrega \(x[k]\)};
+\end{tikzpicture}
+\end{center}
+
+A escrita de \(y\) é mais simples: no ciclo em que \texttt{y\_we = 1}, a
+memória grava \texttt{y\_data} em \texttt{y\_addr}. Ponha os três no mesmo
+estado e baixe o \texttt{y\_we} no seguinte.
+
+\subsubsection*{Multiplicar em Q15.16}
+
+\begin{porque}
+A FPGA não tem ponto flutuante. O Morphe guarda cada número real como um
+inteiro de 32 bits, o valor vezes \(2^{16}\) (\textbf{Q15.16}): \(1{,}0 =
+\texttt{0x00010000}\), \(-1{,}0 = \texttt{0xFFFF0000}\). Na soma, a vírgula
+não mexe. No \textbf{produto}, os dois fatores trazem \(2^{16}\) cada, e o
+resultado sai com \(2^{32}\): 32 bits de fração. Para voltar a Q15.16, jogue
+fora os 16 bits de baixo e fique com os 32 seguintes.
+\end{porque}
+
+\begin{center}
+\begin{tikzpicture}[x=0.19cm,y=0.6cm,font=\scriptsize]
+  \draw[fill=black!8] (0,0) rectangle (16,1);   \node at (8,0.5) {bits 63..48};
+  \draw[fill=voce!20] (16,0) rectangle (48,1);  \node at (32,0.5) {\textbf{bits 47..16: o resultado em Q15.16}};
+  \draw[fill=black!8] (48,0) rectangle (64,1);  \node at (56,0.5) {bits 15..0};
+  \node[above,font=\scriptsize] at (32,1.1) {produto \(x[k]\cdot h[n-k]\), 64 bits com sinal};
+  \node[below,cinza] at (8,-0.05) {só sinal, se não estourar};
+  \node[below,cinza] at (56,-0.05) {fração que não cabe};
+\end{tikzpicture}
+\end{center}
+
+\begin{cuidado}
+\textbf{Para bater bit a bit com o \arq{conv1d}} (a Parte B compara
+\emph{igualdade}, não ``parecido''), faça a conta como ele faz:
+\begin{itemize}
+  \item cada produto em 64 bits, com sinal: \texttt{x\_data} e
+    \texttt{h\_data} já são \texttt{signed}, e o registrador que recebe o
+    produto também precisa ser (\texttt{reg signed [63:0]});
+  \item de \textbf{cada} produto, os bits \texttt{[47:16]}; some esses
+    valores, não os produtos inteiros;
+  \item acumulador de \textbf{32 bits}, sem saturação.
+\end{itemize}
+Somar os 64 bits e cortar só no fim é até mais preciso, mas dá diferenças de
+1 ou 2 unidades na última casa em relação ao \arq{conv1d}.
+\end{cuidado}
+
+\etapa{A4}{Escrever o módulo}
+
+Os dois laços da A2 viram uma \textbf{máquina de estados}: um estado faz uma
+coisa por ciclo de relógio, e o \texttt{case} decide o próximo. Um caminho
+possível (há outros):
+
+\begin{center}
+\begin{tikzpicture}[
+    st/.style={draw=voce,fill=voce!8,rounded corners=3pt,font=\scriptsize,align=center,
+               minimum width=2.2cm,minimum height=0.95cm,thick},
+    lb/.style={font=\scriptsize,align=center}]
+  \node[st] (idle) at (0,0)     {OCIOSO\\\texttt{done = 0}};
+  \node[st] (lin)  at (4.1,0)   {LINHA\\\(k = k_{\min}\),\ \(acc = 0\)};
+  \node[st] (end)  at (8.2,0)   {ENDEREÇO\\\(x[k]\), \(h[n-k]\)};
+  \node[st] (esp)  at (12.3,0)  {ESPERA\\\scriptsize (a RAM lê)};
+  \node[st] (mul)  at (12.3,-2.9) {MULTIPLICA\\\(p = x \cdot h\)};
+  \node[st] (acu)  at (8.2,-2.9)  {ACUMULA\\\(acc \mathrel{+}= p[47{:}16]\)};
+  \node[st] (gra)  at (4.1,-2.9)  {GRAVA\\\(y[n] = acc\)};
+  \node[st] (fim)  at (0,-2.9)    {FIM\\\texttt{done = 1}};
+  \draw[seta] (idle) -- node[lb,above]{start sobe\\\(n = 0\)} (lin);
+  \draw[seta] (lin) -- (end);
+  \draw[seta] (end) -- (esp);
+  \draw[seta] (esp) -- (mul);
+  \draw[seta] (mul) -- (acu);
+  \draw[seta] (acu) -- node[lb,right]{\(k < k_{\max}\)\\\(k{+}{+}\)} (end);
+  \draw[seta] (acu) -- node[lb,below]{\(k = k_{\max}\)} (gra);
+  \draw[seta] (gra) -- node[lb,right]{\(n < n_x{+}n_h{-}2\)\\\(n{+}{+}\)} (lin);
+  \draw[seta] (gra) -- node[lb,below]{última\\linha} (fim);
+  \draw[seta] (fim) -- node[lb,left]{start\\= 0} (idle);
+\end{tikzpicture}
+\end{center}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Na tabela} & \textbf{Na máquina} \\
+\midrule
+começar uma linha & LINHA: \(k\) e \(k_{\max}\) da linha \(n\), acumulador zerado \\
+uma casa colorida & ENDEREÇO \(\rightarrow\) ESPERA \(\rightarrow\) MULTIPLICA \(\rightarrow\) ACUMULA: 4 ciclos \\
+somar a linha & é o próprio acumulador, casa a casa \\
+escrever \(y[n]\) & GRAVA: \texttt{y\_addr = n}, \texttt{y\_data = acc}, \texttt{y\_we = 1} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{faca}
+No \arq{conv_aluno.v}, entre o \texttt{);} das portas e o \texttt{endmodule},
+escreva:
+\begin{enumerate}
+  \item os estados (\texttt{localparam}) e o registrador de estado;
+  \item os registradores \(n\), \(k\), \(k_{\max}\), o acumulador e o
+    produto. Cuidado com a largura e o sinal: \(n\) vai até 2046 e
+    \(n - n_h + 1\) pode ser \textbf{negativo} --- use índices
+    \texttt{signed} de 13 bits, por exemplo;
+  \item a detecção da borda do \texttt{start};
+  \item um \texttt{always @(posedge clk or negedge reset\_n)} com o reset
+    (tudo em zero, estado OCIOSO) e o \texttt{case} dos estados.
+\end{enumerate}
+Salve (Ctrl+S). Antes de compilar, simule (A5).
+\end{faca}
+
+\begin{cuidado}
+\begin{itemize}
+  \item \(h[n-k]\): o endereço é \(n - k\), calculado em largura de índice e
+    só depois cortado para os 10 bits de \texttt{h\_addr}.
+  \item \texttt{y\_we} só pode ficar em 1 no ciclo de gravar. Um jeito
+    simples é pôr \texttt{y\_we <= 0} no começo do \texttt{always} e
+    \texttt{y\_we <= 1} só no estado GRAVA.
+  \item O módulo tem de \textbf{voltar} ao OCIOSO: o servidor roda uma
+    convolução atrás da outra.
+\end{itemize}
+\end{cuidado}
+
+\etapa{A5}{Simular antes de compilar}
+
+\begin{porque}
+Compilar o projeto leva de 10 a 15 minutos; simular leva um segundo. O
+\arq{testbench/tb_conv_aluno.v} imita as três memórias (com o mesmo ciclo de
+leitura da A3), dispara o seu módulo como o servidor faz e compara cada
+\(y[n]\) com a conta feita do jeito do \arq{conv1d}. São sete casos: o
+Exemplo 2, uma amostra de cada lado, \(h\) maior que \(x\), valores
+fracionários quaisquer, os dois extremos de 1024 amostras e uma segunda
+rodada seguida.
+\end{porque}
+
+\begin{faca}
+De dentro de \arq{~/minha-conv/Quartus}:
+\begin{lstlisting}[style=sh]
+iverilog -g2005 -o /tmp/tb_conv.vvp testbench/tb_conv_aluno.v conv_aluno.v
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+vvp /tmp/tb_conv.vvp
+\end{lstlisting}
+\end{faca}
+
+\begin{confira}
+Cada caso numa linha começando com \texttt{ok}, e a última linha é
+\texttt{TUDO OK}:
+\begin{lstlisting}[style=sh]
+ok    Exemplo 2 do artigo  (nx=4 nh=4, 81 ciclos)
+ok    1 x 1, fracao e sinal  (nx=1 nh=1, 9 ciclos)
+ok    h maior que x  (nx=3 nh=6, 91 ciclos)
+ok    aleatorio 50 x 17  (nx=50 nh=17, 3535 ciclos)
+ok    x com 1024 amostras  (nx=1024 nh=3, 14343 ciclos)
+ok    h com 1024 amostras  (nx=3 nh=1024, 14343 ciclos)
+ok    segunda rodada seguida  (nx=4 nh=4, 81 ciclos)
+TUDO OK
+\end{lstlisting}
+O número de ciclos do seu pode ser outro: depende de quantos estados você
+usou. O que tem de bater são os valores.
+\end{confira}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{5.3cm}X@{}}
+\toprule
+\textbf{O testbench diz} & \textbf{Provável causa} \\
+\midrule
+\texttt{done nao subiu} & o módulo não sai de um estado, ou não detecta a borda do \texttt{start} \\ \addlinespace
+\texttt{done nao voltou a 0} & falta voltar ao OCIOSO quando o \texttt{start} cai \\ \addlinespace
+valores deslocados (\(y[n]\) tem a conta de outra casa) & usou o dado um estado cedo demais: falta a ESPERA \\ \addlinespace
+erra só nas primeiras ou nas últimas linhas & \(k_{\min}\) ou \(k_{\max}\) errado; índice sem sinal com \(n-n_h+1<0\) \\ \addlinespace
+diferença de 1 na última casa & cortou os bits no fim, e não em cada produto \\ \addlinespace
+\texttt{escrito fora da saida} & gravou mais de \(n_x+n_h-1\) amostras, ou \texttt{y\_we} ficou em 1 \\ \addlinespace
+\texttt{Exemplo 2: y nao e \ldots} & a conta está errada até no caso do artigo: refaça a A1 à mão \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{cuidado}
+Se o computador não tiver o \texttt{iverilog}, peça ao responsável pelo
+laboratório. Sem simular, cada erro custa uma compilação inteira.
+\end{cuidado}
+
+\etapa{A6}{Compilar e gravar a placa}
+
+\begin{pronto}
+As memórias \texttt{conv\_aluno\_x}, \texttt{\_h}, \texttt{\_y} e os PIOs
+\texttt{conv\_aluno\_start}, \texttt{\_done}, \texttt{\_nx}, \texttt{\_nh}
+já estão no \arq{soc_system.qsys}, com endereço travado; o \arq{ghrd_top.v}
+já os liga ao seu módulo. Falta só \textbf{gerar} o sistema uma vez e
+compilar.
+\end{pronto}
+
+\begin{faca}
+\begin{enumerate}
+  \item \menu{Tools}\seta\menu{Platform Designer}\seta
+    \arq{soc_system.qsys}\seta\menu{Generate}\seta\menu{Generate
+    HDL\ldots}\seta\menu{Generate}. Espere \emph{Generate Completed},
+    \menu{Finish} e feche o Platform Designer \textbf{sem mudar nada}.
+  \item No Quartus: \menu{Processing}\seta\menu{Start Compilation} (Ctrl+L).
+  \item No terminal, de \arq{~/minha-conv/Quartus}:
+\begin{lstlisting}[style=sh]
+python3 gen_hps_header.py
+\end{lstlisting}
+  \item Na \textbf{estação}, de \arq{~/minha-conv}, fora do horário de aula.
+    No lugar de \texttt{CABO}, o nome do cabo da sua placa (o
+    \texttt{jtagconfig} lista; se houver mais de um, desligue o USB-Blaster da
+    sua placa, rode de novo e veja qual sumiu):
+\begin{lstlisting}[style=sh]
+./morphe-up.sh --cable 'CABO' --deploy
+\end{lstlisting}
+\end{enumerate}
+\end{faca}
+
+\begin{center}
+\begin{minipage}[t]{0.31\linewidth}\centering
+\tela{q06-menu-tools}{\menu{Tools}\seta\menu{Platform Designer}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.33\linewidth}\centering
+\tela{pd10-generate}{\menu{Generate HDL}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.31\linewidth}\centering
+\tela{q07-menu-processing}{\menu{Start Compilation}}
+\end{minipage}
+\end{center}
+
+\begin{porque}
+\textbf{Gerar} escreve o Verilog do sistema e o \arq{.sopcinfo}.
+\textbf{Compilar} junta isso ao seu módulo e produz o \arq{.sof}, a
+configuração da FPGA. O \arq{gen_hps_header.py} tira os endereços do
+\arq{.sopcinfo} para o \arq{C/hps_0.h}, e o \texttt{-{}-deploy} recompila o
+servidor da placa com ele: servidor e FPGA sempre andam juntos.
+\end{porque}
+
+\begin{confira}
+\begin{itemize}
+  \item \emph{Full Compilation was successful}, e no \menu{Compilation
+    Report}\seta\menu{Timing Analyzer}, \emph{Slack} positivo no
+    \texttt{clock\_50\_1};
+  \item \texttt{grep CONV\_ALUNO ../C/hps\_0.h} mostra \texttt{0x43000},
+    \texttt{0x44000}, \texttt{0x46000} e \texttt{0x180} a \texttt{0x1b0};
+  \item o \arq{morphe-up.sh} termina com os testes \texttt{4/4}.
+\end{itemize}
+\end{confira}
+
+\begin{cuidado}
+Erro de compilação que aponta para o \arq{conv_aluno.v} é seu: o
+\emph{Messages}, embaixo, diz a linha. O Quartus é mais rigoroso que o
+\texttt{iverilog} com larguras; leia os \emph{Warnings} do seu arquivo também.
+\end{cuidado}
+
+\etapa{A7}{Testar pela serial, com o Exemplo 2}
+
+\begin{porque}
+O teste mais direto: você escreve \(x\) e \(h\) nas memórias, dá o
+\texttt{start} e lê \(y\), digitando endereços pelo console da placa. Nenhum
+programa do Morphe no meio: se der errado, o erro está no seu módulo.
+\end{porque}
+
+\begin{center}
+\begin{tikzpicture}[font=\small]
+  \node[hps,minimum width=2.4cm,minimum height=3.6cm] (arm) at (0,0) {ARM\\(Linux)\\[2pt]\scriptsize\texttt{./devmem}};
+  \node[fpga,minimum width=4.6cm,minimum height=1.0cm] (mx)  at (5.6,1.25) {RAM \(x\)\ \ \texttt{0xC0043000}\\RAM \(h\)\ \ \texttt{0xC0046000}};
+  \node[fpga,minimum width=4.6cm,minimum height=0.7cm] (my)  at (5.6,0)    {RAM \(y\)\ \ \texttt{0xC0044000}};
+  \node[fpga,minimum width=4.6cm,minimum height=1.0cm,font=\scriptsize] (pio) at (5.6,-1.25)
+      {start \texttt{0xFF200180}\ \ done \texttt{0xFF200190}\\\(n_x\) \texttt{0xFF2001A0}\ \ \(n_h\) \texttt{0xFF2001B0}};
+  \node[voce,minimum width=2.0cm,minimum height=3.6cm] (al) at (10.2,0) {\arq{conv_aluno}};
+  \draw[seta] (1.2,1.25) -- node[rot,above]{ponte h2f} (3.3,1.25);
+  \draw[seta] (3.3,0) -- (1.2,0);
+  \draw[seta,<->] (1.2,-1.25) -- node[rot,above]{ponte leve} (3.3,-1.25);
+  \draw[seta] (7.9,1.25) -- (9.2,1.25);
+  \draw[seta] (9.2,0) -- (7.9,0);
+  \draw[seta,<->] (7.9,-1.25) -- (9.2,-1.25);
+\end{tikzpicture}
+\end{center}
+
+\begin{faca}
+Entre na placa pela serial (a USB marcada UART; descubra o nome com
+\texttt{ls /dev/ttyUSB*} antes e depois de ligar o cabo) e abra o console,
+trocando \texttt{/dev/ttyUSB0} pelo nome da sua:
+\begin{lstlisting}[style=sh]
+sudo screen /dev/ttyUSB0 115200
+\end{lstlisting}
+Usuário \texttt{root}. Dentro da placa, um comando por vez:
+\begin{lstlisting}[style=sh]
+cd ~/morphe
+\end{lstlisting}
+\textbf{1. Repouso, e os tamanhos} (\(n_x = n_h = 4\)):
+\begin{lstlisting}[style=sh]
+./devmem 0xFF200180 32 0
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xFF2001A0 32 4
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xFF2001B0 32 4
+\end{lstlisting}
+\textbf{2. \(x = \{1, 2, 3, 1\}\)}, uma palavra a cada 4 bytes:
+\begin{lstlisting}[style=sh]
+./devmem 0xC0043000 32 0x00010000
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xC0043004 32 0x00020000
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xC0043008 32 0x00030000
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xC004300C 32 0x00010000
+\end{lstlisting}
+\textbf{3. \(h = \{1, 2, 1, -1\}\)}:
+\begin{lstlisting}[style=sh]
+./devmem 0xC0046000 32 0x00010000
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xC0046004 32 0x00020000
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xC0046008 32 0x00010000
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xC004600C 32 0xFFFF0000
+\end{lstlisting}
+\textbf{4. Disparar e conferir o \texttt{done}} (tem de responder
+\texttt{0x00000001}):
+\begin{lstlisting}[style=sh]
+./devmem 0xFF200180 32 1
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./devmem 0xFF200190
+\end{lstlisting}
+\textbf{5. Ler \(y[0]\) a \(y[6]\)}:
+\begin{lstlisting}[style=sh]
+for a in 00 04 08 0C 10 14 18; do ./devmem 0xC00440$a; done
+\end{lstlisting}
+\textbf{6. Voltar ao repouso} (e o \texttt{done} volta a \texttt{0x00000000}):
+\begin{lstlisting}[style=sh]
+./devmem 0xFF200180 32 0
+\end{lstlisting}
+\end{faca}
+
+\begin{center}\small
+\begin{tabular}{@{}llrl@{}}
+\toprule
+& endereço & valor & o \texttt{devmem} responde \\
+\midrule
+\(y[0]\) & \texttt{0xC0044000} & 1 & \texttt{0x00010000} \\
+\(y[1]\) & \texttt{0xC0044004} & 4 & \texttt{0x00040000} \\
+\(y[2]\) & \texttt{0xC0044008} & 8 & \texttt{0x00080000} \\
+\(y[3]\) & \texttt{0xC004400C} & 8 & \texttt{0x00080000} \\
+\(y[4]\) & \texttt{0xC0044010} & 3 & \texttt{0x00030000} \\
+\(y[5]\) & \texttt{0xC0044014} & \(-2\) & \texttt{0xFFFE0000} \\
+\(y[6]\) & \texttt{0xC0044018} & \(-1\) & \texttt{0xFFFF0000} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{confira}
+Os sete valores batem com a tabela da A1 e com a Equação (17) do artigo.
+\end{confira}
+
+\begin{cuidado}
+\begin{itemize}
+  \item Só use o \texttt{devmem} nesses endereços \textbf{depois} de gravar a
+    placa com o seu \arq{.sof} (A6). Num endereço sem componente, a placa
+    \textbf{trava} e só volta desligando e ligando.
+  \item \texttt{done} em \texttt{0x00000000} depois do passo 4: o módulo não
+    terminou (ou nem começou). Volte à A5.
+  \item Sem login na serial? Entre pela rede (\texttt{ssh root@}\emph{IP da
+    placa}) e use os mesmos comandos.
+\end{itemize}
+\end{cuidado}
+
+\clearpage
+% =============================================================================
+\section*{Parte B --- usar no Morphe e comparar com o \texttt{conv1d}}
+\addcontentsline{toc}{section}{Parte B}
+% =============================================================================
+
+\etapa{B1}{O caminho que já está pronto}
+
+Na A7 você fez à mão o que o servidor faz em cada pedido. Na Parte B, o
+aplicativo manda os \textbf{mesmos} \(x\) e \(h\) por dois caminhos e compara
+as respostas:
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.6cm,font=\small]
+  \node[cli,minimum width=2.8cm,minimum height=2.4cm] (app) {janela\\\menu{Convolução}\\\menu{do aluno}};
+  \node[hps,right=1.5cm of app,minimum width=3.0cm,yshift=0.75cm] (s1) {opcode 10\\\texttt{CONV\_ALUNO}};
+  \node[hps,right=1.5cm of app,minimum width=3.0cm,yshift=-0.75cm] (s2) {opcode 1\\\texttt{CONV}};
+  \node[voce,right=1.3cm of s1,minimum width=2.6cm] (al) {\arq{conv_aluno.v}\\\scriptsize só \(n_x \times n_h\) produtos};
+  \node[fpga,right=1.3cm of s2,minimum width=2.6cm] (cv) {\arq{conv1d.v}\\\scriptsize sempre \(1024\times1024\)};
+  \draw[seta,<->] (app.east|-s1) -- (s1);
+  \draw[seta,<->] (app.east|-s2) -- (s2);
+  \draw[seta,<->] (s1) -- (al);
+  \draw[seta,<->] (s2) -- (cv);
+  \node[fit=(s1)(s2),draw=hps,dashed,rounded corners,inner sep=4pt,
+        label={[font=\scriptsize,text=hps]above:servidor C, no ARM}] {};
+  \node[below=0.25cm of app,font=\scriptsize,align=center,text width=4.4cm]
+    {\(y\) do aluno \(-\) \(y\) do \arq{conv1d}, amostra a amostra};
+\end{tikzpicture}
+\end{center}
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{5.2cm}X@{}}
+\toprule
+\textbf{Peça (pronta)} & \textbf{O que faz} \\
+\midrule
+\arq{Python/conv_aluno_window.py} & a janela: gera \(x\) e \(h\), passa para Q15.16, faz os dois pedidos numa \emph{thread} e desenha \(y\) e a diferença \\ \addlinespace
+\arq{Python/morphe_protocol.py} & \texttt{OP\_CONV\_ALUNO = 10}: o pedido tem o mesmo formato da convolução (cabeçalho, \(x\), depois \(h\)) \\ \addlinespace
+\arq{C/morphe_server.c}:\newline \texttt{handle\_conv\_aluno} & os passos da A7: escreve \(x\), \(h\), \(n_x\), \(n_h\), zera \(y\), sobe o \texttt{start}, espera o \texttt{done} (até 5\,s), lê \(y\), baixa o \texttt{start} e responde \\ \addlinespace
+\arq{C/morphe_server.c}:\newline conferência do \emph{sysid} & recusa o pedido se o \arq{.sof} da placa não for o que tem o \texttt{conv\_aluno}: a placa não trava \\ \addlinespace
+\arq{Quartus/ghrd_top.v} & liga as portas do seu módulo às memórias (\texttt{chipselect} e \texttt{clken} sempre em 1) e aos PIOs \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\etapa{B2}{O Exemplo 2 no aplicativo}
+
+\begin{faca}
+Num computador do laboratório, de \arq{~/minha-conv}:
+\begin{lstlisting}[style=sh]
+python3 Python/morphe_app.py
+\end{lstlisting}
+Em \emph{Placas do laboratório}, escolha a \textbf{sua} placa. No menu,
+\menu{Convolução do aluno (conv\_aluno \(\times\) conv1d)}\seta
+\menu{Carregar o Exemplo 2 do artigo}\seta\menu{Comparar na FPGA}.
+\end{faca}
+
+\begin{confira}
+\begin{itemize}
+  \item o terceiro gráfico mostra \(y = \{1, 4, 8, 8, 3, -2, -1\}\) com
+    \(n\) de \(-1\) a \(5\): exatamente a Equação (17) e a Figura 1 do artigo.
+    A janela sabe que \(h\) começa em \(n = -1\) e põe a origem de \(y\) em
+    \(0 + (-1) = -1\);
+  \item as hastes (seu módulo) e os \(\times\) (o \arq{conv1d}) coincidem, e
+    o gráfico de baixo, a diferença, é zero;
+  \item a barra de baixo diz \emph{iguais, bit a bit}.
+\end{itemize}
+\end{confira}
+
+\etapa{B3}{Comparar com o \texttt{conv1d} em sinais de verdade}
+
+\begin{faca}
+Gere sinais maiores no painel de cada lado e compare de novo. Sugestões:
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\(x[n]\) & \(h[n]\) & o que mostra \\
+\midrule
+senóide, 1024 amostras & degrau, 32 amostras & soma móvel de 32 amostras: \(y\) suaviza \(x\) \\
+impulso & qualquer & \(y = h\): a resposta ao impulso (Seção 2 do artigo) \\
+degrau, 8 & degrau, 8 & um triângulo de 15 amostras \\
+exponencial, 1024 & senóide, 1024 & o caso maior: 2047 amostras, \(\approx\)\,1 milhão de produtos \\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{faca}
+
+\begin{confira}
+Em todos os casos, \emph{iguais, bit a bit}, e diferença zero. Se não forem,
+a barra diz em que \(n\) está a primeira diferença e quantas amostras cada
+módulo acerta contra a mesma conta feita no NumPy --- o que separa um erro
+seu de um erro do \arq{conv1d}.
+\end{confira}
+
+\begin{pense}
+O \arq{conv1d} percorre sempre as 2047 linhas de uma convolução
+\(1024 \times 1024\), com zeros onde não há sinal; o seu só faz as
+\(n_x + n_h - 1\) linhas pedidas, e em cada uma só as casas coloridas.
+Quantos produtos cada um faz para \(n_x = 1024\) e \(n_h = 32\)? E quantos
+ciclos o seu leva, a 4 ciclos por produto? A 50\,MHz, quanto tempo?
+\end{pense}
+
+\etapa{B4}{Devolver a placa à turma}
+
+\begin{faca}
+Sempre, ao terminar. Na estação, de \arq{~/minha-conv}:
+\begin{lstlisting}[style=sh]
+./morphe-up.sh --down
+\end{lstlisting}
+e depois, de \arq{/opt/morphe}, com o mesmo \texttt{CABO} da A6:
+\begin{lstlisting}[style=sh]
+cd /opt/morphe
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+./morphe-up.sh --cable 'CABO'
+\end{lstlisting}
+\end{faca}
+
+% =============================================================================
+\section*{Erros comuns}
+% =============================================================================
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{5.6cm}X@{}}
+\toprule
+\textbf{Sintoma} & \textbf{Causa e solução} \\
+\midrule
+\emph{IP upgrade recommended}, ou \emph{Used \ldots\ 23.1} & abriu com outro Quartus; feche sem salvar e abra o 20.1 \\ \addlinespace
+\emph{can't find port} ao compilar & mudou o nome ou a largura de uma porta do \arq{conv_aluno.v}; volte às da A3 \\ \addlinespace
+\emph{Slack} negativo no \texttt{clock\_50\_1} & conta demais num ciclo só (multiplicar \emph{e} somar no mesmo estado, por exemplo); separe em dois estados \\ \addlinespace
+o aplicativo diz \emph{timeout} & o \texttt{done} não subiu em 5\,s: o módulo travou num estado. Simule (A5) \\ \addlinespace
+o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: faltou o \texttt{-{}-deploy} da A6, ou o app está ligado em outra placa \\ \addlinespace
+o aplicativo diz \emph{bitstream \ldots\ nao e o deste servidor} & a placa está com outro \arq{.sof}: grave o seu (A6) \\ \addlinespace
+\(y\) todo zero & o módulo não grava: \texttt{y\_we} nunca sobe (o servidor zera \(y\) antes de cada pedido) \\ \addlinespace
+a placa some da rede & \texttt{devmem} antes de gravar o \arq{.sof}, ou \arq{hps_0.h} de outro \arq{.sof} \\ \addlinespace
+nunca use \menu{System}\seta\menu{Assign Base Addresses} & muda o endereço de todos os componentes, e o servidor passa a escrever no lugar errado \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\end{document}
