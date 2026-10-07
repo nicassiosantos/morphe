@@ -461,5 +461,14 @@ ligada ao terra lê 0,0000\,V, com desvio de 0,03\,mV; ligada ao 3,3\,V da
 própria placa, 3,3300\,V, com desvio de 2,6\,mV; a numeração dos canais e o
 modo diferencial estão certos; e a captura contínua acompanha 200\,kHz.
 Com a entrada solta, a leitura fica perto de 1,9\,V: é o próprio conversor
-carregando o pino, e não uma medida. \textbf{Falta a validação com uma senoide do
-gerador de funções} (capítulo~\ref{cap:limitacoes}).
+carregando o pino, e não uma medida.
+
+Em 07/10/2026, com uma senoide de 1\,kHz do gerador de funções no canal~0
+(deslocamento de cerca de 2\,V, amplitude dentro de 0 a 4\,V): o
+\arq{testa_adc.py} passou em todas as verificações, nas capturas únicas
+(frequência medida dentro de 0,1\,\% em cada taxa, sem saturar, ENOB acima de 9)
+e na captura contínua de 10\,s a 200\,kHz (2 milhões de amostras, sem perda e
+sem salto nas emendas entre blocos). Na captura contínua inteira, a frequência
+medida foi de 1000,013\,Hz, a SINAD de 56,1\,dB e o ENOB de 9,03 bits. O ENOB
+mede o conversor \emph{junto com o gerador}; o capítulo~\ref{cap:limitacoes}
+comenta a folga.

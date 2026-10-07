@@ -39,14 +39,19 @@ compilação, junto com a conferência de que nada mudou.
 \section{Aquisição}
 
 \paragraph{O que falta validar.} Na data deste manual o ADC foi validado na
-placa com tensões contínuas (0\,V e 3,3\,V, contra o valor nominal) e com a
-captura contínua a 200\,kHz sem perda; \textbf{falta a validação com uma
-senoide do gerador de funções} (SINAD e ENOB medidos, e a continuidade das
-emendas entre blocos com um sinal que muda) e a comparação da leitura em 3,3\,V
-com um multímetro. O roteiro está em \arq{docs/COMPILAR-ADC.md}, passos 7c e
-7d, e no \arq{testa_adc.py}. Com a mesma senoide falta conferir na placa o modo
-\emph{ao vivo} da janela de aquisição e o analisador espectral, que em
+placa com tensões contínuas (0\,V e 3,3\,V, contra o valor nominal), com a
+captura contínua a 200\,kHz sem perda e, em 07/10/2026, com uma senoide de
+1\,kHz do gerador de funções (seção~\ref{sec:adc-validado}). Falta a comparação
+da leitura em 3,3\,V com um multímetro. Com a senoide, falta registrar na placa
+o modo \emph{ao vivo} da janela de aquisição e o analisador espectral, que em
 30/09/2026 foi testado na placa só com a entrada sem sinal.
+
+\paragraph{ENOB com pouca folga.} Com o gerador, a captura contínua mediu
+ENOB de 9,03 bits (SINAD de 56,1\,dB): passa no critério do
+\arq{testa_adc.py} (acima de 9), mas fica longe dos cerca de 11,9 bits que o
+LTC2308 promete. A medida inclui o ruído e as harmônicas do próprio gerador, e
+os dois não foram separados. Para saber quanto é do conversor, seria preciso
+um gerador de menor distorção ou um filtro passa-baixas na entrada.
 
 \paragraph{Um transitório no início da captura.} Com a entrada do canal~0 da
 placa~1 solta, toda captura começa perto de 2,4\,V e decai, em 40 a 50
