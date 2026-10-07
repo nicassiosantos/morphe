@@ -1,4 +1,4 @@
-// Testbench do conv_aluno (roteiro da convolucao, docs/roteiro-conv, A4).
+// Testbench do conv_aluno (roteiro da convolucao, docs/roteiro-conv, A5).
 //
 // As tres memorias aqui imitam as do Platform Designer: leitura com UM ciclo
 // de latencia (o dado sai um ciclo depois de o endereco estar no fio) e
@@ -125,14 +125,14 @@ module tb_conv_aluno;
         reset_n = 1;
         repeat (2) @(posedge clk);
 
-        // 1. Exemplo 2 do artigo: y = {1, 4, 8, 8, 3, -2, -1}
+        // 1. caso pequeno, de inteiros: y = {1, 4, 8, 8, 3, -2, -1}
         nx = 4; nh = 4;
         xm[0] = q(1); xm[1] = q(2); xm[2] = q(3); xm[3] = q(1);
         hm[0] = q(1); hm[1] = q(2); hm[2] = q(1); hm[3] = q(-1);
-        rodar("Exemplo 2 do artigo");
+        rodar("caso pequeno 4 x 4");
         if (ym[0] !== q(1) || ym[1] !== q(4) || ym[2] !== q(8) || ym[3] !== q(8) ||
             ym[4] !== q(3) || ym[5] !== q(-2) || ym[6] !== q(-1)) begin
-            $display("ERRO  Exemplo 2: y nao e {1,4,8,8,3,-2,-1}");
+            $display("ERRO  caso pequeno: y nao e {1,4,8,8,3,-2,-1}");
             erros = erros + 1;
         end
 
@@ -166,7 +166,7 @@ module tb_conv_aluno;
         for (i = 0; i < 1024; i = i + 1) hm[i] = $random % (4 * 65536);
         rodar("h com 1024 amostras");
 
-        // 6. de novo o Exemplo 2: o modulo volta ao repouso e roda outra vez
+        // 6. de novo o caso pequeno: o modulo volta ao repouso e roda outra vez
         nx = 4; nh = 4;
         xm[0] = q(1); xm[1] = q(2); xm[2] = q(3); xm[3] = q(1);
         hm[0] = q(1); hm[1] = q(2); hm[2] = q(1); hm[3] = q(-1);

@@ -3,8 +3,6 @@
 % O aluno escreve so o conv_aluno.v; memorias, PIOs, topo, servidor C e
 % aplicativo ja estao prontos na branch estagio/modulo-conv. Compila no
 % Overleaf com pdfLaTeX (suba main.tex e a pasta prints/) ou com Tectonic.
-% Base teorica: Ojeda Gonzalez e Lamin, "Um exemplo didatico para o ensino da
-% convolucao discreta", Revista Univap 25(49), p. 13-24, 2019.
 % =============================================================================
 \documentclass[11pt,a4paper,oneside]{article}
 
@@ -114,18 +112,10 @@
 \maketitle
 
 Neste roteiro você escreve, em Verilog, um bloco de hardware que calcula a
-\textbf{convolução discreta}
-\[
-  y[n] \;=\; x[n] * h[n] \;=\; \sum_{k} x[k]\,h[n-k]
-\]
-e o compara com a convolução que o Morphe já tem na FPGA (o \arq{conv1d.v}).
-A teoria vem do artigo \emph{Um exemplo didático para o ensino da convolução
-discreta} (A.~Ojeda González e I.~C.~P.~Lamin, \emph{Revista Univap},
-v.~25, n.~49, p.~13--24, dez.~2019): o método da \textbf{tabela} que ele
-propõe é, quase sem mudança, o circuito que você vai construir.
-
-Tudo em volta do seu módulo já está pronto. Você só escreve o corpo do
-\arq{conv_aluno.v}:
+\textbf{convolução discreta} de dois sinais e o compara com a convolução que
+o Morphe já tem na FPGA (o \arq{conv1d.v}). Tudo em volta do seu módulo já
+está pronto --- memórias, PIOs, servidor da placa e aplicativo. Você só
+escreve o corpo do \arq{conv_aluno.v}:
 
 \begin{center}
 \begin{tikzpicture}[node distance=0.5cm]
@@ -148,28 +138,28 @@ Tudo em volta do seu módulo já está pronto. Você só escreve o corpo do
 \end{center}
 
 \begin{itemize}
-  \item \textbf{Parte A} --- construir o módulo: da tabela do artigo aos dois
-    laços, das portas à máquina de estados; simular, compilar e testar
-    \textbf{sozinho}, pela serial da placa, com o Exemplo 2 do artigo.
-  \item \textbf{Parte B} --- usar no Morphe: a janela \menu{Convolução do
-    aluno} manda os mesmos \(x\) e \(h\) para o seu módulo e para o
-    \arq{conv1d}, e mostra a diferença amostra a amostra.
+  \item \textbf{Parte A} --- desenvolver o módulo: a conta, a conta como
+    tabela, a tabela como dois laços, os dois laços como máquina de estados,
+    e a máquina em Verilog; depois simular e compilar.
+  \item \textbf{Parte B} --- testar no aplicativo: a janela \menu{Convolução
+    do aluno} manda os mesmos \(x\) e \(h\) para o seu módulo e para o
+    \arq{conv1d} e mostra a diferença amostra a amostra.
 \end{itemize}
 
 \begin{center}
 \begin{tikzpicture}[node distance=0.2cm,
     e/.style={bloco,minimum width=1.85cm,minimum height=1.05cm,font=\scriptsize}]
-  \node[e,fill=black!5]        (a1) {\passo{A1}\\a tabela\\do artigo};
+  \node[e,fill=black!5]        (a1) {\passo{A1}\\a convolução};
   \node[e,fill=black!5,right=of a1] (a2) {\passo{A2}\\dois\\laços};
   \node[e,voce,right=of a2]    (a3) {\passo{A3}\\portas e\\tempos};
-  \node[e,voce,right=of a3]    (a4) {\passo{A4}\\escrever o\\módulo};
-  \node[e,voce,right=of a4]    (a5) {\passo{A5}\\simular};
-  \node[e,fpga,right=of a5]    (a6) {\passo{A6}\\compilar\\e gravar};
-  \node[e,hps,right=of a6]     (a7) {\passo{A7}\\testar pela\\serial};
+  \node[e,voce,right=of a3]    (a4) {\passo{A4}\\máquina de\\estados};
+  \node[e,voce,right=of a4]    (a5) {\passo{A5}\\escrever\\o Verilog};
+  \node[e,voce,right=of a5]    (a6) {\passo{A6}\\simular};
+  \node[e,fpga,right=of a6]    (a7) {\passo{A7}\\compilar\\e gravar};
   \foreach \i/\j in {a1/a2,a2/a3,a3/a4,a4/a5,a5/a6,a6/a7} \draw[seta] (\i)--(\j);
   \node[e,cli,below=0.9cm of a3] (b1) {\passo{B1}\\o caminho\\pronto};
-  \node[e,cli,right=of b1]       (b2) {\passo{B2}\\Exemplo 2\\no app};
-  \node[e,cli,right=of b2]       (b3) {\passo{B3}\\comparar\\com o conv1d};
+  \node[e,cli,right=of b1]       (b2) {\passo{B2}\\testar no\\aplicativo};
+  \node[e,cli,right=of b2]       (b3) {\passo{B3}\\quando não\\bate};
   \node[e,fill=black!5,right=of b3] (b4) {\passo{B4}\\devolver\\a placa};
   \foreach \i/\j in {b1/b2,b2/b3,b3/b4} \draw[seta] (\i)--(\j);
 \end{tikzpicture}
@@ -254,21 +244,42 @@ Prime Lite 20.1}): \menu{File}\seta\menu{Open Project\ldots}\seta
 \end{cuidado}
 
 % =============================================================================
-\section*{Parte A --- construir o módulo}
+\section*{Parte A --- desenvolver o módulo}
 \addcontentsline{toc}{section}{Parte A}
 % =============================================================================
 
-\etapa{A1}{A convolução pela tabela do artigo}
+\etapa{A1}{A convolução discreta}
 
-O artigo resolve o seu \textbf{Exemplo 2} montando uma tabela: na linha de
-cima, \(x[k]\); em cada linha de baixo, \(h[n-k]\) --- o \(h\)
-\emph{invertido} e \emph{deslizado} \(n\) casas para a direita. Multiplica
-coluna a coluna e soma a linha: o resultado é \(y[n]\).
+\subsubsection*{De onde vem a fórmula}
 
-Na FPGA não há índice negativo: a memória começa no endereço 0. Por isso
-guardamos os sinais a partir do 0 e a origem do tempo fica por conta do
-aplicativo (B2). No Exemplo 2, \(x = \{1, 2, 3, 1\}\) e
-\(h = \{1, 2, 1, -1\}\):
+O \textbf{impulso unitário} vale 1 num único instante:
+\[
+  \delta[n] = \begin{cases} 1, & n = 0 \\ 0, & n \neq 0 \end{cases}
+  \qquad\qquad
+  \delta[n-k] = \begin{cases} 1, & n = k \\ 0, & n \neq k \end{cases}
+\]
+Qualquer sinal discreto é uma soma de impulsos deslocados, cada um pesado
+pelo valor do sinal naquele instante:
+\[
+  x[n] = \sum_{k=-\infty}^{+\infty} x[k]\,\delta[n-k]
+\]
+Num sistema \textbf{linear e invariante ao deslocamento} (LID), chame de
+\(h[n]\) a saída quando a entrada é \(\delta[n]\) --- a \textbf{resposta ao
+impulso}. Pela invariância, \(\delta[n-k]\) produz \(h[n-k]\); pela
+linearidade, a soma pesada de impulsos produz a mesma soma pesada de
+respostas. A saída para qualquer entrada é, então,
+\[
+  \boxed{\;y[n] \;=\; x[n] * h[n] \;=\; \sum_{k=-\infty}^{+\infty} x[k]\,h[n-k]\;}
+\]
+É isso que o seu módulo vai calcular: para cada \(n\), uma soma de produtos.
+
+\subsubsection*{A conta como tabela}
+
+Escreva \(x[k]\) numa linha. Embaixo, uma linha para cada \(n\) com
+\(h[n-k]\): é o \(h\) \textbf{invertido} (\(h[-k]\)) e \textbf{deslizado}
+\(n\) casas para a direita. Multiplique coluna a coluna e some a linha: dá
+\(y[n]\). Por exemplo, com \(x = \{1, 2, 3, 1\}\) e
+\(h = \{1, 2, 1, -1\}\), os dois começando em \(n = 0\):
 
 \begin{center}
 \renewcommand{\arraystretch}{1.15}
@@ -290,22 +301,45 @@ aplicativo (B2). No Exemplo 2, \(x = \{1, 2, 3, 1\}\) e
 \end{tabular}
 \end{center}
 
-O resultado, \(\{1, 4, 8, 8, 3, -2, -1\}\), é o da Equação (17) do artigo. Lá,
-\(h\) começa em \(n=-1\), então \(y\) também começa em \(n=-1\); aqui, tudo
-começa em 0. Os valores são os mesmos, só a origem do eixo muda.
+A mesma tabela, escrita como produto de matriz por vetor:
+\[
+  \begin{bmatrix} y[0]\\ y[1]\\ y[2]\\ y[3]\\ y[4]\\ y[5]\\ y[6] \end{bmatrix}
+  =
+  \begin{bmatrix}
+    h[0] & 0    & 0    & 0    \\
+    h[1] & h[0] & 0    & 0    \\
+    h[2] & h[1] & h[0] & 0    \\
+    h[3] & h[2] & h[1] & h[0] \\
+    0    & h[3] & h[2] & h[1] \\
+    0    & 0    & h[3] & h[2] \\
+    0    & 0    & 0    & h[3]
+  \end{bmatrix}
+  \begin{bmatrix} x[0]\\ x[1]\\ x[2]\\ x[3] \end{bmatrix},
+  \qquad H_{n,k} = h[n-k]
+\]
+Cada diagonal da matriz repete o mesmo valor (é uma matriz de
+\textbf{Toeplitz}), e cada \(y[n]\) é o produto de uma linha dela por \(x\).
 
 \begin{porque}
-Duas coisas da tabela viram hardware:
+Três fatos da tabela que mandam no projeto do hardware:
 \begin{itemize}
+  \item \textbf{tamanho da saída}: com \(n_x\) amostras de \(x\) e \(n_h\) de
+    \(h\), há \(n_x + n_h - 1\) linhas; \(y\) vai de \(n = 0\) a
+    \(n = n_x + n_h - 2\) (no exemplo, 4 + 4 - 1 = 7);
   \item \textbf{as casas em cinza não custam nada}: lá \(x[k]\) ou
-    \(h[n-k]\) não existe, e o produto é zero. O artigo também as descarta (é
-    o ``intervalo que exclui os produtos iguais a zero''). Só as casas
-    coloridas, de \(k_{\min}\) a \(k_{\max}\), precisam de conta;
+    \(h[n-k]\) não existe e o produto é zero. Só as casas coloridas, de
+    \(k_{\min}\) a \(k_{\max}\), precisam de conta;
   \item \textbf{uma linha de cada vez}: cada linha só precisa de um
-    acumulador. Somou a linha, gravou \(y[n]\), zera e passa para a próxima.
+    acumulador. Somou, gravou \(y[n]\), zera e passa para a próxima.
 \end{itemize}
-São \(n_x + n_h - 1\) linhas: 4 + 4 - 1 = 7 no exemplo.
 \end{porque}
+
+\begin{pronto}
+\textbf{A origem do tempo.} Na memória, \(x\) e \(h\) começam no endereço 0,
+mesmo que no papel comecem em outro \(n\). Se \(x\) começa em \(n = a\) e
+\(h\) em \(n = b\), \(y\) começa em \(n = a + b\): o aplicativo faz essa conta
+na hora de desenhar. O seu módulo não precisa saber disso.
+\end{pronto}
 
 \etapa{A2}{Da tabela a dois laços}
 
@@ -322,7 +356,7 @@ As casas coloridas da linha \(n\) são as colunas onde \(x[k]\) \textbf{e}
   \qquad\qquad
   k_{\max} = \min(n,\; n_x - 1)
 \]
-Confira nas duas últimas colunas da tabela. Com isso, a tabela inteira é:
+Confira nas duas últimas colunas da tabela. Com isso, a convolução inteira é:
 
 \begin{lstlisting}
 para n = 0 até nx + nh - 2:             # uma LINHA da tabela
@@ -333,11 +367,11 @@ para n = 0 até nx + nh - 2:             # uma LINHA da tabela
 \end{lstlisting}
 
 \begin{pense}
-Faça a tabela com \(x = \{2, 1\}\) e \(h = \{1, 1, 1\}\) (\(n_x = 2\),
-\(n_h = 3\)). Quantas linhas? Quais \(k_{\min}\) e \(k_{\max}\) em cada uma? Em
-alguma linha \(k_{\min} > k_{\max}\)? (Resposta: 4 linhas,
-\(y = \{2, 3, 3, 1\}\); nunca, porque toda linha tem pelo menos uma casa
-colorida.)
+Faça a tabela com \(x = \{2, 1\}\) e \(h = \{1, 1, 1\}\). Quantas linhas?
+Quais \(k_{\min}\) e \(k_{\max}\) em cada uma? Em alguma linha
+\(k_{\min} > k_{\max}\)? (Resposta: 4 linhas, \(y = \{2, 3, 3, 1\}\);
+nunca, porque toda linha tem ao menos uma casa colorida.) E quantos produtos
+ao todo para \(n_x = 1024\) e \(n_h = 32\)?
 \end{pense}
 
 \etapa{A3}{O que entra e o que sai do módulo}
@@ -433,7 +467,7 @@ module conv_aluno #(
 A memória é \textbf{síncrona}: ela registra o endereço na borda do relógio e
 só entrega o dado depois dela. Se o \texttt{x\_addr} é um registrador que
 você muda num estado, o dado certo só pode ser usado \textbf{dois estados
-depois} --- por isso a ESPERA no meio:
+depois} --- por isso a máquina da A4 tem um estado de ESPERA no meio:
 
 \begin{center}
 \begin{tikzpicture}[x=2.3cm,y=0.55cm,font=\scriptsize]
@@ -496,11 +530,22 @@ Somar os 64 bits e cortar só no fim é até mais preciso, mas dá diferenças d
 1 ou 2 unidades na última casa em relação ao \arq{conv1d}.
 \end{cuidado}
 
-\etapa{A4}{Escrever o módulo}
+\etapa{A4}{Planejar a máquina de estados}
 
-Os dois laços da A2 viram uma \textbf{máquina de estados}: um estado faz uma
-coisa por ciclo de relógio, e o \texttt{case} decide o próximo. Um caminho
-possível (há outros):
+\begin{porque}
+Em software, os dois laços rodam um comando depois do outro. Em hardware,
+tudo acontece na \textbf{borda do relógio}, e cada coisa que depende de
+outra precisa de um ciclo próprio: ler a memória leva um ciclo (A3),
+multiplicar 32 \(\times\) 32 bits e somar no mesmo ciclo deixa o circuito
+lento demais. A \textbf{máquina de estados} é o jeito de dizer ``primeiro
+isto, no ciclo seguinte aquilo'': um registrador guarda em que passo o
+módulo está, e um \texttt{case} diz o que fazer em cada passo e qual é o
+próximo.
+\end{porque}
+
+Para desenhar a máquina, percorra o pseudocódigo da A2 e pergunte, em cada
+linha: \emph{isto cabe num ciclo? depende de algo que só fica pronto no
+ciclo anterior?} Um caminho possível (há outros):
 
 \begin{center}
 \begin{tikzpicture}[
@@ -527,56 +572,188 @@ possível (há outros):
   \draw[seta] (fim) -- node[lb,left]{start\\= 0} (idle);
 \end{tikzpicture}
 \end{center}
-
 \begin{center}\small
-\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{3.6cm}@{}}
 \toprule
-\textbf{Na tabela} & \textbf{Na máquina} \\
+\textbf{Estado} & \textbf{O que faz (registradores que mudam)} & \textbf{Próximo} \\
 \midrule
-começar uma linha & LINHA: \(k\) e \(k_{\max}\) da linha \(n\), acumulador zerado \\
-uma casa colorida & ENDEREÇO \(\rightarrow\) ESPERA \(\rightarrow\) MULTIPLICA \(\rightarrow\) ACUMULA: 4 ciclos \\
-somar a linha & é o próprio acumulador, casa a casa \\
-escrever \(y[n]\) & GRAVA: \texttt{y\_addr = n}, \texttt{y\_data = acc}, \texttt{y\_we = 1} \\
+OCIOSO & \texttt{done = 0}; na borda do \texttt{start}, \(n = 0\) & LINHA, se o start subiu \\
+LINHA & \(k = k_{\min}(n)\), \(k_{\max} = k_{\max}(n)\), \(acc = 0\) & ENDEREÇO \\
+ENDEREÇO & \texttt{x\_addr} \(= k\), \texttt{h\_addr} \(= n - k\) & ESPERA \\
+ESPERA & nada: a memória está lendo & MULTIPLICA \\
+MULTIPLICA & \(p = \) \texttt{x\_data} \(\times\) \texttt{h\_data} (64 bits) & ACUMULA \\
+ACUMULA & \(acc = acc + p[47{:}16]\); se ainda há coluna, \(k = k+1\) & ENDEREÇO ou GRAVA \\
+GRAVA & \texttt{y\_addr} \(= n\), \texttt{y\_data} \(= acc\), \texttt{y\_we} \(= 1\); se ainda há linha, \(n = n+1\) & LINHA ou FIM \\
+FIM & \texttt{done = 1} & OCIOSO, quando o start cai \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\begin{faca}
-No \arq{conv_aluno.v}, entre o \texttt{);} das portas e o \texttt{endmodule},
-escreva:
-\begin{enumerate}
-  \item os estados (\texttt{localparam}) e o registrador de estado;
-  \item os registradores \(n\), \(k\), \(k_{\max}\), o acumulador e o
-    produto. Cuidado com a largura e o sinal: \(n\) vai até 2046 e
-    \(n - n_h + 1\) pode ser \textbf{negativo} --- use índices
-    \texttt{signed} de 13 bits, por exemplo;
-  \item a detecção da borda do \texttt{start};
-  \item um \texttt{always @(posedge clk or negedge reset\_n)} com o reset
-    (tudo em zero, estado OCIOSO) e o \texttt{case} dos estados.
-\end{enumerate}
-Salve (Ctrl+S). Antes de compilar, simule (A5).
-\end{faca}
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Na tabela da A1} & \textbf{Na máquina} \\
+\midrule
+começar uma linha & LINHA \\
+uma casa colorida & ENDEREÇO \(\rightarrow\) ESPERA \(\rightarrow\) MULTIPLICA \(\rightarrow\) ACUMULA: 4 ciclos \\
+somar a linha & o próprio acumulador, casa a casa \\
+escrever \(y[n]\) & GRAVA \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{pense}
+Com 4 ciclos por produto e 50\,MHz, quanto tempo leva a maior convolução
+(\(1024 \times 1024\), cerca de um milhão de produtos)? Daria para gastar
+menos ciclos por produto? (Dica: enquanto a memória lê a coluna \(k+1\), o
+produto da coluna \(k\) poderia estar sendo feito.)
+\end{pense}
+
+\etapa{A5}{Escrever o Verilog, por partes}
+
+Tudo vai no \arq{conv_aluno.v}, entre o \texttt{);} das portas e o
+\texttt{endmodule}. Escreva na ordem abaixo; a cada parte, salve (Ctrl+S).
+
+\subsubsection*{1. Os registradores}
+
+Antes de escrever código, decida o que precisa ser lembrado de um ciclo para
+o outro, e de que tamanho:
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lll>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Registrador} & \textbf{Bits} & \textbf{Sinal} & \textbf{Por quê} \\
+\midrule
+estado & 3 & não & 8 estados cabem em 3 bits \\
+\(n\) & 13 & sim & vai até 2046 (11 bits); com sinal porque entra em \(n - n_h + 1\), que pode ser negativo \\
+\(k\), \(k_{\max}\) & 13 & sim & na mesma conta que \(n\) \\
+acumulador & 32 & sim & Q15.16, como \(y\) \\
+produto & 64 & sim & \(32 \times 32\) bits dá 64 \\
+\texttt{start} anterior & 1 & não & para achar a borda de subida \\
+\bottomrule
+\end{tabularx}
+\end{center}
 
 \begin{cuidado}
-\begin{itemize}
-  \item \(h[n-k]\): o endereço é \(n - k\), calculado em largura de índice e
-    só depois cortado para os 10 bits de \texttt{h\_addr}.
-  \item \texttt{y\_we} só pode ficar em 1 no ciclo de gravar. Um jeito
-    simples é pôr \texttt{y\_we <= 0} no começo do \texttt{always} e
-    \texttt{y\_we <= 1} só no estado GRAVA.
-  \item O módulo tem de \textbf{voltar} ao OCIOSO: o servidor roda uma
-    convolução atrás da outra.
-\end{itemize}
+Se \(n\), \(k\) e \(n_h\) forem \textbf{sem sinal}, \(n - n_h + 1\) com
+\(n < n_h - 1\) não dá negativo: dá a volta e vira um número enorme, e o
+\(\max(0, \ldots)\) escolhe o número enorme. Declare
+\texttt{reg signed [12:0]} e passe \(n_x\) e \(n_h\) para a mesma largura
+com sinal: \texttt{\$signed(\{2'b00, nx\})}.
 \end{cuidado}
 
-\etapa{A5}{Simular antes de compilar}
+\subsubsection*{2. Os limites como fios}
+
+\(k_{\min}\) e \(k_{\max}\) dependem só de \(n\), \(n_x\) e \(n_h\): não
+precisam de estado, são \textbf{fios} (\texttt{wire}) calculados o tempo
+todo. Máximo e mínimo se escrevem com o operador condicional:
+\texttt{(a > b) ? a : b} vale o maior entre \(a\) e \(b\). Escreva dois
+\texttt{wire signed [12:0]}, um para cada fórmula da A2, e use-os no estado
+LINHA.
+
+\subsubsection*{3. O esqueleto}
+
+A borda do \texttt{start}, o reset e dois dos oito estados. O resto é com
+você, seguindo a tabela da A4:
+
+\begin{lstlisting}[language=Verilog]
+    // os estados
+    localparam [2:0] S_OCIOSO     = 3'd0;
+    localparam [2:0] S_LINHA      = 3'd1;
+    localparam [2:0] S_ENDERECO   = 3'd2;
+    localparam [2:0] S_ESPERA     = 3'd3;
+    localparam [2:0] S_MULTIPLICA = 3'd4;
+    localparam [2:0] S_ACUMULA    = 3'd5;
+    localparam [2:0] S_GRAVA      = 3'd6;
+    localparam [2:0] S_FIM        = 3'd7;
+
+    reg [2:0] estado;
+
+    // borda de subida do start: 1 so no ciclo em que ele passa de 0 a 1
+    reg  start_d;
+    wire start_pulso = start & ~start_d;
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) start_d <= 1'b0;
+        else          start_d <= start;
+    end
+
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            estado <= S_OCIOSO;
+            done   <= 1'b0;
+            y_we   <= 1'b0;
+            // zere aqui tambem os seus registradores
+        end else begin
+            y_we <= 1'b0;           // so fica em 1 no ciclo de GRAVA
+
+            case (estado)
+                S_OCIOSO: begin
+                    done <= 1'b0;
+                    if (start_pulso) begin
+                        n      <= 0;
+                        estado <= S_LINHA;
+                    end
+                end
+
+                // S_LINHA, S_ENDERECO, S_ESPERA, S_MULTIPLICA,
+                // S_ACUMULA e S_GRAVA: escreva aqui
+
+                S_FIM: begin
+                    done <= 1'b1;   // fica em 1 ate o HPS baixar o start
+                    if (!start) estado <= S_OCIOSO;
+                end
+
+                default: estado <= S_OCIOSO;
+            endcase
+        end
+    end
+\end{lstlisting}
+
+\begin{porque}
+\begin{itemize}
+  \item \texttt{<=} (atribuição \emph{não bloqueante}): todos os
+    registradores mudam juntos na borda, com os valores de antes dela. Num
+    estado, \texttt{k <= k + 1} e \texttt{x\_addr <= k} usam o \(k\)
+    \textbf{antigo} --- é assim que o hardware funciona, e é por isso que
+    cada passo que depende do anterior vai num estado próprio.
+  \item \texttt{y\_we <= 1'b0} antes do \texttt{case} vale para todos os
+    estados; o GRAVA o sobrescreve com 1. Assim \texttt{y\_we} nunca fica
+    esquecido em 1.
+\end{itemize}
+\end{porque}
+
+\subsubsection*{4. Os seis estados que faltam}
+
+\begin{faca}
+Escreva um \texttt{S\_...: begin ... end} para cada linha da tabela da A4.
+Pontos de atenção:
+\begin{itemize}
+  \item \textbf{ENDEREÇO}: o endereço de \(h\) é \(n - k\), calculado em 13
+    bits e só depois cortado para os 10 de \texttt{h\_addr} (um
+    \texttt{wire signed [12:0]} com \(n - k\) e
+    \texttt{h\_addr <= n\_menos\_k[9:0]});
+  \item \textbf{MULTIPLICA}: \texttt{produto <= x\_data * h\_data;} --- os
+    dois já são \texttt{signed}, e o \texttt{produto} também precisa ser;
+  \item \textbf{ACUMULA}: some \texttt{produto[47:16]}, não o produto
+    inteiro; compare \(k\) com \(k_{\max}\) \textbf{antes} de incrementar;
+  \item \textbf{GRAVA}: a última linha é \(n = n_x + n_h - 2\).
+\end{itemize}
+\end{faca}
+
+\textbf{Para depurar}: um \texttt{\$display} dentro de um estado imprime na
+simulação (A6) e é ignorado pelo Quartus. Por exemplo, no GRAVA:
+\begin{lstlisting}[language=Verilog]
+$display("y[%0d] = %h", n, acc);
+\end{lstlisting}
+
+\etapa{A6}{Simular antes de compilar}
 
 \begin{porque}
 Compilar o projeto leva de 10 a 15 minutos; simular leva um segundo. O
 \arq{testbench/tb_conv_aluno.v} imita as três memórias (com o mesmo ciclo de
 leitura da A3), dispara o seu módulo como o servidor faz e compara cada
-\(y[n]\) com a conta feita do jeito do \arq{conv1d}. São sete casos: o
-Exemplo 2, uma amostra de cada lado, \(h\) maior que \(x\), valores
+\(y[n]\) com a conta feita do jeito do \arq{conv1d}. São sete casos: um
+caso pequeno de inteiros, uma amostra de cada lado, \(h\) maior que \(x\), valores
 fracionários quaisquer, os dois extremos de 1024 amostras e uma segunda
 rodada seguida.
 \end{porque}
@@ -595,7 +772,7 @@ vvp /tmp/tb_conv.vvp
 Cada caso numa linha começando com \texttt{ok}, e a última linha é
 \texttt{TUDO OK}:
 \begin{lstlisting}[style=sh]
-ok    Exemplo 2 do artigo  (nx=4 nh=4, 81 ciclos)
+ok    caso pequeno 4 x 4  (nx=4 nh=4, 81 ciclos)
 ok    1 x 1, fracao e sinal  (nx=1 nh=1, 9 ciclos)
 ok    h maior que x  (nx=3 nh=6, 91 ciclos)
 ok    aleatorio 50 x 17  (nx=50 nh=17, 3535 ciclos)
@@ -619,7 +796,7 @@ valores deslocados (\(y[n]\) tem a conta de outra casa) & usou o dado um estado 
 erra só nas primeiras ou nas últimas linhas & \(k_{\min}\) ou \(k_{\max}\) errado; índice sem sinal com \(n-n_h+1<0\) \\ \addlinespace
 diferença de 1 na última casa & cortou os bits no fim, e não em cada produto \\ \addlinespace
 \texttt{escrito fora da saida} & gravou mais de \(n_x+n_h-1\) amostras, ou \texttt{y\_we} ficou em 1 \\ \addlinespace
-\texttt{Exemplo 2: y nao e \ldots} & a conta está errada até no caso do artigo: refaça a A1 à mão \\
+\texttt{caso pequeno: y nao e \ldots} & a conta está errada até com inteiros: refaça a tabela da A1 à mão (é o mesmo \(x\) e \(h\)) \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -629,7 +806,7 @@ Se o computador não tiver o \texttt{iverilog}, peça ao responsável pelo
 laboratório. Sem simular, cada erro custa uma compilação inteira.
 \end{cuidado}
 
-\etapa{A6}{Compilar e gravar a placa}
+\etapa{A7}{Compilar e gravar a placa}
 
 \begin{pronto}
 As memórias \texttt{conv\_aluno\_x}, \texttt{\_h}, \texttt{\_y} e os PIOs
@@ -697,139 +874,16 @@ Erro de compilação que aponta para o \arq{conv_aluno.v} é seu: o
 \texttt{iverilog} com larguras; leia os \emph{Warnings} do seu arquivo também.
 \end{cuidado}
 
-\etapa{A7}{Testar pela serial, com o Exemplo 2}
-
-\begin{porque}
-O teste mais direto: você escreve \(x\) e \(h\) nas memórias, dá o
-\texttt{start} e lê \(y\), digitando endereços pelo console da placa. Nenhum
-programa do Morphe no meio: se der errado, o erro está no seu módulo.
-\end{porque}
-
-\begin{center}
-\begin{tikzpicture}[font=\small]
-  \node[hps,minimum width=2.4cm,minimum height=3.6cm] (arm) at (0,0) {ARM\\(Linux)\\[2pt]\scriptsize\texttt{./devmem}};
-  \node[fpga,minimum width=4.6cm,minimum height=1.0cm] (mx)  at (5.6,1.25) {RAM \(x\)\ \ \texttt{0xC0043000}\\RAM \(h\)\ \ \texttt{0xC0046000}};
-  \node[fpga,minimum width=4.6cm,minimum height=0.7cm] (my)  at (5.6,0)    {RAM \(y\)\ \ \texttt{0xC0044000}};
-  \node[fpga,minimum width=4.6cm,minimum height=1.0cm,font=\scriptsize] (pio) at (5.6,-1.25)
-      {start \texttt{0xFF200180}\ \ done \texttt{0xFF200190}\\\(n_x\) \texttt{0xFF2001A0}\ \ \(n_h\) \texttt{0xFF2001B0}};
-  \node[voce,minimum width=2.0cm,minimum height=3.6cm] (al) at (10.2,0) {\arq{conv_aluno}};
-  \draw[seta] (1.2,1.25) -- node[rot,above]{ponte h2f} (3.3,1.25);
-  \draw[seta] (3.3,0) -- (1.2,0);
-  \draw[seta,<->] (1.2,-1.25) -- node[rot,above]{ponte leve} (3.3,-1.25);
-  \draw[seta] (7.9,1.25) -- (9.2,1.25);
-  \draw[seta] (9.2,0) -- (7.9,0);
-  \draw[seta,<->] (7.9,-1.25) -- (9.2,-1.25);
-\end{tikzpicture}
-\end{center}
-
-\begin{faca}
-Entre na placa pela serial (a USB marcada UART; descubra o nome com
-\texttt{ls /dev/ttyUSB*} antes e depois de ligar o cabo) e abra o console,
-trocando \texttt{/dev/ttyUSB0} pelo nome da sua:
-\begin{lstlisting}[style=sh]
-sudo screen /dev/ttyUSB0 115200
-\end{lstlisting}
-Usuário \texttt{root}. Dentro da placa, um comando por vez:
-\begin{lstlisting}[style=sh]
-cd ~/morphe
-\end{lstlisting}
-\textbf{1. Repouso, e os tamanhos} (\(n_x = n_h = 4\)):
-\begin{lstlisting}[style=sh]
-./devmem 0xFF200180 32 0
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xFF2001A0 32 4
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xFF2001B0 32 4
-\end{lstlisting}
-\textbf{2. \(x = \{1, 2, 3, 1\}\)}, uma palavra a cada 4 bytes:
-\begin{lstlisting}[style=sh]
-./devmem 0xC0043000 32 0x00010000
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xC0043004 32 0x00020000
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xC0043008 32 0x00030000
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xC004300C 32 0x00010000
-\end{lstlisting}
-\textbf{3. \(h = \{1, 2, 1, -1\}\)}:
-\begin{lstlisting}[style=sh]
-./devmem 0xC0046000 32 0x00010000
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xC0046004 32 0x00020000
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xC0046008 32 0x00010000
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xC004600C 32 0xFFFF0000
-\end{lstlisting}
-\textbf{4. Disparar e conferir o \texttt{done}} (tem de responder
-\texttt{0x00000001}):
-\begin{lstlisting}[style=sh]
-./devmem 0xFF200180 32 1
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-./devmem 0xFF200190
-\end{lstlisting}
-\textbf{5. Ler \(y[0]\) a \(y[6]\)}:
-\begin{lstlisting}[style=sh]
-for a in 00 04 08 0C 10 14 18; do ./devmem 0xC00440$a; done
-\end{lstlisting}
-\textbf{6. Voltar ao repouso} (e o \texttt{done} volta a \texttt{0x00000000}):
-\begin{lstlisting}[style=sh]
-./devmem 0xFF200180 32 0
-\end{lstlisting}
-\end{faca}
-
-\begin{center}\small
-\begin{tabular}{@{}llrl@{}}
-\toprule
-& endereço & valor & o \texttt{devmem} responde \\
-\midrule
-\(y[0]\) & \texttt{0xC0044000} & 1 & \texttt{0x00010000} \\
-\(y[1]\) & \texttt{0xC0044004} & 4 & \texttt{0x00040000} \\
-\(y[2]\) & \texttt{0xC0044008} & 8 & \texttt{0x00080000} \\
-\(y[3]\) & \texttt{0xC004400C} & 8 & \texttt{0x00080000} \\
-\(y[4]\) & \texttt{0xC0044010} & 3 & \texttt{0x00030000} \\
-\(y[5]\) & \texttt{0xC0044014} & \(-2\) & \texttt{0xFFFE0000} \\
-\(y[6]\) & \texttt{0xC0044018} & \(-1\) & \texttt{0xFFFF0000} \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\begin{confira}
-Os sete valores batem com a tabela da A1 e com a Equação (17) do artigo.
-\end{confira}
-
-\begin{cuidado}
-\begin{itemize}
-  \item Só use o \texttt{devmem} nesses endereços \textbf{depois} de gravar a
-    placa com o seu \arq{.sof} (A6). Num endereço sem componente, a placa
-    \textbf{trava} e só volta desligando e ligando.
-  \item \texttt{done} em \texttt{0x00000000} depois do passo 4: o módulo não
-    terminou (ou nem começou). Volte à A5.
-  \item Sem login na serial? Entre pela rede (\texttt{ssh root@}\emph{IP da
-    placa}) e use os mesmos comandos.
-\end{itemize}
-\end{cuidado}
-
 \clearpage
 % =============================================================================
-\section*{Parte B --- usar no Morphe e comparar com o \texttt{conv1d}}
+\section*{Parte B --- testar no aplicativo}
 \addcontentsline{toc}{section}{Parte B}
 % =============================================================================
 
 \etapa{B1}{O caminho que já está pronto}
 
-Na A7 você fez à mão o que o servidor faz em cada pedido. Na Parte B, o
-aplicativo manda os \textbf{mesmos} \(x\) e \(h\) por dois caminhos e compara
-as respostas:
+O aplicativo manda os \textbf{mesmos} \(x\) e \(h\) por dois caminhos --- o
+seu módulo e o \arq{conv1d} --- e compara as respostas:
 
 \begin{center}
 \begin{tikzpicture}[node distance=0.6cm,font=\small]
@@ -848,7 +902,6 @@ as respostas:
     {\(y\) do aluno \(-\) \(y\) do \arq{conv1d}, amostra a amostra};
 \end{tikzpicture}
 \end{center}
-
 \begin{center}\small
 \begin{tabularx}{\linewidth}{@{}>{\raggedright}p{5.2cm}X@{}}
 \toprule
@@ -856,14 +909,14 @@ as respostas:
 \midrule
 \arq{Python/conv_aluno_window.py} & a janela: gera \(x\) e \(h\), passa para Q15.16, faz os dois pedidos numa \emph{thread} e desenha \(y\) e a diferença \\ \addlinespace
 \arq{Python/morphe_protocol.py} & \texttt{OP\_CONV\_ALUNO = 10}: o pedido tem o mesmo formato da convolução (cabeçalho, \(x\), depois \(h\)) \\ \addlinespace
-\arq{C/morphe_server.c}:\newline \texttt{handle\_conv\_aluno} & os passos da A7: escreve \(x\), \(h\), \(n_x\), \(n_h\), zera \(y\), sobe o \texttt{start}, espera o \texttt{done} (até 5\,s), lê \(y\), baixa o \texttt{start} e responde \\ \addlinespace
+\arq{C/morphe_server.c}:\newline \texttt{handle\_conv\_aluno} & escreve \(x\), \(h\), \(n_x\) e \(n_h\) na FPGA, zera \(y\), sobe o \texttt{start}, espera o \texttt{done} (até 5\,s), lê as \(n_x+n_h-1\) amostras de \(y\), baixa o \texttt{start} e responde \\ \addlinespace
 \arq{C/morphe_server.c}:\newline conferência do \emph{sysid} & recusa o pedido se o \arq{.sof} da placa não for o que tem o \texttt{conv\_aluno}: a placa não trava \\ \addlinespace
 \arq{Quartus/ghrd_top.v} & liga as portas do seu módulo às memórias (\texttt{chipselect} e \texttt{clken} sempre em 1) e aos PIOs \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\etapa{B2}{O Exemplo 2 no aplicativo}
+\etapa{B2}{Testar no aplicativo}
 
 \begin{faca}
 Num computador do laboratório, de \arq{~/minha-conv}:
@@ -871,54 +924,64 @@ Num computador do laboratório, de \arq{~/minha-conv}:
 python3 Python/morphe_app.py
 \end{lstlisting}
 Em \emph{Placas do laboratório}, escolha a \textbf{sua} placa. No menu,
-\menu{Convolução do aluno (conv\_aluno \(\times\) conv1d)}\seta
-\menu{Carregar o Exemplo 2 do artigo}\seta\menu{Comparar na FPGA}.
+\menu{Convolução do aluno (conv\_aluno \(\times\) conv1d)}. Em cada painel,
+escolha o sinal e clique em \menu{Gerar}; depois, \menu{Comparar na FPGA}.
 \end{faca}
+
+Vá do caso mais simples ao maior. Cada um testa uma parte do módulo:
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{3.2cm}>{\raggedright}p{3.2cm}X@{}}
+\toprule
+\(x[n]\) & \(h[n]\) & o que esperar, e o que testa \\
+\midrule
+impulso, \(N = 1\) & impulso, \(N = 1\) & \(y = \{1\}\): uma linha, uma casa \\ \addlinespace
+impulso, \(N = 8\) & retangular ou degrau, \(N = 5\) & \(y\) repete o \(h\): \(\delta[n] * h[n] = h[n]\) \\ \addlinespace
+degrau, \(N = 8\) & degrau, \(N = 8\) & um triângulo de 15 amostras: \(k_{\min}\) e \(k_{\max}\) nas linhas do começo e do fim \\ \addlinespace
+degrau, \(N = 3\) & exponencial, \(N = 20\) & \(h\) maior que \(x\): os limites trocam de papel \\ \addlinespace
+senóide, \(N = 1024\) & degrau, \(N = 32\) & soma móvel de 32 amostras: \(y\) suaviza \(x\); endereços até o fim da memória \\ \addlinespace
+exponencial, \(N = 1024\) & senóide, \(N = 1024\) & o maior caso: 2047 amostras, cerca de um milhão de produtos \\
+\bottomrule
+\end{tabularx}
+\end{center}
 
 \begin{confira}
 \begin{itemize}
-  \item o terceiro gráfico mostra \(y = \{1, 4, 8, 8, 3, -2, -1\}\) com
-    \(n\) de \(-1\) a \(5\): exatamente a Equação (17) e a Figura 1 do artigo.
-    A janela sabe que \(h\) começa em \(n = -1\) e põe a origem de \(y\) em
-    \(0 + (-1) = -1\);
-  \item as hastes (seu módulo) e os \(\times\) (o \arq{conv1d}) coincidem, e
-    o gráfico de baixo, a diferença, é zero;
+  \item no terceiro gráfico, as hastes (seu módulo) e os \(\times\) (o
+    \arq{conv1d}) coincidem;
+  \item o gráfico de baixo, a diferença, é zero em todas as amostras;
   \item a barra de baixo diz \emph{iguais, bit a bit}.
 \end{itemize}
 \end{confira}
 
-\etapa{B3}{Comparar com o \texttt{conv1d} em sinais de verdade}
+\etapa{B3}{Quando não bate}
 
-\begin{faca}
-Gere sinais maiores no painel de cada lado e compare de novo. Sugestões:
+Se as respostas diferem, a barra de baixo diz em que \(n\) está a
+\textbf{primeira} diferença e quantas amostras cada módulo acerta contra a
+mesma conta feita no computador --- o que separa um erro seu de um erro do
+\arq{conv1d}. O gráfico da diferença mostra \emph{onde} está o erro:
+
 \begin{center}\small
-\begin{tabular}{@{}lll@{}}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{5.6cm}X@{}}
 \toprule
-\(x[n]\) & \(h[n]\) & o que mostra \\
+\textbf{O aplicativo mostra} & \textbf{Provável causa} \\
 \midrule
-senóide, 1024 amostras & degrau, 32 amostras & soma móvel de 32 amostras: \(y\) suaviza \(x\) \\
-impulso & qualquer & \(y = h\): a resposta ao impulso (Seção 2 do artigo) \\
-degrau, 8 & degrau, 8 & um triângulo de 15 amostras \\
-exponencial, 1024 & senóide, 1024 & o caso maior: 2047 amostras, \(\approx\)\,1 milhão de produtos \\
+\emph{timeout} & o \texttt{done} não subiu em 5\,s: o módulo travou num estado, ou não viu a borda do \texttt{start} \\ \addlinespace
+\(y\) todo zero & o módulo não grava: \texttt{y\_we} nunca sobe (o servidor zera \(y\) antes de cada pedido) \\ \addlinespace
+funciona uma vez, e na segunda dá \emph{timeout} & o módulo não volta ao OCIOSO quando o \texttt{start} cai \\ \addlinespace
+diferença só no começo e no fim de \(y\) & \(k_{\min}\) ou \(k_{\max}\) errado; conta sem sinal com \(n - n_h + 1 < 0\) \\ \addlinespace
+\(y\) parecido, mas deslocado ou ``borrado'' & usou o dado da memória um ciclo cedo demais: falta a ESPERA \\ \addlinespace
+diferença de \(\pm1\) ou \(\pm2\) espalhada & cortou os bits só no fim, e não em cada produto \\ \addlinespace
+certo em sinais pequenos, errado em \(N = 1024\) & largura de algum registrador ou endereço pequena demais \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
-\end{faca}
 
-\begin{confira}
-Em todos os casos, \emph{iguais, bit a bit}, e diferença zero. Se não forem,
-a barra diz em que \(n\) está a primeira diferença e quantas amostras cada
-módulo acerta contra a mesma conta feita no NumPy --- o que separa um erro
-seu de um erro do \arq{conv1d}.
-\end{confira}
-
-\begin{pense}
-O \arq{conv1d} percorre sempre as 2047 linhas de uma convolução
-\(1024 \times 1024\), com zeros onde não há sinal; o seu só faz as
-\(n_x + n_h - 1\) linhas pedidas, e em cada uma só as casas coloridas.
-Quantos produtos cada um faz para \(n_x = 1024\) e \(n_h = 32\)? E quantos
-ciclos o seu leva, a 4 ciclos por produto? A 50\,MHz, quanto tempo?
-\end{pense}
+\begin{cuidado}
+Antes de mexer no módulo, reproduza o erro no testbench (A6) --- se o
+testbench passa e a placa erra, compare os dois casos: tamanho, sinal dos
+valores, rodadas seguidas. Cada volta pela placa custa uma compilação.
+\end{cuidado}
 
 \etapa{B4}{Devolver a placa à turma}
 
@@ -927,7 +990,7 @@ Sempre, ao terminar. Na estação, de \arq{~/minha-conv}:
 \begin{lstlisting}[style=sh]
 ./morphe-up.sh --down
 \end{lstlisting}
-e depois, de \arq{/opt/morphe}, com o mesmo \texttt{CABO} da A6:
+e depois, de \arq{/opt/morphe}, com o mesmo \texttt{CABO} da A7:
 \begin{lstlisting}[style=sh]
 cd /opt/morphe
 \end{lstlisting}
@@ -948,11 +1011,8 @@ cd /opt/morphe
 \emph{IP upgrade recommended}, ou \emph{Used \ldots\ 23.1} & abriu com outro Quartus; feche sem salvar e abra o 20.1 \\ \addlinespace
 \emph{can't find port} ao compilar & mudou o nome ou a largura de uma porta do \arq{conv_aluno.v}; volte às da A3 \\ \addlinespace
 \emph{Slack} negativo no \texttt{clock\_50\_1} & conta demais num ciclo só (multiplicar \emph{e} somar no mesmo estado, por exemplo); separe em dois estados \\ \addlinespace
-o aplicativo diz \emph{timeout} & o \texttt{done} não subiu em 5\,s: o módulo travou num estado. Simule (A5) \\ \addlinespace
-o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: faltou o \texttt{-{}-deploy} da A6, ou o app está ligado em outra placa \\ \addlinespace
-o aplicativo diz \emph{bitstream \ldots\ nao e o deste servidor} & a placa está com outro \arq{.sof}: grave o seu (A6) \\ \addlinespace
-\(y\) todo zero & o módulo não grava: \texttt{y\_we} nunca sobe (o servidor zera \(y\) antes de cada pedido) \\ \addlinespace
-a placa some da rede & \texttt{devmem} antes de gravar o \arq{.sof}, ou \arq{hps_0.h} de outro \arq{.sof} \\ \addlinespace
+o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: faltou o \texttt{-{}-deploy} da A7, ou o app está ligado em outra placa \\ \addlinespace
+o aplicativo diz \emph{bitstream \ldots\ nao e o deste servidor} & a placa está com outro \arq{.sof}: grave o seu (A7) \\ \addlinespace
 nunca use \menu{System}\seta\menu{Assign Base Addresses} & muda o endereço de todos os componentes, e o servidor passa a escrever no lugar errado \\
 \bottomrule
 \end{tabularx}

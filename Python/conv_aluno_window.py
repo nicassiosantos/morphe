@@ -67,7 +67,7 @@ class ConvAlunoWindow(tk.Toplevel):
         self.dif: Optional[dsp.Signal] = None
 
         self.status = tk.StringVar(
-            value="Gere x[n] e h[n] (ou carregue o Exemplo 2 do artigo) e clique em Comparar.")
+            value="Gere x[n] e h[n] e clique em Comparar na FPGA.")
         theme.make_status_bar(self, self.status).pack(side="bottom", fill="x")
 
         root = ttk.Frame(self, style="Main.TFrame", padding=12)
@@ -98,8 +98,6 @@ class ConvAlunoWindow(tk.Toplevel):
                   text=f"x e h com até {CONV_ALUNO_N_MAX} amostras, em Q15.16. "
                        "Os dois vão para o seu conv_aluno e para o conv1d do "
                        "Morphe; a saída tem nx + nh − 1 amostras.").pack(anchor="w", pady=(0, 8))
-        ttk.Button(op, text="Carregar o Exemplo 2 do artigo",
-                   command=self._on_exemplo2).pack(fill="x", pady=(0, 6))
         self.btn = ttk.Button(op, text="Comparar na FPGA", style="Primary.TButton",
                               command=self._on_comparar)
         self.btn.pack(fill="x")
@@ -143,18 +141,6 @@ class ConvAlunoWindow(tk.Toplevel):
         except Exception as e:
             messagebox.showerror("Erro em h[n]", str(e))
 
-    def _on_exemplo2(self):
-        """Exemplo 2 do artigo: x = {1, 2, 3, 1} com n de 0 a 3 e
-        h = {1, 2, 1, -1} com n de -1 a 2. A resposta e
-        y = {1, 4, 8, 8, 3, -2, -1}, com n de -1 a 5 (Equacao 17)."""
-        self.x_sig = dsp.Signal(n=np.arange(0, 4), x=np.array([1.0, 2.0, 3.0, 1.0]),
-                                description="Exemplo 2 do artigo, 0 ≤ n ≤ 3")
-        self.h_sig = dsp.Signal(n=np.arange(-1, 3), x=np.array([1.0, 2.0, 1.0, -1.0]),
-                                description="Exemplo 2 do artigo, −1 ≤ n ≤ 2")
-        self._limpa_saidas()
-        self.status.set("Exemplo 2 carregado. A resposta do artigo é "
-                        "y = {1, 4, 8, 8, 3, −2, −1}, com −1 ≤ n ≤ 5.")
-
     def _limpa_saidas(self):
         self.y_aluno = self.y_conv1d = self.dif = None
         self._redraw()
@@ -171,7 +157,7 @@ class ConvAlunoWindow(tk.Toplevel):
 
         x_q = dsp.float_to_q1516(self.x_sig.x)
         h_q = dsp.float_to_q1516(self.h_sig.x)
-        # a origem de y e a soma das origens (no Exemplo 2: 0 + (-1) = -1)
+        # a origem de y e a soma das origens (h comecando em n = -1 adianta y)
         n0 = int(self.x_sig.n[0]) + int(self.h_sig.n[0])
 
         self.btn.config(state="disabled")

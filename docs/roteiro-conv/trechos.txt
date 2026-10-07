@@ -23,7 +23,7 @@ cd minha-conv
 git switch -c minha-conv
 
 ========================================================================
-[5] Parte A --- construir o módulo / A2 Da tabela a dois laços
+[5] Parte A --- desenvolver o módulo / A2 Da tabela a dois laços
 ========================================================================
 para n = 0 até nx + nh - 2:             # uma LINHA da tabela
     acc = 0
@@ -32,7 +32,7 @@ para n = 0 até nx + nh - 2:             # uma LINHA da tabela
     y[n] = acc                          # a soma da linha
 
 ========================================================================
-[6] Parte A --- construir o módulo / A3 O que entra e o que sai do módulo
+[6] Parte A --- desenvolver o módulo / A3 O que entra e o que sai do módulo
 ========================================================================
 module conv_aluno #(
     parameter DATA_WIDTH  = 32,
@@ -64,19 +64,78 @@ module conv_aluno #(
 );
 
 ========================================================================
-[7] Parte A --- construir o módulo / A5 Simular antes de compilar
+[7] Parte A --- desenvolver o módulo / A5 Escrever o Verilog, por partes
+========================================================================
+    // os estados
+    localparam [2:0] S_OCIOSO     = 3'd0;
+    localparam [2:0] S_LINHA      = 3'd1;
+    localparam [2:0] S_ENDERECO   = 3'd2;
+    localparam [2:0] S_ESPERA     = 3'd3;
+    localparam [2:0] S_MULTIPLICA = 3'd4;
+    localparam [2:0] S_ACUMULA    = 3'd5;
+    localparam [2:0] S_GRAVA      = 3'd6;
+    localparam [2:0] S_FIM        = 3'd7;
+
+    reg [2:0] estado;
+
+    // borda de subida do start: 1 so no ciclo em que ele passa de 0 a 1
+    reg  start_d;
+    wire start_pulso = start & ~start_d;
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) start_d <= 1'b0;
+        else          start_d <= start;
+    end
+
+    always @(posedge clk or negedge reset_n) begin
+        if (!reset_n) begin
+            estado <= S_OCIOSO;
+            done   <= 1'b0;
+            y_we   <= 1'b0;
+            // zere aqui tambem os seus registradores
+        end else begin
+            y_we <= 1'b0;           // so fica em 1 no ciclo de GRAVA
+
+            case (estado)
+                S_OCIOSO: begin
+                    done <= 1'b0;
+                    if (start_pulso) begin
+                        n      <= 0;
+                        estado <= S_LINHA;
+                    end
+                end
+
+                // S_LINHA, S_ENDERECO, S_ESPERA, S_MULTIPLICA,
+                // S_ACUMULA e S_GRAVA: escreva aqui
+
+                S_FIM: begin
+                    done <= 1'b1;   // fica em 1 ate o HPS baixar o start
+                    if (!start) estado <= S_OCIOSO;
+                end
+
+                default: estado <= S_OCIOSO;
+            endcase
+        end
+    end
+
+========================================================================
+[8] Parte A --- desenvolver o módulo / A5 Escrever o Verilog, por partes
+========================================================================
+$display("y[%0d] = %h", n, acc);
+
+========================================================================
+[9] Parte A --- desenvolver o módulo / A6 Simular antes de compilar
 ========================================================================
 iverilog -g2005 -o /tmp/tb_conv.vvp testbench/tb_conv_aluno.v conv_aluno.v
 
 ========================================================================
-[8] Parte A --- construir o módulo / A5 Simular antes de compilar
+[10] Parte A --- desenvolver o módulo / A6 Simular antes de compilar
 ========================================================================
 vvp /tmp/tb_conv.vvp
 
 ========================================================================
-[9] Parte A --- construir o módulo / A5 Simular antes de compilar
+[11] Parte A --- desenvolver o módulo / A6 Simular antes de compilar
 ========================================================================
-ok    Exemplo 2 do artigo  (nx=4 nh=4, 81 ciclos)
+ok    caso pequeno 4 x 4  (nx=4 nh=4, 81 ciclos)
 ok    1 x 1, fracao e sinal  (nx=1 nh=1, 9 ciclos)
 ok    h maior que x  (nx=3 nh=6, 91 ciclos)
 ok    aleatorio 50 x 17  (nx=50 nh=17, 3535 ciclos)
@@ -86,116 +145,31 @@ ok    segunda rodada seguida  (nx=4 nh=4, 81 ciclos)
 TUDO OK
 
 ========================================================================
-[10] Parte A --- construir o módulo / A6 Compilar e gravar a placa
+[12] Parte A --- desenvolver o módulo / A7 Compilar e gravar a placa
 ========================================================================
 python3 gen_hps_header.py
 
 ========================================================================
-[11] Parte A --- construir o módulo / A6 Compilar e gravar a placa
+[13] Parte A --- desenvolver o módulo / A7 Compilar e gravar a placa
 ========================================================================
 ./morphe-up.sh --cable 'CABO' --deploy
 
 ========================================================================
-[12] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-sudo screen /dev/ttyUSB0 115200
-
-========================================================================
-[13] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-cd ~/morphe
-
-========================================================================
-[14] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xFF200180 32 0
-
-========================================================================
-[15] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xFF2001A0 32 4
-
-========================================================================
-[16] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xFF2001B0 32 4
-
-========================================================================
-[17] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC0043000 32 0x00010000
-
-========================================================================
-[18] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC0043004 32 0x00020000
-
-========================================================================
-[19] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC0043008 32 0x00030000
-
-========================================================================
-[20] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC004300C 32 0x00010000
-
-========================================================================
-[21] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC0046000 32 0x00010000
-
-========================================================================
-[22] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC0046004 32 0x00020000
-
-========================================================================
-[23] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC0046008 32 0x00010000
-
-========================================================================
-[24] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xC004600C 32 0xFFFF0000
-
-========================================================================
-[25] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xFF200180 32 1
-
-========================================================================
-[26] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xFF200190
-
-========================================================================
-[27] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-for a in 00 04 08 0C 10 14 18; do ./devmem 0xC00440$a; done
-
-========================================================================
-[28] Parte A --- construir o módulo / A7 Testar pela serial, com o Exemplo 2
-========================================================================
-./devmem 0xFF200180 32 0
-
-========================================================================
-[29] Parte B --- usar no Morphe e comparar com o conv1d / B2 O Exemplo 2 no aplicativo
+[14] Parte B --- testar no aplicativo / B2 Testar no aplicativo
 ========================================================================
 python3 Python/morphe_app.py
 
 ========================================================================
-[30] Parte B --- usar no Morphe e comparar com o conv1d / B4 Devolver a placa à turma
+[15] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
 ========================================================================
 ./morphe-up.sh --down
 
 ========================================================================
-[31] Parte B --- usar no Morphe e comparar com o conv1d / B4 Devolver a placa à turma
+[16] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
 ========================================================================
 cd /opt/morphe
 
 ========================================================================
-[32] Parte B --- usar no Morphe e comparar com o conv1d / B4 Devolver a placa à turma
+[17] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
 ========================================================================
 ./morphe-up.sh --cable 'CABO'
