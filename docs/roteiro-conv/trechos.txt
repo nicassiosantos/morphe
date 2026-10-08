@@ -66,6 +66,17 @@ module conv_aluno #(
 ========================================================================
 [7] Parte A --- desenvolver o módulo / A5 Escrever o Verilog, por partes
 ========================================================================
+    // nx e nh com sinal, na largura de n e k (13 bits)
+    wire signed [12:0] nx_s = $signed({2'b00, nx});
+    wire signed [12:0] nh_s = $signed({2'b00, nh});
+
+    // kmin = max(0, n - nh + 1)        kmax = min(n, nx - 1)
+    wire signed [12:0] kmin = (n - nh_s + 1 > 0) ? n - nh_s + 1 : 0;
+    wire signed [12:0] kmax = (n < nx_s - 1)     ? n : nx_s - 1;
+
+========================================================================
+[8] Parte A --- desenvolver o módulo / A5 Escrever o Verilog, por partes
+========================================================================
     // os estados
     localparam [2:0] S_OCIOSO     = 3'd0;
     localparam [2:0] S_LINHA      = 3'd1;
@@ -118,58 +129,31 @@ module conv_aluno #(
     end
 
 ========================================================================
-[8] Parte A --- desenvolver o módulo / A5 Escrever o Verilog, por partes
-========================================================================
-$display("y[%0d] = %h", n, acc);
-
-========================================================================
-[9] Parte A --- desenvolver o módulo / A6 Simular antes de compilar
-========================================================================
-iverilog -g2005 -o /tmp/tb_conv.vvp testbench/tb_conv_aluno.v conv_aluno.v
-
-========================================================================
-[10] Parte A --- desenvolver o módulo / A6 Simular antes de compilar
-========================================================================
-vvp /tmp/tb_conv.vvp
-
-========================================================================
-[11] Parte A --- desenvolver o módulo / A6 Simular antes de compilar
-========================================================================
-ok    caso pequeno 4 x 4  (nx=4 nh=4, 81 ciclos)
-ok    1 x 1, fracao e sinal  (nx=1 nh=1, 9 ciclos)
-ok    h maior que x  (nx=3 nh=6, 91 ciclos)
-ok    aleatorio 50 x 17  (nx=50 nh=17, 3535 ciclos)
-ok    x com 1024 amostras  (nx=1024 nh=3, 14343 ciclos)
-ok    h com 1024 amostras  (nx=3 nh=1024, 14343 ciclos)
-ok    segunda rodada seguida  (nx=4 nh=4, 81 ciclos)
-TUDO OK
-
-========================================================================
-[12] Parte A --- desenvolver o módulo / A7 Compilar e gravar a placa
+[9] Parte A --- desenvolver o módulo / A6 Compilar e gravar a placa
 ========================================================================
 python3 gen_hps_header.py
 
 ========================================================================
-[13] Parte A --- desenvolver o módulo / A7 Compilar e gravar a placa
+[10] Parte A --- desenvolver o módulo / A6 Compilar e gravar a placa
 ========================================================================
 ./morphe-up.sh --cable 'CABO' --deploy
 
 ========================================================================
-[14] Parte B --- testar no aplicativo / B2 Testar no aplicativo
+[11] Parte B --- testar no aplicativo / B2 Testar no aplicativo
 ========================================================================
 python3 Python/morphe_app.py
 
 ========================================================================
-[15] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
+[12] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
 ========================================================================
 ./morphe-up.sh --down
 
 ========================================================================
-[16] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
+[13] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
 ========================================================================
 cd /opt/morphe
 
 ========================================================================
-[17] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
+[14] Parte B --- testar no aplicativo / B4 Devolver a placa à turma
 ========================================================================
 ./morphe-up.sh --cable 'CABO'

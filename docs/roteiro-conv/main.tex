@@ -32,6 +32,14 @@
 \usepackage{dirtree}
 \usepackage[hidelinks]{hyperref}
 
+% No pdfLaTeX (Overleaf), os espaços do código viram só distância no PDF, e
+% copiar "git clone -b" cola "git clone-b". Isto grava um espaço de verdade
+% entre as palavras; o XeTeX (Tectonic) já faz isso sozinho.
+\ifdefined\pdfinterwordspaceon
+  \input{glyphtounicode}\pdfgentounicode=1
+  \pdfinterwordspaceon
+\fi
+
 % --- cores: azul = aplicativo, verde = HPS, laranja = FPGA ---
 \definecolor{cli}{HTML}{2563EB}
 \definecolor{hps}{HTML}{15803D}
@@ -140,7 +148,7 @@ escreve o corpo do \arq{conv_aluno.v}:
 \begin{itemize}
   \item \textbf{Parte A} --- desenvolver o módulo: a conta, a conta como
     tabela, a tabela como dois laços, os dois laços como máquina de estados,
-    e a máquina em Verilog; depois simular e compilar.
+    e a máquina em Verilog; depois compilar e gravar a placa.
   \item \textbf{Parte B} --- testar no aplicativo: a janela \menu{Convolução
     do aluno} manda os mesmos \(x\) e \(h\) para o seu módulo e para o
     \arq{conv1d} e mostra a diferença amostra a amostra.
@@ -154,9 +162,8 @@ escreve o corpo do \arq{conv_aluno.v}:
   \node[e,voce,right=of a2]    (a3) {\passo{A3}\\portas e\\tempos};
   \node[e,voce,right=of a3]    (a4) {\passo{A4}\\máquina de\\estados};
   \node[e,voce,right=of a4]    (a5) {\passo{A5}\\escrever\\o Verilog};
-  \node[e,voce,right=of a5]    (a6) {\passo{A6}\\simular};
-  \node[e,fpga,right=of a6]    (a7) {\passo{A7}\\compilar\\e gravar};
-  \foreach \i/\j in {a1/a2,a2/a3,a3/a4,a4/a5,a5/a6,a6/a7} \draw[seta] (\i)--(\j);
+  \node[e,fpga,right=of a5]    (a6) {\passo{A6}\\compilar\\e gravar};
+  \foreach \i/\j in {a1/a2,a2/a3,a3/a4,a4/a5,a5/a6} \draw[seta] (\i)--(\j);
   \node[e,cli,below=0.9cm of a3] (b1) {\passo{B1}\\o caminho\\pronto};
   \node[e,cli,right=of b1]       (b2) {\passo{B2}\\testar no\\aplicativo};
   \node[e,cli,right=of b2]       (b3) {\passo{B3}\\quando não\\bate};
@@ -205,8 +212,7 @@ e na mesma ordem, estão em \arq{docs/roteiro-conv/trechos.txt}.
 \dirtree{%
 .1 minha-conv/.
 .2 Quartus/\DTcomment{\textcolor{fpga}{FPGA --- abrir no Quartus 20.1}}.
-.3 conv\_aluno.v\DTcomment{\novo{} --- só as portas; o corpo é seu (A4)}.
-.3 testbench/tb\_conv\_aluno.v\DTcomment{\ok{} --- a simulação da A5}.
+.3 conv\_aluno.v\DTcomment{\novo{} --- só as portas; o corpo é seu (A5)}.
 .3 conv1d.v\DTcomment{\ok{} --- a convolução do Morphe, para comparar}.
 .3 soc\_system.qsys\DTcomment{\ok{} --- memórias e PIOs do conv\_aluno}.
 .3 ghrd\_top.v\DTcomment{\ok{} --- o conv\_aluno já ligado a eles}.
@@ -343,20 +349,27 @@ na hora de desenhar. O seu módulo não precisa saber disso.
 
 \etapa{A2}{Da tabela a dois laços}
 
-As casas coloridas da linha \(n\) são as colunas onde \(x[k]\) \textbf{e}
-\(h[n-k]\) existem ao mesmo tempo:
-\[
-  \underbrace{0 \le k \le n_x - 1}_{x[k] \text{ existe}}
-  \qquad\text{e}\qquad
-  \underbrace{0 \le n-k \le n_h - 1}_{h[n-k] \text{ existe}}
-  \;\Longleftrightarrow\; n - n_h + 1 \le k \le n
-\]
+Na linha \(n\), \(k_{\min}\) é a \textbf{primeira} casa colorida e
+\(k_{\max}\) a \textbf{última}. Uma casa é colorida quando \(x[k]\)
+\textbf{e} \(h[n-k]\) existem ao mesmo tempo. Cada um dá uma condição sobre
+\(k\):
+\begin{enumerate}[label=\arabic*.]
+  \item \(x[k]\) existe quando \(0 \le k \le n_x - 1\);
+  \item \(h[n-k]\) existe quando \(0 \le n - k \le n_h - 1\). Isolando
+    \(k\): de \(n - k \ge 0\) sai \(k \le n\), e de \(n - k \le n_h - 1\) sai
+    \(k \ge n - n_h + 1\). Ou seja, \(n - n_h + 1 \le k \le n\).
+\end{enumerate}
+As duas valem juntas, então \(k\) tem de ficar acima dos \textbf{dois}
+limites de baixo e abaixo dos \textbf{dois} limites de cima:
 \[
   k_{\min} = \max(0,\; n - n_h + 1)
   \qquad\qquad
   k_{\max} = \min(n,\; n_x - 1)
 \]
-Confira nas duas últimas colunas da tabela. Com isso, a convolução inteira é:
+No exemplo da A1 (\(n_x = n_h = 4\)), na linha \(n = 5\):
+\(k_{\min} = \max(0,\, 5 - 4 + 1) = 2\) e \(k_{\max} = \min(5,\, 3) = 3\) ---
+as casas \(k = 2\) e \(k = 3\), como na tabela. Confira as outras linhas nas
+duas últimas colunas. Com isso, a convolução inteira é:
 
 \begin{lstlisting}
 para n = 0 até nx + nh - 2:             # uma LINHA da tabela
@@ -578,11 +591,11 @@ ciclo anterior?} Um caminho possível (há outros):
 \textbf{Estado} & \textbf{O que faz (registradores que mudam)} & \textbf{Próximo} \\
 \midrule
 OCIOSO & \texttt{done = 0}; na borda do \texttt{start}, \(n = 0\) & LINHA, se o start subiu \\
-LINHA & \(k = k_{\min}(n)\), \(k_{\max} = k_{\max}(n)\), \(acc = 0\) & ENDEREÇO \\
+LINHA & \(k = k_{\min}\), \(acc = 0\) & ENDEREÇO \\
 ENDEREÇO & \texttt{x\_addr} \(= k\), \texttt{h\_addr} \(= n - k\) & ESPERA \\
 ESPERA & nada: a memória está lendo & MULTIPLICA \\
 MULTIPLICA & \(p = \) \texttt{x\_data} \(\times\) \texttt{h\_data} (64 bits) & ACUMULA \\
-ACUMULA & \(acc = acc + p[47{:}16]\); se ainda há coluna, \(k = k+1\) & ENDEREÇO ou GRAVA \\
+ACUMULA & \(acc = acc + p[47{:}16]\); se \(k < k_{\max}\), \(k = k+1\) & ENDEREÇO ou GRAVA \\
 GRAVA & \texttt{y\_addr} \(= n\), \texttt{y\_data} \(= acc\), \texttt{y\_we} \(= 1\); se ainda há linha, \(n = n+1\) & LINHA ou FIM \\
 FIM & \texttt{done = 1} & OCIOSO, quando o start cai \\
 \bottomrule
@@ -626,13 +639,16 @@ o outro, e de que tamanho:
 \midrule
 estado & 3 & não & 8 estados cabem em 3 bits \\
 \(n\) & 13 & sim & vai até 2046 (11 bits); com sinal porque entra em \(n - n_h + 1\), que pode ser negativo \\
-\(k\), \(k_{\max}\) & 13 & sim & na mesma conta que \(n\) \\
+\(k\) & 13 & sim & na mesma conta que \(n\) \\
 acumulador & 32 & sim & Q15.16, como \(y\) \\
 produto & 64 & sim & \(32 \times 32\) bits dá 64 \\
 \texttt{start} anterior & 1 & não & para achar a borda de subida \\
 \bottomrule
 \end{tabularx}
 \end{center}
+
+\(k_{\min}\) e \(k_{\max}\) não estão na tabela de propósito: não são
+registradores (veja a parte 2).
 
 \begin{cuidado}
 Se \(n\), \(k\) e \(n_h\) forem \textbf{sem sinal}, \(n - n_h + 1\) com
@@ -644,12 +660,31 @@ com sinal: \texttt{\$signed(\{2'b00, nx\})}.
 
 \subsubsection*{2. Os limites como fios}
 
-\(k_{\min}\) e \(k_{\max}\) dependem só de \(n\), \(n_x\) e \(n_h\): não
-precisam de estado, são \textbf{fios} (\texttt{wire}) calculados o tempo
-todo. Máximo e mínimo se escrevem com o operador condicional:
-\texttt{(a > b) ? a : b} vale o maior entre \(a\) e \(b\). Escreva dois
-\texttt{wire signed [12:0]}, um para cada fórmula da A2, e use-os no estado
-LINHA.
+Um \textbf{registrador} (\texttt{reg}) guarda um valor de um ciclo para o
+outro e só muda na borda do relógio. Um \textbf{fio} (\texttt{wire}) não
+guarda nada: é uma conta ligada o tempo todo às entradas dela, e muda
+assim que elas mudam. \(k_{\min}\) e \(k_{\max}\) dependem só de \(n\),
+\(n_x\) e \(n_h\), e nenhum dos três muda durante uma linha. Então os dois
+podem ser fios: em qualquer estado da linha \(n\) eles já valem
+\(k_{\min}(n)\) e \(k_{\max}(n)\), sem ninguém precisar guardá-los.
+
+Já o \(k\) \textbf{precisa} ser registrador: ele anda de \(k_{\min}\) até
+\(k_{\max}\) ao longo da linha, e cada passo depende do valor anterior. No
+estado LINHA ele recebe o fio \(k_{\min}\); no ACUMULA ele é comparado com
+o fio \(k_{\max}\).
+
+Máximo e mínimo se escrevem com o operador condicional:
+\texttt{(a > b) ? a : b} vale o maior entre \(a\) e \(b\). As fórmulas da A2
+em Verilog, depois das declarações dos registradores:
+\begin{lstlisting}[language=Verilog]
+    // nx e nh com sinal, na largura de n e k (13 bits)
+    wire signed [12:0] nx_s = $signed({2'b00, nx});
+    wire signed [12:0] nh_s = $signed({2'b00, nh});
+
+    // kmin = max(0, n - nh + 1)        kmax = min(n, nx - 1)
+    wire signed [12:0] kmin = (n - nh_s + 1 > 0) ? n - nh_s + 1 : 0;
+    wire signed [12:0] kmax = (n < nx_s - 1)     ? n : nx_s - 1;
+\end{lstlisting}
 
 \subsubsection*{3. O esqueleto}
 
@@ -735,78 +770,13 @@ Pontos de atenção:
   \item \textbf{MULTIPLICA}: \texttt{produto <= x\_data * h\_data;} --- os
     dois já são \texttt{signed}, e o \texttt{produto} também precisa ser;
   \item \textbf{ACUMULA}: some \texttt{produto[47:16]}, não o produto
-    inteiro; compare \(k\) com \(k_{\max}\) \textbf{antes} de incrementar;
+    inteiro; compare \(k\) com o fio \texttt{kmax} \textbf{antes} de
+    incrementar;
   \item \textbf{GRAVA}: a última linha é \(n = n_x + n_h - 2\).
 \end{itemize}
 \end{faca}
 
-\textbf{Para depurar}: um \texttt{\$display} dentro de um estado imprime na
-simulação (A6) e é ignorado pelo Quartus. Por exemplo, no GRAVA:
-\begin{lstlisting}[language=Verilog]
-$display("y[%0d] = %h", n, acc);
-\end{lstlisting}
-
-\etapa{A6}{Simular antes de compilar}
-
-\begin{porque}
-Compilar o projeto leva de 10 a 15 minutos; simular leva um segundo. O
-\arq{testbench/tb_conv_aluno.v} imita as três memórias (com o mesmo ciclo de
-leitura da A3), dispara o seu módulo como o servidor faz e compara cada
-\(y[n]\) com a conta feita do jeito do \arq{conv1d}. São sete casos: um
-caso pequeno de inteiros, uma amostra de cada lado, \(h\) maior que \(x\), valores
-fracionários quaisquer, os dois extremos de 1024 amostras e uma segunda
-rodada seguida.
-\end{porque}
-
-\begin{faca}
-De dentro de \arq{~/minha-conv/Quartus}:
-\begin{lstlisting}[style=sh]
-iverilog -g2005 -o /tmp/tb_conv.vvp testbench/tb_conv_aluno.v conv_aluno.v
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-vvp /tmp/tb_conv.vvp
-\end{lstlisting}
-\end{faca}
-
-\begin{confira}
-Cada caso numa linha começando com \texttt{ok}, e a última linha é
-\texttt{TUDO OK}:
-\begin{lstlisting}[style=sh]
-ok    caso pequeno 4 x 4  (nx=4 nh=4, 81 ciclos)
-ok    1 x 1, fracao e sinal  (nx=1 nh=1, 9 ciclos)
-ok    h maior que x  (nx=3 nh=6, 91 ciclos)
-ok    aleatorio 50 x 17  (nx=50 nh=17, 3535 ciclos)
-ok    x com 1024 amostras  (nx=1024 nh=3, 14343 ciclos)
-ok    h com 1024 amostras  (nx=3 nh=1024, 14343 ciclos)
-ok    segunda rodada seguida  (nx=4 nh=4, 81 ciclos)
-TUDO OK
-\end{lstlisting}
-O número de ciclos do seu pode ser outro: depende de quantos estados você
-usou. O que tem de bater são os valores.
-\end{confira}
-
-\begin{center}\small
-\begin{tabularx}{\linewidth}{@{}>{\raggedright}p{5.3cm}X@{}}
-\toprule
-\textbf{O testbench diz} & \textbf{Provável causa} \\
-\midrule
-\texttt{done nao subiu} & o módulo não sai de um estado, ou não detecta a borda do \texttt{start} \\ \addlinespace
-\texttt{done nao voltou a 0} & falta voltar ao OCIOSO quando o \texttt{start} cai \\ \addlinespace
-valores deslocados (\(y[n]\) tem a conta de outra casa) & usou o dado um estado cedo demais: falta a ESPERA \\ \addlinespace
-erra só nas primeiras ou nas últimas linhas & \(k_{\min}\) ou \(k_{\max}\) errado; índice sem sinal com \(n-n_h+1<0\) \\ \addlinespace
-diferença de 1 na última casa & cortou os bits no fim, e não em cada produto \\ \addlinespace
-\texttt{escrito fora da saida} & gravou mais de \(n_x+n_h-1\) amostras, ou \texttt{y\_we} ficou em 1 \\ \addlinespace
-\texttt{caso pequeno: y nao e \ldots} & a conta está errada até com inteiros: refaça a tabela da A1 à mão (é o mesmo \(x\) e \(h\)) \\
-\bottomrule
-\end{tabularx}
-\end{center}
-
-\begin{cuidado}
-Se o computador não tiver o \texttt{iverilog}, peça ao responsável pelo
-laboratório. Sem simular, cada erro custa uma compilação inteira.
-\end{cuidado}
-
-\etapa{A7}{Compilar e gravar a placa}
+\etapa{A6}{Compilar e gravar a placa}
 
 \begin{pronto}
 As memórias \texttt{conv\_aluno\_x}, \texttt{\_h}, \texttt{\_y} e os PIOs
@@ -822,7 +792,12 @@ compilar.
     \arq{soc_system.qsys}\seta\menu{Generate}\seta\menu{Generate
     HDL\ldots}\seta\menu{Generate}. Espere \emph{Generate Completed},
     \menu{Finish} e feche o Platform Designer \textbf{sem mudar nada}.
-  \item No Quartus: \menu{Processing}\seta\menu{Start Compilation} (Ctrl+L).
+  \item Primeiro só a análise do código: \menu{Processing}\seta\menu{Start}\seta
+    \menu{Start Analysis \& Synthesis} (Ctrl+K). Leva poucos minutos e já
+    acusa erro de sintaxe, nome e largura no \arq{conv_aluno.v}; corrija
+    até passar sem erro.
+  \item Depois, a compilação completa: \menu{Processing}\seta\menu{Start
+    Compilation} (Ctrl+L), de 10 a 15 minutos.
   \item No terminal, de \arq{~/minha-conv/Quartus}:
 \begin{lstlisting}[style=sh]
 python3 gen_hps_header.py
@@ -870,8 +845,9 @@ servidor da placa com ele: servidor e FPGA sempre andam juntos.
 
 \begin{cuidado}
 Erro de compilação que aponta para o \arq{conv_aluno.v} é seu: o
-\emph{Messages}, embaixo, diz a linha. O Quartus é mais rigoroso que o
-\texttt{iverilog} com larguras; leia os \emph{Warnings} do seu arquivo também.
+\emph{Messages}, embaixo, diz a linha. Leia também os \emph{Warnings} do seu
+arquivo: largura que não bate (\emph{truncated value}) costuma ser erro de
+verdade, mesmo sem impedir a compilação.
 \end{cuidado}
 
 \clearpage
@@ -978,9 +954,11 @@ certo em sinais pequenos, errado em \(N = 1024\) & largura de algum registrador 
 \end{center}
 
 \begin{cuidado}
-Antes de mexer no módulo, reproduza o erro no testbench (A6) --- se o
-testbench passa e a placa erra, compare os dois casos: tamanho, sinal dos
-valores, rodadas seguidas. Cada volta pela placa custa uma compilação.
+Cada correção custa uma compilação. Antes de mexer no módulo, use o caso
+mais simples que ainda erra (a tabela da B2, de cima para baixo) e refaça a
+tabela da A1 à mão para ele: comparando o \(y\) do aplicativo com o da sua
+tabela, linha a linha, dá para ver se o erro está nos limites, na espera da
+memória ou na conta.
 \end{cuidado}
 
 \etapa{B4}{Devolver a placa à turma}
@@ -990,7 +968,7 @@ Sempre, ao terminar. Na estação, de \arq{~/minha-conv}:
 \begin{lstlisting}[style=sh]
 ./morphe-up.sh --down
 \end{lstlisting}
-e depois, de \arq{/opt/morphe}, com o mesmo \texttt{CABO} da A7:
+e depois, de \arq{/opt/morphe}, com o mesmo \texttt{CABO} da A6:
 \begin{lstlisting}[style=sh]
 cd /opt/morphe
 \end{lstlisting}
@@ -1011,8 +989,8 @@ cd /opt/morphe
 \emph{IP upgrade recommended}, ou \emph{Used \ldots\ 23.1} & abriu com outro Quartus; feche sem salvar e abra o 20.1 \\ \addlinespace
 \emph{can't find port} ao compilar & mudou o nome ou a largura de uma porta do \arq{conv_aluno.v}; volte às da A3 \\ \addlinespace
 \emph{Slack} negativo no \texttt{clock\_50\_1} & conta demais num ciclo só (multiplicar \emph{e} somar no mesmo estado, por exemplo); separe em dois estados \\ \addlinespace
-o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: faltou o \texttt{-{}-deploy} da A7, ou o app está ligado em outra placa \\ \addlinespace
-o aplicativo diz \emph{bitstream \ldots\ nao e o deste servidor} & a placa está com outro \arq{.sof}: grave o seu (A7) \\ \addlinespace
+o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: faltou o \texttt{-{}-deploy} da A6, ou o app está ligado em outra placa \\ \addlinespace
+o aplicativo diz \emph{bitstream \ldots\ nao e o deste servidor} & a placa está com outro \arq{.sof}: grave o seu (A6) \\ \addlinespace
 nunca use \menu{System}\seta\menu{Assign Base Addresses} & muda o endereço de todos os componentes, e o servidor passa a escrever no lugar errado \\
 \bottomrule
 \end{tabularx}
