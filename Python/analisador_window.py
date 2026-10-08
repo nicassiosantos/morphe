@@ -64,6 +64,46 @@ TELA_MS = 50
 AMP_MIN = 0.01
 # Bins em volta de f = 0 que não contam na busca do pico (o que sobra do DC).
 BINS_DC = 3
+# A fase só aparece nos bins com amplitude de pelo menos esta fração do maior:
+# nos outros, X[k] é ruído e a fase dele é um número sorteado entre -π e π.
+FASE_LIMIAR = 0.02
+
+
+class Traco:
+    """Uma sequência no gráfico, como linha (pontos ligados) ou como stem
+    (haste da linha de base até cada amostra, sem interpolar). Atualizar só
+    troca os dados; trocar de linha para stem é refazer o gráfico."""
+
+    def __init__(self, ax, color: str, stem: bool):
+        from matplotlib.collections import LineCollection
+        self.stem = stem
+        if stem:
+            self._hastes = LineCollection([], colors=color, linewidths=0.8)
+            ax.add_collection(self._hastes)
+            (self._linha,) = ax.plot([], [], "o", color=color, markersize=2.5)
+        else:
+            (self._linha,) = ax.plot([], [], color=color, linewidth=0.8)
+
+    def set_data(self, x: np.ndarray, y: np.ndarray, base: float = 0.0):
+        if self.stem:
+            ok = np.isfinite(y)          # NaN = "não desenhar" (fase sem sinal)
+            x, y = x[ok], y[ok]
+            seg = np.empty((x.size, 2, 2))
+            seg[:, :, 0] = x[:, None]
+            seg[:, 0, 1] = base
+            seg[:, 1, 1] = y
+            self._hastes.set_segments(seg)
+        self._linha.set_data(x, y)
+
+
+def fase_visivel(X: np.ndarray, amp: np.ndarray) -> np.ndarray:
+    """∠X[k] em radianos, com NaN onde a amplitude é pequena demais para a
+    fase querer dizer alguma coisa (abaixo de FASE_LIMIAR do maior bin fora
+    do DC)."""
+    fase = np.angle(X)
+    topo = float(np.max(amp[BINS_DC:])) if amp.size > BINS_DC else float(np.max(amp))
+    fase[amp < FASE_LIMIAR * topo] = np.nan
+    return fase
 
 
 def janela(nome: str, n: int) -> np.ndarray:
@@ -142,6 +182,8 @@ class AnalisadorWindow(tk.Toplevel):
         self._trava_q = threading.Lock()
         self._novo: Optional[dict] = None       # último quadro, ainda não desenhado
         self._ultimo: Optional[dict] = None     # último quadro desenhado
+        self._amp_ultimo: Optional[np.ndarray] = None  # o |X| mostrado com ele
+        self._graf: Optional[tuple] = None      # (n, fs, modo) dos gráficos atuais
         self._acum: Optional[np.ndarray] = None  # média / pico em amplitude²
         self._fila: list = []
         self._n_quadros = 0
@@ -211,6 +253,14 @@ class AnalisadorWindow(tk.Toplevel):
         ttk.Checkbutton(an, text="Tirar o nível DC antes da FFT", variable=self.var_dc,
                         command=self._zera_media,
                         style="Card.TCheckbutton").pack(anchor="w", pady=(0, 6))
+        self.var_fase = tk.BooleanVar(value=False)
+        ttk.Checkbutton(an, text="Mostrar a fase ∠X(f)", variable=self.var_fase,
+                        command=self._refaz_graficos,
+                        style="Card.TCheckbutton").pack(anchor="w", pady=(0, 6))
+        self.var_stem = tk.BooleanVar(value=False)
+        ttk.Checkbutton(an, text="Amostras como stem (sem ligar os pontos)",
+                        variable=self.var_stem, command=self._refaz_graficos,
+                        style="Card.TCheckbutton").pack(anchor="w", pady=(0, 6))
         self.var_info = tk.StringVar()
         ttk.Label(an, textvariable=self.var_info, style="SectionHint.TLabel",
                   wraplength=300, justify="left").pack(anchor="w", pady=(0, 8))
@@ -232,14 +282,42 @@ class AnalisadorWindow(tk.Toplevel):
     def _build_plots(self, parent):
         self.fig = Figure(figsize=(7.4, 7.6), dpi=100)
         self.fig.patch.set_facecolor(theme.COLORS["bg"])
-        self.ax_t = self.fig.add_subplot(211)
-        self.ax_f = self.fig.add_subplot(212)
+        self._cria_eixos()
         theme.draw_empty_axes(self.ax_t, "x(t) — o quadro que o ADC capturou")
         theme.draw_empty_axes(self.ax_f, "|X(f)| — calculado pela FFT da FPGA")
         self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.toolbar = PlotToolbar(self.canvas)
+
+    def _cria_eixos(self):
+        """Dois gráficos (x(t) e |X(f)|) ou três, com a fase embaixo; a fase
+        divide o eixo f com o |X(f)|, então o zoom de um vale para o outro."""
+        self.fig.clear()
+        if self.var_fase.get():
+            self.ax_t = self.fig.add_subplot(311)
+            self.ax_f = self.fig.add_subplot(312)
+            self.ax_p = self.fig.add_subplot(313, sharex=self.ax_f)
+        else:
+            self.ax_t = self.fig.add_subplot(211)
+            self.ax_f = self.fig.add_subplot(212)
+            self.ax_p = None
+
+    def _refaz_graficos(self):
+        """Fase ou stem mudou: refaz os eixos e redesenha o último quadro (sem
+        contá-lo de novo na média)."""
+        if self._graf is None:
+            self._cria_eixos()
+            theme.draw_empty_axes(self.ax_t, "x(t) — o quadro que o ADC capturou")
+            theme.draw_empty_axes(self.ax_f, "|X(f)| — calculado pela FFT da FPGA")
+            if self.ax_p is not None:
+                theme.draw_empty_axes(self.ax_p, "∠X(f) — fase da FFT da FPGA")
+            self.fig.tight_layout()
+            self.canvas.draw_idle()
+            return
+        self._prepara_graficos(*self._graf)
+        if self._ultimo is not None and self._amp_ultimo is not None:
+            self._desenha(self._ultimo, self._amp_ultimo)
 
     # ------------------------------------------------------------------
     def _modo_canal(self) -> tuple[str, int]:
@@ -273,7 +351,9 @@ class AnalisadorWindow(tk.Toplevel):
             f"fs real {fs_real:.3f} Hz · espectro de 0 a {fs_real:g} Hz\n"
             f"resolução {fs_real / n:.3g} Hz · quadro de {1e3 * n / fs_real:.4g} ms\n"
             "Acima de fs/2 é o espelho da metade de baixo. Sem filtro\n"
-            "antialiasing: sinal acima de fs/2 na entrada volta como alias.")
+            "antialiasing: sinal acima de fs/2 na entrada volta como alias.\n"
+            "A fase muda a cada quadro: cada captura começa num ponto\n"
+            "diferente da onda. A média e o pico valem só para |X|.")
         self._zera_media()
 
     def _zera_media(self):
@@ -360,17 +440,18 @@ class AnalisadorWindow(tk.Toplevel):
     def _prepara_graficos(self, n: int, fs: float, modo: str):
         self._esc_t, un_t = (1e3, "ms") if n / fs < 2.0 else (1.0, "s")
         self._esc_f, self._un_f = (1e-3, "kHz") if fs >= 2000 else (1.0, "Hz")
+        self._graf = (n, fs, modo)
+        stem = self.var_stem.get()
+        self._cria_eixos()
         ax = self.ax_t
-        ax.clear()
-        (self._l_t,) = ax.plot([], [], color=dsp.COLOR_X, linewidth=0.8)
+        self._l_t = Traco(ax, dsp.COLOR_X, stem)
         ax.set_xlim(0, n / fs * self._esc_t)
         ax.set_ylim(*((-0.1, 4.2) if modo == aq.MODO_SIMPLES else (-2.15, 2.15)))
         ax.set_xlabel(f"t ({un_t})")
         ax.set_ylabel("tensão (V)")
         theme.style_plot_axes(ax)
         ax = self.ax_f
-        ax.clear()
-        (self._l_f,) = ax.plot([], [], color=dsp.COLOR_MAG, linewidth=0.8)
+        self._l_f = Traco(ax, dsp.COLOR_MAG, stem)
         (self._p_f,) = ax.plot([], [], "v", color=dsp.COLOR_PHASE, markersize=7)
         self._txt_pico = ax.text(0.99, 0.95, "", transform=ax.transAxes, ha="right",
                                  va="top", fontsize=9, color=theme.COLORS["text"])
@@ -383,6 +464,20 @@ class AnalisadorWindow(tk.Toplevel):
         ax.set_xlabel(f"f ({self._un_f})")
         ax.set_ylabel("amplitude (V de pico)")
         theme.style_plot_axes(ax)
+        if self.ax_p is not None:
+            ax.set_xlabel("")                # o eixo f fica só no de baixo
+            ax = self.ax_p
+            self._l_p = Traco(ax, dsp.COLOR_PHASE, stem)
+            ax.axvline(fs / 2 * self._esc_f, color=theme.COLORS["axis"],
+                       linewidth=0.8, linestyle=":")
+            ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
+            ax.set_ylim(-np.pi * 1.08, np.pi * 1.08)
+            ax.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+            ax.set_yticklabels(["−π", "−π/2", "0", "π/2", "π"])
+            ax.set_xlabel(f"f ({self._un_f})")
+            ax.set_ylabel("fase (rad)")
+            theme.style_plot_axes(ax)
+            ax.set_title("∠X(f)", fontsize=9)
         # títulos provisórios antes do tight_layout: ele reserva o espaço deles,
         # e os títulos de verdade (a cada quadro) cabem sem encostar na borda
         self.ax_t.set_title("x(t)", fontsize=9)
@@ -414,16 +509,22 @@ class AnalisadorWindow(tk.Toplevel):
         if q is not None:
             self._n_quadros += 1
             self._ultimo = q
+            self._amp_ultimo = self._acumula(q)
             self.btn_salvar.configure(state="normal")
-            self._desenha(q)
+            self._desenha(q, self._amp_ultimo)
         if self._parar is not None:
             self.after(TELA_MS, self._tela)
 
-    def _desenha(self, q: dict):
+    def _desenha(self, q: dict, amp: np.ndarray):
         fs, n = q["fs"], q["n"]
         self._l_t.set_data(np.arange(n) / fs * self._esc_t, q["x"])
-        amp = self._acumula(q)
         self._l_f.set_data(q["f"] * self._esc_f, amp)
+        if self.ax_p is not None:
+            # a fase é sempre a do quadro atual: média de fase não existe (os
+            # quadros começam em instantes diferentes da senoide)
+            self._l_p.set_data(q["f"] * self._esc_f, fase_visivel(q["X"], q["amp"]))
+            self.ax_p.set_title(f"∠X(f) do quadro {self._n_quadros} — só onde "
+                                f"|X| ≥ {FASE_LIMIAR:.0%} do pico", fontsize=9)
         topo = max(1.15 * float(np.max(amp)), AMP_MIN)
         self.ax_f.set_ylim(0, topo)
         busca = amp[: n // 2 + 1].copy()
