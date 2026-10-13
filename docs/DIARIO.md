@@ -664,7 +664,7 @@ duas placas a correlação é perfeita: uma placa recebe só convoluções e a o
 o que produziu medianas de 1267 ms contra 22,7 ms e não mede balanceamento nenhum. Os
 resultados de 8 e 10 clientes acima **não** são afetados: modo `mesma`, uma placa só.
 
-**Decisão do supervisor: a interface está boa.** O Prof. Antonio deu a interface por
+**Decisão do supervisor: a interface está boa.** O Prof. Sanca deu a interface por
 aprovada, o que na prática encerra os tópicos 1.3 (biblioteca) e 1.6 (interface
 reformulada) do plano. A frente de trabalho passa a ser: deixar a aplicação **e** o
 Quartus utilizáveis em todos os computadores do laboratório; levantar o que a placa tem
