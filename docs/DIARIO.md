@@ -16,6 +16,37 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 13/10/2026 — Codec de áudio WM8731: configuração pelo HPS e saída pela FPGA
+
+Feito na **placa 1** (`de1soclinux`), ligada por USB ao notebook do estagiário, com a
+branch `estagio/v1.8-codec`. A placa 1 também é **revisão H**: a serial dela é um CP2105,
+chip que só existe na rev. H. O ADC continua sendo o LTC2308, igual ao das rev. F e G.
+
+- **Configuração do codec pelo HPS, sem recompilar** (`C/codec.c`): a placa não tem
+  `/dev/i2c-*`, então o programa usa o controlador I2C0 (DesignWare) direto. O primeiro
+  `./codec detecta` travou: START no barramento e nunca o STOP (`IC_STATUS = 0x27`). A
+  causa era o controlador do Cyclone V segurar o SCL em 0 com a FIFO vazia, à espera de
+  mais dados; o último byte precisa do **bit 9 (STOP)** no `IC_DATA_CMD`. Corrigido isso:
+  o codec **respondeu em 0x1A**, o acelerômetro em 0x53, e um endereço vazio (0x22) foi
+  recusado (`TX_ABRT_SOURCE = 0x1000001`). Ou seja, a detecção distingue ACK de NACK.
+- **Bypass (etapa 1)**: os 6 registradores foram gravados com ACK. **Não ouvido**: não
+  havia cabo P2-P2 para pôr um sinal na LINE-in.
+- **Saída pela FPGA (etapa 2)**: `Quartus/audio_i2s.v`, com AUD_XCK = 50/4 = 12,5 MHz,
+  codec mestre e fs = 48 828,125 Hz. Compilado com o **Quartus 23.1 do notebook, numa
+  cópia** (sem qsys-generate, usando o `soc_system/` da 20.1 que está no git): 0 erros,
+  39 % dos ALMs, 55 % da memória, folga de +3,678 ns no `clock_50_1`. Gravado pelo JTAG,
+  com `./codec digital` (10 registradores com ACK). **SW9 em cima: tom audível no fone,
+  ligado na LINE-out (verde); SW9 embaixo: silêncio.** Isso valida o caminho
+  HPS → I2C → codec, o relógio-mestre e o envio I2S da FPGA → DAC do codec.
+- `FPGA_I2C_SCLK`/`FPGA_I2C_SDAT` sem driver eram presos em GND pelo Quartus; agora estão
+  em alta impedância. Não era a causa do travamento: o codec respondeu ao HPS com o
+  bitstream antigo.
+- **Falta validar:** a recepção (loopback LINE-in → FPGA → LINE-out, SW9 embaixo, com
+  sinal na entrada) e o bypass audível. A frequência do tom não foi medida, só ouvida
+  (a esperada é 1017 Hz). O bitstream oficial deve ser compilado com o 20.1 na estação.
+  A placa 1 ficou com o `.sof` de teste do 23.1: restaurar com o `morphe-up.sh` de
+  `/opt/morphe`.
+
 ## 07/10/2026 — ADC validado com senoide do gerador de funções
 
 Validado pelo estagiário no laboratório, com o gerador de funções no CH0 (pino 2 do J15,

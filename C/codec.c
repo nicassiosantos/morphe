@@ -26,6 +26,9 @@
  *   ./codec desliga              reset: o codec volta a ficar mudo
  *   ./codec escreve <reg> <val>  um registrador qualquer (aceita 0x..)
  * Opcoes: --volume <dB>  saida de fone/linha, de -73 a +6 (padrao -10)
+ *         --mux 0        diagnostico: deixa o I2C do codec com a FPGA
+ *         --addr <a>     diagnostico: outro endereco (0x53 = acelerometro,
+ *                        do lado do HPS, antes do multiplexador)
  *         --bus <N>      usa /dev/i2c-N
  *         --direto       ignora o /dev/i2c-* e programa o controlador
  *
@@ -70,6 +73,7 @@
 #define IC_ENABLE_STATUS 0x9C
 
 static int fd_mem = -1;
+static int endereco = CODEC_ADDR;   /* --addr: so para diagnostico */
 
 static volatile uint32_t *mapeia(uint32_t base)
 {
@@ -85,7 +89,7 @@ static volatile uint32_t *mapeia(uint32_t base)
 #define REG(b, off) (*(volatile uint32_t *)((volatile uint8_t *)(b) + (off)))
 
 /* ---- multiplexador do I2C: HPS_I2C_CONTROL = 1 ---------------------------- */
-static void mux_para_hps(void)
+static void mux_para_hps(int valor)
 {
     volatile uint32_t *rst = mapeia(RSTMGR_BASE);
     if (REG(rst, RSTMGR_PERMODRST) & RST_GPIO1) {
@@ -94,10 +98,11 @@ static void mux_para_hps(void)
     }
     volatile uint32_t *g = mapeia(GPIO1_BASE);
     uint32_t antes = REG(g, GPIO_DR) & BIT_I2C_CONTROL;
-    REG(g, GPIO_DR)  |= BIT_I2C_CONTROL;
+    if (valor) REG(g, GPIO_DR) |= BIT_I2C_CONTROL;
+    else       REG(g, GPIO_DR) &= ~BIT_I2C_CONTROL;
     REG(g, GPIO_DDR) |= BIT_I2C_CONTROL;
-    printf("HPS_I2C_CONTROL (GPIO48): %d -> 1 (o HPS fica com o I2C do codec)\n",
-           antes ? 1 : 0);
+    printf("HPS_I2C_CONTROL (GPIO48): %d -> %d (%s)\n", antes ? 1 : 0, valor,
+           valor ? "o HPS fica com o I2C do codec" : "I2C do codec com a FPGA");
 }
 
 /* ---- caminho 1: /dev/i2c-N ------------------------------------------------ */
@@ -127,9 +132,9 @@ static int abre_dev_i2c(int bus)
     snprintf(nome, sizeof nome, "/dev/i2c-%d", bus);
     fd_i2c = open(nome, O_RDWR);
     if (fd_i2c < 0) { fprintf(stderr, "%s: %s\n", nome, strerror(errno)); return -1; }
-    if (ioctl(fd_i2c, I2C_SLAVE, CODEC_ADDR) < 0 &&
-        ioctl(fd_i2c, I2C_SLAVE_FORCE, CODEC_ADDR) < 0) {
-        fprintf(stderr, "ioctl I2C_SLAVE 0x%02X: %s\n", CODEC_ADDR, strerror(errno));
+    if (ioctl(fd_i2c, I2C_SLAVE, endereco) < 0 &&
+        ioctl(fd_i2c, I2C_SLAVE_FORCE, endereco) < 0) {
+        fprintf(stderr, "ioctl I2C_SLAVE 0x%02X: %s\n", endereco, strerror(errno));
         return -1;
     }
     printf("I2C: %s\n", nome);
@@ -148,11 +153,17 @@ static int abre_direto(void)
         usleep(1000);
     }
     i2c = mapeia(I2C0_BASE);
+    /* uma execucao anterior pode ter deixado o controlador preso no meio de uma
+       transferencia (SCL segurado em 0): ABORT antes de desabilitar */
+    if (REG(i2c, IC_STATUS) & (1u << 5)) {
+        REG(i2c, IC_ENABLE) = 3;
+        usleep(10000);
+    }
     REG(i2c, IC_ENABLE) = 0;
     for (int t = 0; (REG(i2c, IC_ENABLE_STATUS) & 1) && t < 100; t++) usleep(100);
     /* mestre, modo padrao (100 kHz), restart, escravo desligado */
     REG(i2c, IC_CON) = 0x63;
-    REG(i2c, IC_TAR) = CODEC_ADDR;
+    REG(i2c, IC_TAR) = endereco;
     /* l4_sp_clk tipico de 100 MHz: 1000 + 1000 ciclos = 50 kHz. Mais lento que o
        necessario de proposito: funciona mesmo que o relogio seja outro. */
     REG(i2c, IC_SS_SCL_HCNT) = 1000;
@@ -166,7 +177,10 @@ static int escreve_direto(uint8_t b0, uint8_t b1)
 {
     (void)REG(i2c, IC_CLR_TX_ABRT);
     REG(i2c, IC_DATA_CMD) = b0;
-    REG(i2c, IC_DATA_CMD) = b1;    /* FIFO vazia depois deste: o mestre manda STOP */
+    /* bit 9 = STOP: o I2C0 do Cyclone V tem IC_EMPTYFIFO_HOLD_MASTER_EN; sem
+       esse bit, FIFO vazia NAO gera STOP -- o mestre segura o SCL em 0
+       esperando mais dados (medido na placa 1 em 13/10: START sem STOP) */
+    REG(i2c, IC_DATA_CMD) = b1 | (1u << 9);
     for (int t = 0; t < 2000; t++) {
         uint32_t st = REG(i2c, IC_STATUS);
         if (REG(i2c, IC_RAW_INTR_STAT) & (1u << 6)) {        /* TX_ABRT */
@@ -179,8 +193,11 @@ static int escreve_direto(uint8_t b0, uint8_t b1)
             return 0;
         usleep(50);
     }
-    fprintf(stderr, "  tempo esgotado esperando o I2C (IC_STATUS = 0x%X)\n",
-            REG(i2c, IC_STATUS));
+    fprintf(stderr, "  tempo esgotado esperando o I2C (IC_STATUS = 0x%X, RAW_INTR = 0x%X)\n"
+                    "  START sem STOP: SCL preso em 0 (FPGA_I2C_SCLK aterrado pelo bitstream?)\n",
+            REG(i2c, IC_STATUS), REG(i2c, IC_RAW_INTR_STAT));
+    REG(i2c, IC_ENABLE) = 3;           /* ABORT: solta o controlador */
+    usleep(10000);
     return -1;
 }
 
@@ -239,24 +256,27 @@ static int seq_digital(int db)
 static void uso(void)
 {
     fprintf(stderr,
-        "uso: codec [--volume dB] [--bus N] [--direto] "
+        "uso: codec [--volume dB] [--bus N] [--direto] [--mux 0|1] [--addr A] "
         "detecta | bypass | digital | desliga | escreve <reg> <val>\n");
     exit(2);
 }
 
 int main(int argc, char **argv)
 {
-    int db = -10, bus = -1, direto = 0, i = 1;
+    int db = -10, bus = -1, direto = 0, mux = 1, i = 1;
     for (; i < argc && strncmp(argv[i], "--", 2) == 0; i++) {
         if (!strcmp(argv[i], "--volume") && i + 1 < argc)   db = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--bus") && i + 1 < argc) bus = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--direto"))              direto = 1;
+        else if (!strcmp(argv[i], "--mux") && i + 1 < argc) mux = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--addr") && i + 1 < argc)
+            endereco = (int)strtol(argv[++i], NULL, 0);
         else uso();
     }
     if (i >= argc) uso();
     const char *cmd = argv[i];
 
-    mux_para_hps();
+    mux_para_hps(mux);
     if (!direto) {
         if (bus < 0) bus = acha_bus_i2c0();
         if (bus >= 0 && abre_dev_i2c(bus) == 0) direto = 0;
@@ -270,8 +290,8 @@ int main(int argc, char **argv)
     int e;
     if (!strcmp(cmd, "detecta")) {
         e = escreve(9, 0x000);         /* "interface inativa": inofensivo */
-        printf(e ? "O codec NAO respondeu no endereco 0x%02X.\n"
-                 : "O codec respondeu no endereco 0x%02X.\n", CODEC_ADDR);
+        printf(e ? "NADA respondeu no endereco 0x%02X.\n"
+                 : "Respondeu no endereco 0x%02X.\n", endereco);
     } else if (!strcmp(cmd, "bypass")) {
         e = seq_bypass(db);
         if (!e) printf("Bypass ligado: o som da LINE-in deve sair na LINE-out, "

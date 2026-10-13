@@ -639,6 +639,15 @@ adc_captura #(
 // A configuracao (I2C) e feita pelo HPS, programa C/codec.c, "./codec digital".
 // SW[9] = 1: onda quadrada de 1017 Hz no DAC; SW[9] = 0: loopback LINE-in -> LINE-out
 // passando pela FPGA. rx_* ficam prontos para a captura em RAM (etapa 3).
+//
+// I2C do codec em alta impedancia: sem driver, o Quartus prende FPGA_I2C_SCLK
+// em GND (Warning 13410). Com o multiplexador virado para o HPS
+// (HPS_I2C_CONTROL = 1) o lado da FPGA fica isolado -- o codec respondeu ao
+// HPS em 13/10/2026 mesmo com o pino aterrado --, mas um SCL preso em 0 deixaria
+// o barramento morto no dia em que o multiplexador voltar para a FPGA.
+assign FPGA_I2C_SCLK = 1'bz;
+assign FPGA_I2C_SDAT = 1'bz;
+
 wire [15:0] audio_rx_esq;
 wire [15:0] audio_rx_dir;
 wire        audio_rx_quadro;
