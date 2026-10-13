@@ -16,7 +16,7 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
-## 13/10/2026 — Codec de áudio WM8731: configuração pelo HPS e saída pela FPGA
+## 13/10/2026 — Codec de áudio WM8731: configuração pelo HPS, saída e entrada pela FPGA
 
 Feito na **placa 1** (`de1soclinux`), ligada por USB ao notebook do estagiário, com a
 branch `estagio/v1.8-codec`. A placa 1 também é **revisão H**: a serial dela é um CP2105,
@@ -41,11 +41,24 @@ chip que só existe na rev. H. O ADC continua sendo o LTC2308, igual ao das rev.
 - `FPGA_I2C_SCLK`/`FPGA_I2C_SDAT` sem driver eram presos em GND pelo Quartus; agora estão
   em alta impedância. Não era a causa do travamento: o codec respondeu ao HPS com o
   bitstream antigo.
-- **Falta validar:** a recepção (loopback LINE-in → FPGA → LINE-out, SW9 embaixo, com
-  sinal na entrada) e o bypass audível. A frequência do tom não foi medida, só ouvida
-  (a esperada é 1017 Hz). O bitstream oficial deve ser compilado com o 20.1 na estação.
-  A placa 1 ficou com o `.sof` de teste do 23.1: restaurar com o `morphe-up.sh` de
-  `/opt/morphe`.
+- **Recepção pela FPGA**: sem cabo de áudio, a prova foi um medidor de nível
+  (`Quartus/audio_vu.v`, pico de |amostra| com decaimento de 0,17 s, 6 dB por degrau,
+  até 15 degraus em HEX0..HEX4) e o **próprio fone usado como microfone** no MIC-in
+  (rosa), com `./codec --entrada mic digital` (+20 dB). Compilado com o 23.1, na mesma
+  cópia: 39 % dos ALMs, folga de +3,723 ns. Medido pelo estagiário:
+
+  | entrada do codec | repouso | com estímulo |
+  |---|---|---|
+  | MIC-in, com o fone | 5 degraus | até 8 (+3) mexendo no fone; +1 batendo na mesa |
+  | LINE-in, vazia | 1 degrau | +1, com dificuldade |
+
+  O nível segue o estímulo e muda com a entrada escolhida por I2C. A queda de 4 degraus
+  (~24 dB) bate com tirar o ganho de +20 dB do microfone. Isso valida o caminho
+  entrada → ADC do codec → I2S → FPGA.
+- **Falta validar:** o loopback e o bypass **audíveis** (precisam de um cabo P2-P2 ou de
+  um segundo fone); medir a frequência do tom (só ouvido; a esperada é 1017 Hz). O
+  bitstream oficial deve ser compilado com o 20.1 na estação. A placa 1 ficou com o
+  `.sof` de teste do 23.1: restaurar com o `morphe-up.sh` de `/opt/morphe`.
 
 ## 07/10/2026 — ADC validado com senoide do gerador de funções
 

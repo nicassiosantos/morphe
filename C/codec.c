@@ -26,6 +26,8 @@
  *   ./codec desliga              reset: o codec volta a ficar mudo
  *   ./codec escreve <reg> <val>  um registrador qualquer (aceita 0x..)
  * Opcoes: --volume <dB>  saida de fone/linha, de -73 a +6 (padrao -10)
+ *         --entrada mic  no modo digital, le o MIC-in (rosa) com +20 dB em vez
+ *                        da LINE-in (azul); "--entrada linha" e o padrao
  *         --mux 0        diagnostico: deixa o I2C do codec com a FPGA
  *         --addr <a>     diagnostico: outro endereco (0x53 = acelerometro,
  *                        do lado do HPS, antes do multiplexador)
@@ -237,35 +239,47 @@ static int seq_bypass(int db)
     return e;
 }
 
-static int seq_digital(int db)
+static int seq_digital(int db, int mic)
 {
     int e = 0;
     e |= escreve(15, 0x000);           /* reset */
     e |= escreve(0, 0x117);            /* LINE-in 0 dB, os dois canais */
     e |= escreve(2, hp_vol(db));
-    e |= escreve(4, 0x012);            /* DACSEL=1, MUTEMIC=1, INSEL=LINE, sem bypass */
+    if (mic)
+        e |= escreve(4, 0x015);        /* DACSEL=1, INSEL=MIC, MUTEMIC=0, MICBOOST=1 (+20 dB) */
+    else
+        e |= escreve(4, 0x012);        /* DACSEL=1, MUTEMIC=1, INSEL=LINE, sem bypass */
     e |= escreve(5, 0x000);            /* passa-altas do ADC ligado, DAC sem mute */
-    e |= escreve(6, 0x072);            /* tudo ligado menos MIC, osc, CLKOUT e (por ora) saida */
+    /* R6: tudo ligado menos osc e CLKOUT (e MIC, se a entrada for a LINE-in);
+       a saida (OUTPD, bit 4) liga por ultimo, para evitar estalo */
+    int r6 = mic ? 0x060 : 0x062;
+    e |= escreve(6, r6 | 0x010);
     e |= escreve(7, 0x042);            /* MS=1 (codec mestre), I2S, 16 bits */
     e |= escreve(8, 0x000);            /* modo normal, 256 fs, SR=0000 */
     e |= escreve(9, 0x001);            /* interface ativa */
-    e |= escreve(6, 0x062);            /* liga a saida por ultimo (evita estalo) */
+    e |= escreve(6, r6);
     return e;
 }
 
 static void uso(void)
 {
     fprintf(stderr,
-        "uso: codec [--volume dB] [--bus N] [--direto] [--mux 0|1] [--addr A] "
+        "uso: codec [--volume dB] [--entrada linha|mic] [--bus N] [--direto] [--mux 0|1] [--addr A] "
         "detecta | bypass | digital | desliga | escreve <reg> <val>\n");
     exit(2);
 }
 
 int main(int argc, char **argv)
 {
-    int db = -10, bus = -1, direto = 0, mux = 1, i = 1;
+    int db = -10, bus = -1, direto = 0, mux = 1, mic = 0, i = 1;
     for (; i < argc && strncmp(argv[i], "--", 2) == 0; i++) {
         if (!strcmp(argv[i], "--volume") && i + 1 < argc)   db = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--entrada") && i + 1 < argc) {
+            i++;
+            if (!strcmp(argv[i], "mic"))       mic = 1;
+            else if (!strcmp(argv[i], "linha")) mic = 0;
+            else uso();
+        }
         else if (!strcmp(argv[i], "--bus") && i + 1 < argc) bus = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--direto"))              direto = 1;
         else if (!strcmp(argv[i], "--mux") && i + 1 < argc) mux = atoi(argv[++i]);
@@ -297,10 +311,11 @@ int main(int argc, char **argv)
         if (!e) printf("Bypass ligado: o som da LINE-in deve sair na LINE-out, "
                        "volume %d dB. Sem FPGA no caminho.\n", db);
     } else if (!strcmp(cmd, "digital")) {
-        e = seq_digital(db);
-        if (!e) printf("Modo digital: I2S 16 bits, codec mestre. Com o bitstream do "
-                       "audio_i2s.v: SW9 baixa = LINE-in -> FPGA -> LINE-out; "
-                       "SW9 alta = tom de 1017 Hz.\n");
+        e = seq_digital(db, mic);
+        if (!e) printf("Modo digital: I2S 16 bits, codec mestre, entrada %s. Com o "
+                       "bitstream do audio_i2s.v: SW9 baixa = entrada -> FPGA -> LINE-out; "
+                       "SW9 alta = tom de 1017 Hz. Nivel da entrada em HEX0..HEX4.\n",
+                       mic ? "MIC-in (rosa, +20 dB)" : "LINE-in (azul)");
     } else if (!strcmp(cmd, "desliga")) {
         e = escreve(15, 0x000);
     } else if (!strcmp(cmd, "escreve") && i + 2 < argc) {

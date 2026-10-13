@@ -667,6 +667,23 @@ audio_i2s audio_inst (
     .rx_quadro   (audio_rx_quadro)
 );
 
+// Medidor de nivel do audio recebido em HEX0..HEX4 (6 dB por degrau). Prova a
+// recepcao I2S sem cabo de audio: um fone no MIC-in faz papel de microfone
+// ("./codec --entrada mic digital").
+audio_vu audio_vu_inst (
+    .clk     (CLOCK_50),
+    .reset_n (hps_fpga_reset_n),
+    .esq     (audio_rx_esq),
+    .dir     (audio_rx_dir),
+    .quadro  (audio_rx_quadro),
+    .hex0    (HEX0),
+    .hex1    (HEX1),
+    .hex2    (HEX2),
+    .hex3    (HEX3),
+    .hex4    (HEX4),
+    .degrau  ()
+);
+
 wire [3:0] fft_debug_state;
 assign LEDR[3:0] = fft_debug_state;
 wire [3:0] fir_debug_state;
