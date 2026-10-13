@@ -79,8 +79,12 @@ test_wire: test_wire.c $(HEADERS_TEST)
 test: test_wire
 	./test_wire
 
+# Configuracao do codec de audio WM8731 pelo HPS (independe do servidor)
+codec: codec.c
+	$(CC) -std=gnu99 -O2 -Wall -o $@ codec.c
+
 clean:
-	rm -f *.o $(TARGET) $(TESTSERVER) test_wire morphe_server.s
+	rm -f *.o $(TARGET) $(TESTSERVER) test_wire morphe_server.s codec
 
 run: $(TARGET)
 	sudo ./$(TARGET)

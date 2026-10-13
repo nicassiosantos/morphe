@@ -631,6 +631,33 @@ adc_captura #(
     .ram_clken      (adc_buf_clken)
 );
 
+// ===========================================================================================
+// INSTANTIATION: codec de audio WM8731 (I2S, etapa 2 do codec)
+// ===========================================================================================
+// O codec e o mestre dos relogios de audio (BCLK, ADCLRCK, DACLRCK): a FPGA so
+// entrega o AUD_XCK (12,5 MHz -> fs = 48 828,125 Hz) e le o resto a 50 MHz.
+// A configuracao (I2C) e feita pelo HPS, programa C/codec.c, "./codec digital".
+// SW[9] = 1: onda quadrada de 1017 Hz no DAC; SW[9] = 0: loopback LINE-in -> LINE-out
+// passando pela FPGA. rx_* ficam prontos para a captura em RAM (etapa 3).
+wire [15:0] audio_rx_esq;
+wire [15:0] audio_rx_dir;
+wire        audio_rx_quadro;
+
+audio_i2s audio_inst (
+    .clk         (CLOCK_50),
+    .reset_n     (hps_fpga_reset_n),
+    .aud_xck     (AUD_XCK),
+    .aud_bclk    (AUD_BCLK),
+    .aud_adclrck (AUD_ADCLRCK),
+    .aud_daclrck (AUD_DACLRCK),
+    .aud_adcdat  (AUD_ADCDAT),
+    .aud_dacdat  (AUD_DACDAT),
+    .tom         (SW[9]),
+    .rx_esq      (audio_rx_esq),
+    .rx_dir      (audio_rx_dir),
+    .rx_quadro   (audio_rx_quadro)
+);
+
 wire [3:0] fft_debug_state;
 assign LEDR[3:0] = fft_debug_state;
 wire [3:0] fir_debug_state;
