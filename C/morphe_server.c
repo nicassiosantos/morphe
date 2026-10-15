@@ -1339,6 +1339,7 @@ static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n_total, uint3
  * ele ocupa a RAM e os PIOs, qualquer operacao do ADC ou do audio o pausa e
  * o religa no fim (serve_connection). */
 static int g_audio_loop = 0;     /* o cliente pediu o loopback ligado */
+static int g_audio_filtro = 0;   /* secoes do filtro em tempo real (0 = desligado) */
 
 static void audio_para(void) {
     *g_pio_adc_start = 0;
@@ -1352,7 +1353,8 @@ static void audio_inicia(uint32_t op, int continuo, uint32_t n) {
     usleep(100);
     *g_pio_adc_divisor   = MORPHE_AUDIO_MODO;
     *g_pio_adc_namostras = n;
-    *g_pio_adc_config    = op | (continuo ? MORPHE_ADC_CFG_CONTINUO : 0U);
+    *g_pio_adc_config    = op | (continuo ? MORPHE_ADC_CFG_CONTINUO : 0U)
+                         | (g_audio_filtro ? MORPHE_AUDIO_CFG_FILTRA : 0U);
     usleep(1);
     *g_pio_adc_start     = 1;
 }
@@ -1568,6 +1570,41 @@ static int audio_reproduz(int sock, uint32_t n) {
     return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
 }
 
+/* Filtro em tempo real: os coeficientes vao para a RAM e o audio_buf os copia
+ * para o filtro_audio.v (adc_config[2]). Dali em diante toda operacao de
+ * audio leva o bit de filtrar (audio_inicia), ate o cliente desligar. */
+static int audio_filtro(int sock, uint32_t n) {
+    LOG("AUDIO filtro: %u secoes%s", n, n ? "" : " (desligar)");
+    if (n > MORPHE_AUDIO_SECOES_MAX) {
+        drain_pending(sock);
+        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
+                          "AUDIO: o filtro tem no maximo 16 secoes");
+    }
+    if (n) {
+        if (audio_recebe(sock, 0, n * 5U) < 0) return -1;
+        *g_pio_adc_start     = 0;
+        usleep(100);
+        *g_pio_adc_divisor   = MORPHE_AUDIO_MODO;
+        *g_pio_adc_namostras = n;
+        *g_pio_adc_config    = MORPHE_AUDIO_CFG_CARREGA;
+        usleep(1);
+        *g_pio_adc_start     = 1;
+        int r = wait_done(g_pio_adc_done, 200);
+        audio_para();
+        if (r < 0) {
+            g_audio_filtro = 0;
+            return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT,
+                              "AUDIO: o filtro nao carregou -- o bitstream tem o filtro_audio?");
+        }
+    }
+    g_audio_filtro = (int) n;
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
+    u32_to_be(hdr + 16, n);
+    LOG("  -> filtro %s", n ? "carregado e ligado" : "desligado");
+    return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
+}
+
 static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, uint32_t n_h) {
     if (audio_recusa(sock, dtype)) return 0;
     switch (sub) {
@@ -1585,9 +1622,12 @@ static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, ui
         u32_to_be(hdr + 16, (uint32_t) g_audio_loop);
         return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
     }
+    case MORPHE_AUDIO_FILTRO:
+        return audio_filtro(sock, n_h);
     default:
         return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
-                          "AUDIO: suboperacao desconhecida (0 captura, 1 reproduz, 2 loopback)");
+                          "AUDIO: suboperacao desconhecida (0 captura, 1 reproduz, 2 loopback, "
+                          "3 filtro)");
     }
 }
 #endif /* MORPHE_TEM_ADC */

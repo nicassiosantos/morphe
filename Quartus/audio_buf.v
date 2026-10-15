@@ -29,6 +29,18 @@
 //
 // Fora de uma operacao a saida e silencio (tx = 0). O tom de teste da SW9
 // continua no audio_i2s.v e tem prioridade sobre tudo.
+//
+// Filtro em tempo real (filtro_audio.v, 15/10/2026), dois bits a mais no
+// adc_config:
+//   [2] CARREGAR: o start le 5*n_amostras coeficientes Q15.16 da RAM
+//       (b0 b1 b2 a1 a2 por secao, a partir do endereco 0) para o filtro, com
+//       n_amostras = numero de secoes (0 a 16); done no fim. A operacao em
+//       [1:0] e ignorada.
+//   [3] FILTRAR: a operacao passa pelo filtro. Ele filtra o canal esquerdo da
+//       entrada (ou, na reproducao, a palavra que esta tocando) e a saida sai
+//       nos dois canais da LINE-out. Na captura cada palavra vira
+//       {saida filtrada, entrada}: o canal direito traz o que o filtro fez.
+//       Um quadro de atraso (20 us), com entrada e saida sempre alinhadas.
 // =============================================================================
 
 module audio_buf #(
@@ -42,6 +54,8 @@ module audio_buf #(
     output reg                  done,
     input  wire [1:0]           op,
     input  wire                 continuo,
+    input  wire                 carregar,     // adc_config[2]: coeficientes da RAM
+    input  wire                 filtrar,      // adc_config[3]: passa pelo filtro
     input  wire [15:0]          n_amostras,
     output reg  [31:0]          contador,
 
@@ -60,7 +74,7 @@ module audio_buf #(
 );
 
 localparam OP_CAPTURA = 2'd0, OP_REPRODUZ = 2'd1, OP_CAP_LOOP = 2'd2, OP_LOOP = 2'd3;
-localparam S_REPOUSO = 2'd0, S_ATIVO = 2'd1, S_FIM = 2'd2;
+localparam S_REPOUSO = 2'd0, S_ATIVO = 2'd1, S_FIM = 2'd2, S_COEF = 2'd3;
 
 reg [1:0]  estado;
 reg        start_d;
@@ -69,6 +83,38 @@ reg        cont_r;
 reg [15:0] n_r;
 reg [31:0] prox;        // reproducao: a proxima palavra, ja lida da RAM
 reg [1:0]  le;          // reproducao: ciclos ate a leitura da RAM valer
+
+// --- filtro em tempo real ---
+reg        filt_r;      // a operacao em curso passa pelo filtro
+reg [4:0]  nsec_r;      // secoes carregadas (0 = passa direto)
+reg [6:0]  c_idx;       // carga: coeficiente 0 .. 5*n-1
+reg [3:0]  c_sec;
+reg [2:0]  c_k;
+reg [1:0]  c_esp;       // carga: ciclos ate a leitura da RAM valer
+reg        coef_we;
+reg [31:0] coef_dado;
+reg [3:0]  coef_sec;
+reg [2:0]  coef_k;
+wire signed [15:0] f_y, f_x;
+
+// na reproducao o filtro recebe a palavra que esta tocando; senao, a entrada
+wire tocando = (estado == S_ATIVO) && (op_r == OP_REPRODUZ);
+wire [15:0] f_entra = tocando ? prox[15:0] : rx_esq;
+
+filtro_audio #(.MAX_SECOES(16)) u_filtro (
+    .clk       (clk),
+    .reset_n   (reset_n),
+    .quadro    (rx_quadro),
+    .x_in      (f_entra),
+    .n_secoes  (nsec_r),
+    .coef_we   (coef_we),
+    .coef_sec  (coef_sec),
+    .coef_k    (coef_k),
+    .coef_dado (coef_dado),
+    .y_out     (f_y),
+    .x_out     (f_x),
+    .saturou   ()
+);
 
 wire grava    = (op_r == OP_CAPTURA) || (op_r == OP_CAP_LOOP);
 wire repassa  = (op_r == OP_CAP_LOOP) || (op_r == OP_LOOP);
@@ -90,9 +136,20 @@ always @(posedge clk or negedge reset_n)
         ram_address <= {ADDR_BITS{1'b0}};
         ram_wdata   <= 32'd0;
         ram_write   <= 1'b0;
+        filt_r      <= 1'b0;
+        nsec_r      <= 5'd0;
+        c_idx       <= 7'd0;
+        c_sec       <= 4'd0;
+        c_k         <= 3'd0;
+        c_esp       <= 2'd0;
+        coef_we     <= 1'b0;
+        coef_dado   <= 32'd0;
+        coef_sec    <= 4'd0;
+        coef_k      <= 3'd0;
     end else begin
         start_d   <= start;
         ram_write <= 1'b0;
+        coef_we   <= 1'b0;
 
         // captura: o contador sobe no ciclo em que a RAM grava (ram_write
         // em 1 agora = a palavra entra na RAM nesta borda), e o done da
@@ -117,7 +174,23 @@ always @(posedge clk or negedge reset_n)
             contador <= 32'd0;
             tx_esq   <= 16'd0;
             tx_dir   <= 16'd0;
-            if (start && !start_d) begin
+            if (start && !start_d && carregar) begin
+                // carga dos coeficientes do filtro
+                n_r         <= n_amostras;
+                c_idx       <= 7'd0;
+                c_sec       <= 4'd0;
+                c_k         <= 3'd0;
+                c_esp       <= 2'd2;
+                ram_address <= {ADDR_BITS{1'b0}};
+                if (n_amostras == 16'd0) begin
+                    nsec_r <= 5'd0;
+                    done   <= 1'b1;
+                    estado <= S_FIM;
+                end else begin
+                    estado <= S_COEF;
+                end
+            end else if (start && !start_d) begin
+                filt_r      <= filtrar;
                 op_r        <= op;
                 cont_r      <= continuo || (op == OP_LOOP);
                 n_r         <= n_amostras;
@@ -140,17 +213,17 @@ always @(posedge clk or negedge reset_n)
                     estado <= S_FIM;
                 end else begin
                     if (repassa) begin
-                        tx_esq <= rx_esq;
-                        tx_dir <= rx_dir;
+                        tx_esq <= filt_r ? f_y : rx_esq;
+                        tx_dir <= filt_r ? f_y : rx_dir;
                     end
                     if (grava) begin
                         ram_address <= contador[ADDR_BITS-1:0];
-                        ram_wdata   <= {rx_dir, rx_esq};
+                        ram_wdata   <= filt_r ? {f_y, f_x} : {rx_dir, rx_esq};
                         ram_write   <= 1'b1;
                     end
                     if (op_r == OP_REPRODUZ) begin
-                        tx_esq      <= prox[15:0];
-                        tx_dir      <= prox[31:16];
+                        tx_esq      <= filt_r ? f_y : prox[15:0];
+                        tx_dir      <= filt_r ? f_y : prox[31:16];
                         ram_address <= cont_mais[ADDR_BITS-1:0];
                         le          <= 2'd2;
                     end
@@ -165,7 +238,33 @@ always @(posedge clk or negedge reset_n)
             if (!start) estado <= S_REPOUSO;
         end
 
-        default: estado <= S_REPOUSO;
+        // carga: uma palavra da RAM por vez, 2 ciclos de leitura cada
+        S_COEF: begin
+            if (c_esp != 2'd0) begin
+                c_esp <= c_esp - 2'd1;
+            end else begin
+                coef_we   <= 1'b1;
+                coef_dado <= ram_readdata;
+                coef_sec  <= c_sec;
+                coef_k    <= c_k;
+                if ({9'd0, c_idx} + 16'd1 == n_r * 16'd5) begin
+                    nsec_r <= n_r[4:0];
+                    done   <= 1'b1;
+                    estado <= S_FIM;
+                end else begin
+                    c_idx       <= c_idx + 7'd1;
+                    ram_address <= c_idx + 7'd1;
+                    c_esp       <= 2'd2;
+                    if (c_k == 3'd4) begin
+                        c_k   <= 3'd0;
+                        c_sec <= c_sec + 4'd1;
+                    end else begin
+                        c_k <= c_k + 3'd1;
+                    end
+                end
+            end
+        end
+
         endcase
     end
 

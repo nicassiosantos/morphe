@@ -13,10 +13,14 @@
 //      repete a entrada, RAM[i mod 64] = quadro i, contador = 150;
 //   4. loopback: a saida repete a entrada, a RAM nao e escrita, contador = 0;
 //      ao baixar o start, silencio;
-//   5. reproducao continua por 150 quadros: saida = RAM[i mod 64].
+//   5. reproducao continua por 150 quadros: saida = RAM[i mod 64];
+//   6. filtro: carga de 2 secoes pela RAM (ganho 0,5 e identidade), depois
+//      captura + loopback e reproducao filtradas: a saida e floor((x+1)/2) da
+//      amostra anterior, nos dois canais, e a captura guarda {saida, entrada}.
 //
 // Rodar (de Quartus/):
-//   iverilog -g2012 -o tb_abuf testbench/tb_audio_buf.v audio_buf.v && vvp tb_abuf
+//   iverilog -g2012 -o tb_abuf testbench/tb_audio_buf.v audio_buf.v filtro_audio.v \
+//            iir_biquad_mac.v && vvp tb_abuf
 `timescale 1ns/1ps
 
 module tb_audio_buf;
@@ -31,6 +35,8 @@ reg reset_n = 0;
 reg        start = 0;
 reg [1:0]  op = 0;
 reg        continuo = 0;
+reg        carregar = 0;
+reg        filtrar = 0;
 reg [15:0] n_amostras = 0;
 wire       done;
 wire [31:0] contador;
@@ -51,7 +57,8 @@ end
 
 audio_buf #(.ADDR_BITS(AB)) dut (
     .clk(clk), .reset_n(reset_n), .start(start), .done(done), .op(op),
-    .continuo(continuo), .n_amostras(n_amostras), .contador(contador),
+    .continuo(continuo), .carregar(carregar), .filtrar(filtrar),
+    .n_amostras(n_amostras), .contador(contador),
     .rx_esq(rx_esq), .rx_dir(rx_dir), .rx_quadro(rx_quadro),
     .tx_esq(tx_esq), .tx_dir(tx_dir),
     .ram_address(ram_address), .ram_wdata(ram_wdata), .ram_write(ram_write),
@@ -63,6 +70,8 @@ audio_buf #(.ADDR_BITS(AB)) dut (
 integer q = 0;
 function [15:0] esq_de; input integer k; esq_de = 1000 + 3 * k; endfunction
 function [15:0] dir_de; input integer k; dir_de = -(500 + 7 * k); endfunction
+// o filtro de teste (ganho 0,5 em Q15.16, depois identidade): floor((x+1)/2)
+function [15:0] meio; input [15:0] x; meio = ($signed(x) + 1) >>> 1; endfunction
 integer fase = 0;
 always @(posedge clk) if (reset_n) begin
     rx_quadro <= 1'b0;
@@ -184,7 +193,51 @@ initial begin
         end
     if (erros == 0) $display("5. reproducao continua: 150 quadros, a RAM deu a volta");
 
-    if (erros == 0) $display("TUDO OK: captura, reproducao e loopback");
+    // ---- 6. filtro ------------------------------------------------------------
+    para;
+    // secao 0: b0 = 0,5 (32768); secao 1: b0 = 1,0 (65536); o resto 0
+    for (i = 0; i < 10; i = i + 1) ram[i] = 32'd0;
+    ram[0] = 32'd32768;
+    ram[5] = 32'd65536;
+    @(negedge clk); carregar = 1; n_amostras = 2;
+    @(negedge clk); start = 1;
+    wait (done);
+    @(negedge clk); start = 0; carregar = 0;
+    repeat (40) @(negedge clk);
+    if (dut.nsec_r !== 2) begin erros = erros + 1; $display("ERRO 6: nsec %0d", dut.nsec_r); end
+    // captura + loopback filtrada, continua
+    @(negedge clk); op = 2; continuo = 1; filtrar = 1; n_amostras = 0;
+    @(posedge rx_quadro); repeat (4) @(negedge clk); start = 1;
+    q0 = q; n0 = ns;
+    wait (contador == 60);
+    @(negedge clk); start = 0;
+    repeat (40) @(negedge clk);
+    // quadro i da operacao: o filtro entrega a amostra q0+i-1
+    for (i = 1; i < 60; i = i + 1)
+        if (ram[i % NR] !== {meio(esq_de(q0 + i - 1)), esq_de(q0 + i - 1)} ||
+            saida_esq[n0 + i] !== meio(esq_de(q0 + i - 1)) ||
+            saida_dir[n0 + i] !== meio(esq_de(q0 + i - 1))) begin
+            erros = erros + 1;
+            if (erros < 8) $display("ERRO 6 cap: quadro %0d RAM %h saida %h %h (x %h)",
+                                    i, ram[i % NR], saida_esq[n0+i], saida_dir[n0+i],
+                                    esq_de(q0 + i - 1));
+        end
+    // reproducao filtrada, unica
+    for (i = 0; i < NR; i = i + 1) ram[i] = {16'h0000, 16'(16'h0200 + 4 * i)};
+    @(negedge clk); op = 1; continuo = 0; filtrar = 1; n_amostras = 30;
+    @(posedge rx_quadro); repeat (4) @(negedge clk); start = 1;
+    n0 = ns;
+    wait (done);
+    repeat (40) @(negedge clk);
+    for (i = 1; i < 30; i = i + 1)
+        if (saida_esq[n0 + i] !== meio(16'(16'h0200 + 4 * (i - 1)))) begin
+            erros = erros + 1;
+            if (erros < 8) $display("ERRO 6 rep: quadro %0d tocou %h", i, saida_esq[n0+i]);
+        end
+    para; filtrar = 0;
+    if (erros == 0) $display("6. filtro: carga pela RAM, captura, loopback e reproducao filtradas");
+
+    if (erros == 0) $display("TUDO OK: captura, reproducao, loopback e filtro");
     else            $display("FALHOU: %0d erro(s)", erros);
     $finish;
 end

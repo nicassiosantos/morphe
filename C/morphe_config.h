@@ -109,6 +109,11 @@
 #define MORPHE_AUDIO_OP_REPRODUZ 1U
 #define MORPHE_AUDIO_OP_CAP_LOOP 2U
 #define MORPHE_AUDIO_OP_LOOP     3U
+/* adc_config[2]: o start carrega 5*n_amostras coeficientes da RAM no filtro
+ * em tempo real (filtro_audio.v); [3]: a operacao passa pelo filtro. */
+#define MORPHE_AUDIO_CFG_CARREGA 0x04U
+#define MORPHE_AUDIO_CFG_FILTRA  0x08U
+#define MORPHE_AUDIO_SECOES_MAX  16
 /* fs = 50 MHz / 1024 (AUD_XCK = 12,5 MHz, codec em 256 fs). */
 #define MORPHE_AUDIO_DIVISOR    1024U
 #define MORPHE_AUDIO_FS         (50000000.0 / 1024.0)

@@ -692,7 +692,8 @@ audio_i2s audio_inst (
 );
 
 // Audio <-> RAM adc_buf <-> HPS: captura, reproducao e loopback (etapa 3).
-// adc_config[1:0] = operacao, adc_config[6] = continuo (audio_buf.v).
+// adc_config[1:0] = operacao, [2] = carregar o filtro, [3] = filtrar, [6] = continuo
+// (audio_buf.v; o filtro em tempo real e o filtro_audio.v, dentro dele).
 audio_buf #(
     .ADDR_BITS (ADC_ADDR_WIDTH)
 ) audio_buf_inst (
@@ -702,6 +703,8 @@ audio_buf #(
     .done         (adc_done_audio),
     .op           (adc_config[1:0]),
     .continuo     (adc_config[6]),
+    .carregar     (adc_config[2]),     // coeficientes do filtro, da RAM
+    .filtrar      (adc_config[3]),     // a operacao passa pelo filtro em tempo real
     .n_amostras   (adc_namostras),
     .contador     (adc_contador_audio),
     .rx_esq       (audio_rx_esq),

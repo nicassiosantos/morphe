@@ -83,10 +83,15 @@
  *             resposta em blocos, como o ADC_CONTINUO.
  *   REPRODUZ  n_x = quadros, que seguem o cabecalho em int32 {dir, esq};
  *             resposta: cabecalho com n_out = n_x e extra = estado do fim.
- *   LOOPBACK  n_h = 1 liga, 0 desliga; fica ligado entre conexoes. */
+ *   LOOPBACK  n_h = 1 liga, 0 desliga; fica ligado entre conexoes.
+ *   FILTRO    n_h = secoes (1 a 16): seguem 5*n_h int32 Q15.16 (b0 b1 b2 a1
+ *             a2 por secao) e o filtro em tempo real passa a valer para
+ *             toda operacao de audio; n_h = 0 desliga. Fica entre conexoes.
+ *             Com o filtro ligado, a captura traz {saida filtrada, entrada}. */
 #define MORPHE_AUDIO_CAPTURA   0U
 #define MORPHE_AUDIO_REPRODUZ  1U
 #define MORPHE_AUDIO_LOOPBACK  2U
+#define MORPHE_AUDIO_FILTRO    3U
 
 /* Estado de cada bloco da resposta do ADC_CONTINUO. */
 #define MORPHE_ADC_BLOCO_SEGUE    0U
