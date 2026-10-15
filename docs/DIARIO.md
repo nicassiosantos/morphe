@@ -16,6 +16,31 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 15/10/2026 (noite) — Filtrar o áudio no IIR da placa (sem bitstream novo)
+
+Janela Áudio, cartão **Filtrar na placa (IIR)**: a última captura ou um arquivo
+passa pelo bloco IIR que já existe, em blocos de 1024 com aquecimento
+(`blocos.iir_por_blocos`), com um Butterworth projetado na janela ou o filtro do
+projetista IIR. Medido contra a placa 1, pela rede, com o bitstream oficial:
+3 s de 500 Hz + 5 kHz por um passa-baixas Butterworth de ordem 4 em 1 kHz —
+**0 LSB de diferença** para o modelo em ponto fixo com os mesmos blocos; ganho
+−0,02 dB em 500 Hz e −57,11 dB em 5 kHz (projeto: −0,02 e −57,10).
+
+**Atraso desta opção** (mostrado em Medidas): a gravação inteira (3,00 s), a
+filtragem na placa (6,3 s, 2,1 vezes o tempo real, quase tudo nas 165 idas e
+voltas pela rede) e o atraso de grupo do filtro (0,474 ms em 500 Hz, igual ao do
+`scipy.signal.group_delay`): 9,3 s do começo do som até começar a ouvi-lo
+filtrado. Em tempo real seria só o atraso de grupo mais 20 µs.
+
+Achado no caminho: o `scipy.signal.butter(..., output="sos")` põe o ganho inteiro
+na primeira seção, e num passa-baixas de 1 kHz a 48,8 kHz os b dela viram 1, 2 e
+1 em Q15.16 — espúrios a −36 dB. Com `iir.distribui_ganho` (o que o projetista
+já fazia) os b vão a centenas de LSB e os espúrios caem a −88 dB.
+
+O **filtro em tempo real** (um bloco novo na FPGA entre a entrada e a saída do
+codec) ficou como ideia: escrito e simulado bit a bit, sem compilar, na branch
+`estagio/filtro-tempo-real` (`docs/IDEIA-FILTRO-TEMPO-REAL.md`).
+
 ## 15/10/2026 (estação) — Bitstream oficial 20.1 validado e no laboratório
 
 Compilado na estação LABPS-47723 com o Quartus 20.1, a partir de `ed9992c`, sem

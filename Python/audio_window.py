@@ -10,6 +10,12 @@ pelo codec WM8731, com as funções de audio.py.
   Loopback     o som que entra no codec volta: pela saída da própria placa
                (a FPGA repassa, sem passar pelo computador), para o
                computador (ao vivo, bloco a bloco), ou para os dois.
+  Filtrar      passa a última captura (ou um arquivo) pelo filtro IIR da
+               placa -- o mesmo bloco da janela Filtro IIR, em blocos de
+               1024 com aquecimento -- e mostra os espectros da entrada e da
+               saída com |H(f)|; as duas podem ser tocadas e a saída salva.
+               Não é tempo real: grava, filtra, ouve. O filtro em tempo
+               real ficou como ideia (docs/IDEIA-FILTRO-TEMPO-REAL.md).
 
 A taxa é fixa, 48 828,125 Hz (50 MHz / 1024), 16 bits, estéreo. O espectro
 desta janela é calculado no computador (NumPy): enquanto o áudio corre, a
@@ -32,10 +38,14 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import audio
+import blocos
 import dsp_core as dsp
+import iir_design as iir
+import morphe_config as cfg
 import morphe_theme as theme
 import sinal_arquivo
 from analisador_window import JANELAS, janela as janela_de
+from iir_designer_window import IIRDesignerWindow
 from plot_toolbar import PlotToolbar
 
 ANTES = ("Antes de usar, configure o codec na placa (uma vez por boot):\n"
@@ -86,6 +96,10 @@ SOBRE_CODEC = (
     "\n"
     "O LTC2308 (conector J15, janela Aquisição) é outro conversor:\n"
     "12 bits, acoplado em DC, fs escolhida, e SEM anti-aliasing.")
+TIPOS_FILTRO = {"Passa-baixas": "lowpass", "Passa-altas": "highpass",
+                "Passa-faixa": "bandpass", "Rejeita-faixa": "bandstop"}
+ORIGENS_FILTRO = ("Butterworth (aqui)", "Projetista IIR")
+FONTES_FILTRAR = ("Última captura", "Arquivo (o de Reproduzir)")
 TELA_MS = 100
 GUARDA_MAX_S = 60.0          # o ao vivo guarda no máximo o último minuto
 
@@ -107,6 +121,8 @@ class AudioWindow(tk.Toplevel):
         self._captura: Optional[np.ndarray] = None   # última captura completa
         self._arquivo: Optional[tuple] = None        # (sinal, fs, nome)
         self._loop_placa = False
+        self._sos_proj: Optional[tuple] = None       # (sos, descricao, fs) do projetista
+        self._filtragem: Optional[dict] = None       # a ultima: entrada, saida, sos, fs
         self.protocol("WM_DELETE_WINDOW", self._on_fechar)
 
         self.status = tk.StringVar(value="Pronto. Configure o codec na placa "
@@ -250,6 +266,52 @@ class AudioWindow(tk.Toplevel):
         self.btn_tocar.pack(side="bottom", fill="x", pady=(6, 0))
         self.ck_norm.pack(side="bottom", anchor="w")
 
+        # Filtrar na placa (IIR, por blocos)
+        fl = ttk.LabelFrame(parent, text=" Filtrar na placa (IIR) ", style="Card.TLabelframe",
+                            padding=(14, 10, 14, 10))
+        fl.pack(fill="x", pady=(10, 0))
+        self.var_ffonte = tk.StringVar(value=FONTES_FILTRAR[0])
+        ttk.Combobox(self._linha(fl, "Sinal"), textvariable=self.var_ffonte,
+                     values=FONTES_FILTRAR, state="readonly", width=20).pack(
+                         side="left", fill="x", expand=True)
+        self.var_forig = tk.StringVar(value=ORIGENS_FILTRO[0])
+        cb = ttk.Combobox(self._linha(fl, "Filtro"), textvariable=self.var_forig,
+                          values=ORIGENS_FILTRO, state="readonly", width=20)
+        cb.pack(side="left", fill="x", expand=True)
+        cb.bind("<<ComboboxSelected>>", lambda e: self._troca_origem_filtro())
+        self.fr_butter = ttk.Frame(fl, style="Card.TFrame")
+        self.var_ftipo = tk.StringVar(value=next(iter(TIPOS_FILTRO)))
+        ttk.Combobox(self._linha(self.fr_butter, "Tipo"), textvariable=self.var_ftipo,
+                     values=list(TIPOS_FILTRO), state="readonly", width=16).pack(
+                         side="left", fill="x", expand=True)
+        self.var_fordem = self._entrada(self.fr_butter, "Ordem", "4")
+        self.var_ff1 = self._entrada(self.fr_butter, "f1 (Hz)", "1000")
+        self.var_ff2 = self._entrada(self.fr_butter, "f2 (Hz)", "3000")
+        ttk.Label(self.fr_butter, text="f2 só vale em passa-faixa e rejeita-faixa.",
+                  style="SectionHint.TLabel").pack(anchor="w")
+        self.fr_proj = ttk.Frame(fl, style="Card.TFrame")
+        ttk.Button(self.fr_proj, text="Abrir o projetista IIR…", style="Secondary.TButton",
+                   command=self._on_projetista).pack(fill="x", pady=(0, 4))
+        self.var_fproj = tk.StringVar(value="(nenhum filtro do projetista ainda)")
+        ttk.Label(self.fr_proj, textvariable=self.var_fproj, style="SectionHint.TLabel",
+                  wraplength=300, justify="left").pack(anchor="w")
+        self.btn_filtrar = ttk.Button(fl, text="Filtrar na placa", style="Primary.TButton",
+                                      command=self._on_filtrar)
+        self.btn_filtrar.pack(side="bottom", fill="x", pady=(6, 0))
+        linha_f = ttk.Frame(fl, style="Card.TFrame")
+        linha_f.pack(side="bottom", fill="x", pady=(6, 0))
+        self.btn_toca_ent = ttk.Button(linha_f, text="Tocar entrada", style="Secondary.TButton",
+                                       state="disabled", command=lambda: self._toca_filtragem("x"))
+        self.btn_toca_ent.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        self.btn_toca_sai = ttk.Button(linha_f, text="Tocar saída", style="Secondary.TButton",
+                                       state="disabled", command=lambda: self._toca_filtragem("y"))
+        self.btn_toca_sai.pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self.btn_salva_sai = ttk.Button(fl, text="Salvar a saída (.wav, .npy)…",
+                                        style="Secondary.TButton", state="disabled",
+                                        command=self._on_salva_filtragem)
+        self.btn_salva_sai.pack(side="bottom", fill="x", pady=(4, 0))
+        self._troca_origem_filtro()
+
         # Loopback
         lb = ttk.LabelFrame(parent, text=" Loopback ", style="Card.TLabelframe",
                             padding=(14, 10, 14, 10))
@@ -295,6 +357,7 @@ class AudioWindow(tk.Toplevel):
         cb.pack(side="left")
         cb.bind("<<ComboboxSelected>>", lambda e: self._troca_escala())
         self._ultimo = None                  # (bloco, titulo) para redesenhar
+        self._vista_filtro = False           # a tela mostra a ultima filtragem
         self.fig = Figure(figsize=(7.4, 7.6), dpi=100)
         self.fig.patch.set_facecolor(theme.COLORS["bg"])
         self.ax_t = self.fig.add_subplot(211)
@@ -331,8 +394,11 @@ class AudioWindow(tk.Toplevel):
 
     def _botoes(self, livre: bool):
         estado = "normal" if livre else "disabled"
-        for b in (self.btn_capturar, self.btn_tocar):
+        for b in (self.btn_capturar, self.btn_tocar, self.btn_filtrar):
             b.configure(state=estado)
+        if self._filtragem is not None:
+            for b in (self.btn_toca_ent, self.btn_toca_sai, self.btn_salva_sai):
+                b.configure(state=estado)
 
     def _erro(self, err: Exception):
         self._ocupado = False
@@ -545,6 +611,282 @@ class AudioWindow(tk.Toplevel):
         self._botoes(True)
         self.status.set(msg)
 
+    # ---- filtrar na placa ------------------------------------------------------------------
+    def _troca_origem_filtro(self):
+        self.fr_butter.pack_forget()
+        self.fr_proj.pack_forget()
+        if self.var_forig.get() == ORIGENS_FILTRO[0]:
+            self.fr_butter.pack(fill="x")
+        else:
+            self.fr_proj.pack(fill="x")
+
+    def _on_projetista(self):
+        def aplicar(sos, descricao, fs):
+            self._sos_proj = (np.atleast_2d(np.asarray(sos, dtype=np.float64)), descricao, fs)
+            texto = f"{self._sos_proj[0].shape[0]} seções"
+            if descricao:
+                texto += f" — {descricao[:60]}"
+            if fs:
+                texto += f"\nprojetado para fs = {fs:g} Hz"
+            self.var_fproj.set(texto)
+        IIRDesignerWindow(self, on_apply=aplicar)
+
+    def _sinal_para_filtrar(self) -> tuple[np.ndarray, float, str]:
+        if self.var_ffonte.get() == FONTES_FILTRAR[0]:
+            if self._captura is None:
+                raise ValueError("ainda não há captura: use Capturar ou o loopback")
+            # o canal esquerdo; com o microfone os dois canais sao iguais
+            return self._captura[:, 0].astype(np.float64) / 32768.0, audio.FS, "a última captura"
+        if self._arquivo is None:
+            raise ValueError("escolha um arquivo em Reproduzir → Fonte: Arquivo")
+        x, fs, nome = self._arquivo
+        return np.asarray(x, dtype=np.float64), fs, nome
+
+    def _filtro_escolhido(self, fs: float) -> tuple[np.ndarray, str]:
+        """(sos, descricao) do filtro, ja conferido para o hardware."""
+        if self.var_forig.get() == ORIGENS_FILTRO[0]:
+            from scipy import signal
+            tipo = TIPOS_FILTRO[self.var_ftipo.get()]
+            ordem = int(self._num(self.var_fordem, "Ordem", 1, 32))
+            f1 = self._num(self.var_ff1, "f1", 1, fs / 2 - 1)
+            if tipo in ("bandpass", "bandstop"):
+                f2 = self._num(self.var_ff2, "f2", f1 + 1, fs / 2 - 1)
+                wn, desc = [f1, f2], f"{self.var_ftipo.get()} {f1:g}–{f2:g} Hz"
+            else:
+                wn, desc = f1, f"{self.var_ftipo.get()} {f1:g} Hz"
+            # O butter poe o ganho inteiro na 1a secao: num passa-baixas de
+            # 1 kHz a 48,8 kHz o b0 dela fica em 1,5e-5, que em Q15.16 vira 1
+            # LSB -- e o filtro deixa de ser o projetado (medido: espurios a
+            # -36 dB). Distribuir o ganho entre as secoes, como o projetista
+            # IIR faz, leva os b para centenas de LSB (espurios a -88 dB).
+            sos = iir.distribui_ganho(signal.butter(ordem, wn, tipo, fs=fs, output="sos"))
+            desc = f"Butterworth ordem {ordem}, {desc}"
+        else:
+            if self._sos_proj is None:
+                raise ValueError("abra o projetista IIR e aplique um filtro")
+            sos, desc, fs_proj = self._sos_proj
+            if fs_proj and abs(fs_proj - fs) > 1e-6 * fs:
+                raise ValueError(f"o filtro foi projetado para fs = {fs_proj:g} Hz e o sinal "
+                                 f"tem fs = {fs:g} Hz: projete de novo com a fs do sinal "
+                                 f"({fs:g} Hz)")
+        if sos.shape[0] > cfg.IIR_SECOES_MAX:
+            raise ValueError(f"{sos.shape[0]} seções; o hardware aceita {cfg.IIR_SECOES_MAX}")
+        viab = iir.verifica_viabilidade(sos, cfg.IIR_FRAC_BITS, 32, simular=False)
+        if viab["veredito"] == "recusar":
+            raise ValueError("o filtro não cabe em Q15.16:\n\n" + "\n\n".join(viab["motivos"]))
+        return sos, desc
+
+    def _on_filtrar(self):
+        try:
+            x, fs, nome = self._sinal_para_filtrar()
+            sos, desc = self._filtro_escolhido(fs)
+            aquec = blocos.aquecimento_iir(sos, cfg.IIR_FRAC_BITS)
+            if x.size > cfg.IIR_N_MAX and cfg.IIR_N_MAX - aquec < cfg.IIR_N_MAX // 8:
+                raise ValueError(
+                    f"este filtro precisa de {aquec} amostras de aquecimento por bloco, e o "
+                    f"bloco da placa tem {cfg.IIR_N_MAX}: os polos estão perto demais do "
+                    f"círculo unitário para a fs de {fs:g} Hz. Suba a frequência de corte "
+                    f"ou baixe a ordem.")
+            cli = self._cliente()
+        except Exception as e:
+            messagebox.showerror("Filtrar na placa", str(e), parent=self)
+            return
+        coefs = iir.coeficientes_inteiros(sos, cfg.IIR_FRAC_BITS, 32)
+        self._ocupado = True
+        self._botoes(False)
+        self.status.set(f"Filtrando {nome} ({x.size / fs:.2f} s) na placa: {desc}...")
+
+        def progresso(feitos, total):
+            self.after(0, lambda: self.status.set(
+                f"Filtrando {nome} na placa: bloco {feitos} de {total} ({desc})"))
+
+        def worker():
+            try:
+                t0 = time.monotonic()
+                yq, saturou = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aquec,
+                                                    cfg.IIR_N_MAX, progresso)
+                dt = time.monotonic() - t0
+                y = np.asarray(yq, dtype=np.float64) / 65536.0
+                self.after(0, lambda: self._fim_filtrar(x, y, fs, sos, nome, desc, saturou, dt))
+            except Exception as e:
+                self.after(0, lambda err=e: self._erro(err))
+        threading.Thread(target=worker, daemon=True).start()
+
+    @staticmethod
+    def atraso_de_grupo(sos: np.ndarray, fs: float, f0: float) -> float:
+        """Atraso de grupo do filtro em f0, em segundos: -d(fase)/d(omega),
+        com os coeficientes quantizados que vao para a placa. E o atraso que o
+        envelope de um sinal perto de f0 sofre ao passar pelo filtro -- existe
+        em qualquer filtro, tambem em tempo real."""
+        c = np.asarray(iir.coeficientes_inteiros(sos, cfg.IIR_FRAC_BITS, 32),
+                       dtype=np.float64) / 65536.0
+        sos_q = np.column_stack([c[:, 0:3], np.ones(len(c)), c[:, 3:5]])
+        f, H = iir.resposta_sos(sos_q, 16384, fs)
+        w = 2 * np.pi * f / fs
+        gd = -np.gradient(np.unwrap(np.angle(H)), w)          # em amostras
+        return float(np.interp(f0, f, gd)) / fs
+
+    def _fim_filtrar(self, x, y, fs, sos, nome, desc, saturou, dt):
+        self._filtragem = {"x": x, "y": y, "fs": fs, "sos": sos, "nome": nome, "desc": desc}
+        # O atraso desta opcao (gravar -> filtrar na placa -> tocar), do
+        # comeco do som ate ouvi-lo filtrado: a gravacao inteira tem de
+        # terminar antes de filtrar, depois vem o processamento na placa, e
+        # o atraso de grupo do proprio filtro.
+        dur = x.size / fs
+        f0 = audio.freq_dominante(x, fs)
+        gd = self.atraso_de_grupo(sos, fs, f0) if np.isfinite(f0) else float("nan")
+        self._atraso = {"gravacao": dur, "proc": dt, "grupo": gd, "f0": f0}
+        self.var_medidas.set(
+            f"atraso desta opção (gravar → placa → tocar)\n"
+            f"  gravação    {dur:8.2f} s  (o sinal inteiro)\n"
+            f"  filtragem   {dt:8.2f} s  ({dt / dur:.1f}× o tempo real)\n"
+            f"  do filtro   {gd * 1e3:8.3f} ms (atraso de grupo em {f0:.0f} Hz)\n"
+            f"  total       {dur + dt + gd:8.2f} s  até começar a ouvir\n"
+            f"em tempo real seria só o do filtro + 20 µs")
+        self._ocupado = False
+        self._botoes(True)
+        self._eixos_prontos = None
+        self._desenha_filtragem()
+        aviso = "  SATUROU em alguma amostra (a saída passou do Q15.16)." if saturou else ""
+        self.status.set(f"Filtrado na placa: {nome}, {x.size} amostras em {dt:.1f} s "
+                        f"({desc}); atraso até ouvir: {dur + dt:.1f} s. Toque a entrada "
+                        f"e a saída para comparar.{aviso}")
+
+    def _desenha_filtragem(self):
+        """Entrada e saida no tempo (20 ms do meio do sinal) e os espectros
+        medios das duas (blocos de 4096 com a janela escolhida), com |H(f)| do
+        filtro quantizado -- o que a placa de fato aplicou."""
+        d = self._filtragem
+        x, y, fs, sos = d["x"], d["y"], d["fs"], d["sos"]
+        completo, em_db = self.var_completo.get(), self.var_db.get()
+        self._vista_filtro = True
+        self._eixos_prontos = None
+        for ax in (self.ax_t, self.ax_f):
+            ax.clear()
+        ax = self.ax_t
+        m = min(x.size, max(8, int(0.02 * fs)))
+        i0 = max(0, x.size // 2 - m // 2)
+        t = (i0 + np.arange(m)) / fs * 1e3
+        ax.plot(t, x[i0:i0 + m], color=dsp.COLOR_X, linewidth=0.9, label="entrada")
+        ax.plot(t, y[i0:i0 + m], color=dsp.COLOR_Y, linewidth=0.9, label="saída (placa)")
+        ax.set_xlabel("t (ms)")
+        ax.set_ylabel("amplitude (fundo = 1)")
+        ax.set_title(f"{d['nome']}: 20 ms do meio, entrada e saída", fontsize=10)
+        ax.legend(fontsize=7, loc="upper right")
+        theme.style_plot_axes(ax)
+
+        nfft = int(min(4096, 2 ** int(np.floor(np.log2(max(x.size, 8))))))
+        w = janela_de(self.var_janela.get(), nfft)
+        # A media comeca depois do transitorio de partida: o filtro sai do
+        # estado zero e oscila perto do corte por algumas centenas de
+        # amostras. E real (a placa e o modelo fazem igual), mas misturado a
+        # media pareceria distorcao do regime. A duracao e a mesma estimativa
+        # do aquecimento dos blocos.
+        try:
+            ini = blocos.aquecimento_iir(sos, cfg.IIR_FRAC_BITS)
+        except ValueError:
+            ini = 0
+        if x.size - ini < nfft:
+            ini = 0
+
+        def espectro(v):
+            v = np.asarray(v, dtype=np.float64)
+            pedacos = [v[k:k + nfft] for k in range(ini, v.size - nfft + 1, nfft // 2)][:200]
+            acc = None
+            for pd in pedacos:
+                X = np.abs(np.fft.fft((pd - pd.mean()) * w) if completo
+                           else np.fft.rfft((pd - pd.mean()) * w)) / (np.sum(w) / 2.0)
+                acc = X * X if acc is None else acc + X * X
+            return np.sqrt(acc / len(pedacos))
+
+        X, Y = espectro(x), espectro(y)
+        f = np.arange(X.size) * fs / nfft / 1e3
+        ax = self.ax_f
+        if em_db:
+            ax.plot(f, 20 * np.log10(np.maximum(X, 1e-7)), color=dsp.COLOR_X,
+                    linewidth=0.8, label="entrada")
+            ax.plot(f, 20 * np.log10(np.maximum(Y, 1e-7)), color=dsp.COLOR_Y,
+                    linewidth=0.8, label="saída (placa)")
+            # |H| com os MESMOS inteiros Q15.16 que foram para a placa
+            c = np.asarray(iir.coeficientes_inteiros(sos, cfg.IIR_FRAC_BITS, 32),
+                           dtype=np.float64) / 65536.0
+            sos_q = np.column_stack([c[:, 0:3], np.ones(len(c)), c[:, 3:5]])
+            fh, H = iir.resposta_sos(sos_q, 4096, fs)
+            hdb = 20 * np.log10(np.maximum(np.abs(H), 1e-7))
+            if completo:
+                fh = np.concatenate([fh, fs - fh[::-1]])
+                hdb = np.concatenate([hdb, hdb[::-1]])
+            ax.plot(fh / 1e3, hdb, color="black", linewidth=1.0, linestyle="--",
+                    label="|H(f)| do filtro (dB)")
+            ax.set_ylim(-140, 10)
+            ax.set_ylabel("dBFS  (|H| em dB)")
+        else:
+            ax.plot(f, X, color=dsp.COLOR_X, linewidth=0.8, label="entrada")
+            ax.plot(f, Y, color=dsp.COLOR_Y, linewidth=0.8, label="saída (placa)")
+            ax.set_ylim(0, max(1e-4, 1.1 * float(max(np.max(X), np.max(Y)))))
+            ax.set_ylabel("amplitude de pico (fundo = 1)")
+        ax.set_xlim(0, (fs if completo else fs / 2) / 1e3)
+        if completo:
+            ax.axvline(fs / 2 / 1e3, color=theme.COLORS["axis"], linewidth=0.8, linestyle=":")
+        ax.set_xlabel("f (kHz)")
+        ax.set_title(f"espectro médio (sem o transitório de {ini} amostras) — {d['desc']}",
+                     fontsize=9)
+        ax.legend(fontsize=7, loc="upper right")
+        theme.style_plot_axes(ax)
+        self.fig.tight_layout()
+        self.canvas.draw_idle()
+
+    def _toca_filtragem(self, qual: str):
+        d = self._filtragem
+        if d is None:
+            return
+        try:
+            cli = self._cliente()
+        except Exception as e:
+            messagebox.showerror("Tocar", str(e), parent=self)
+            return
+        v = np.asarray(d[qual], dtype=np.float64)
+        pico = float(np.max(np.abs(v))) if v.size else 0.0
+        if self.var_norm.get() and pico > 0:
+            v = 0.9 * v / pico
+        nome = "a entrada" if qual == "x" else "a saída filtrada"
+        self._ocupado = True
+        self._botoes(False)
+        self.status.set(f"Tocando {nome} ({v.size / d['fs']:.2f} s) na LINE-out...")
+
+        def worker():
+            try:
+                r = audio.reproduzir(cli, v, fs=d["fs"])
+                self.after(0, lambda: self._fim_tocar(
+                    f"Tocou {nome}: {r['segundos']:.2f} s, fim {r['termino']}."))
+            except Exception as e:
+                self.after(0, lambda err=e: self._erro(err))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_salva_filtragem(self):
+        d = self._filtragem
+        if d is None:
+            return
+        caminho = filedialog.asksaveasfilename(
+            parent=self, title="Salvar a saída filtrada", defaultextension=".wav",
+            filetypes=[("Áudio (.wav)", "*.wav"), ("NumPy (.npy)", "*.npy")])
+        if not caminho:
+            return
+        try:
+            if caminho.lower().endswith(".npy"):
+                np.save(caminho, d["y"])
+            else:
+                from scipy.io import wavfile
+                y = d["y"]
+                pico = float(np.max(np.abs(y))) if y.size else 0.0
+                esc = 1.0 / pico if pico > 1.0 else 1.0     # .wav int16 nao passa de 1
+                wavfile.write(caminho, int(round(d["fs"])),
+                              np.round(np.clip(y * esc, -1, 1) * 32767).astype(np.int16))
+        except Exception as e:
+            messagebox.showerror("Salvar", str(e), parent=self)
+            return
+        self.status.set(f"Saída filtrada salva em {caminho}")
+
     # ---- salvar -----------------------------------------------------------------------
     def _on_salvar(self):
         if self._captura is None:
@@ -639,12 +981,16 @@ class AudioWindow(tk.Toplevel):
             self._l_f.set_data(f, X)
             self.ax_f.set_ylim(0, max(1e-4, 1.1 * float(np.max(X))))
         self._ultimo = (b, titulo)
+        self._vista_filtro = False
         self.canvas.draw_idle()
 
     def _troca_escala(self):
-        """dB <-> linear: refaz os eixos e redesenha o ultimo bloco."""
+        """dB <-> linear, janela, replica: refaz os eixos e redesenha o que
+        estiver na tela (o ultimo bloco, ou a ultima filtragem)."""
         self._eixos_prontos = None
-        if self._ultimo is not None:
+        if self._vista_filtro and self._filtragem is not None:
+            self._desenha_filtragem()
+        elif self._ultimo is not None:
             self._desenha_bloco(*self._ultimo)
 
     def _mostra_sinal(self, x: np.ndarray, fs: float, titulo: str):
