@@ -110,10 +110,13 @@ Todos os campos são inteiros sem sinal em ordem de rede
     \addlinespace
     9 & \texttt{AUDIO} & \texttt{flags} = 0, captura: \(n_x\) quadros (0 = até
       parar), \(n_h\) = 1 com \emph{loopback}; 1, reprodução: \(n_x\) quadros
-      seguem o cabeçalho; 2, \emph{loopback}: \(n_h\) = 1 liga, 0 desliga
+      seguem o cabeçalho; 2, \emph{loopback}: \(n_h\) = 1 liga, 0 desliga;
+      4, ao vivo: \(n_h\) = seções, seguem o aquecimento e os
+      \(5 n_h\) coeficientes
       & captura: blocos, como o \texttt{ADC\_CONTINUO}, com
         \texttt{extra} = 1024 (\(f_s = 50\,\text{MHz}/1024\)); reprodução:
-        \texttt{extra} = como terminou \\
+        \texttt{extra} = como terminou; ao vivo: blocos com
+        \{saída, entrada\} e o tempo de placa no estado \\
     \bottomrule
   \end{tabularx}
 \end{table}

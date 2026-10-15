@@ -16,6 +16,28 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 15/10/2026 (noite) — Filtrar ao vivo pelo IIR da placa, sem bitstream novo
+
+A pedido: filtragem **ao vivo** com o hardware que está no laboratório. O laço roda
+**no servidor** (operação `AUDIO` 4): o codec grava sem parar na RAM do áudio, e a
+cada `1024 − aquecimento` amostras novas as últimas 1024 vão ao bloco IIR (outra
+memória, outro circuito, em paralelo com a captura); das saídas valem as novas. O
+cliente recebe entrada e saída, mostra as duas ao vivo e toca a saída na caixa
+**do computador** (`aplay`, ou `sounddevice` se houver). Não pode sair pela LINE-out
+da placa: a RAM do áudio grava ou toca, não os dois. Só IIR: o bloco FIR gasta
+~0,2 s por bloco de 21 ms.
+
+Testado **sem placa** (a placa não estava acessível deste notebook): contra um
+servidor falso que imita o laço com o modelo, o cliente recebe no ritmo do áudio
+(3,01 s em 3,02 s) e `audio.modelo_ao_vivo` — a referência em Python do laço do
+servidor — bate bit a bit. **Falta na placa**: `testa_codec.py <placa> vivo`
+confere a saída da placa BIT A BIT contra esse modelo aplicado à entrada que a
+própria placa devolveu, o ritmo e o tempo de placa por bloco (o servidor manda os
+microssegundos de cada bloco; a janela soma ao atraso).
+
+Também: o FIR por blocos passou a aceitar até 8192 coeficientes (o limite de
+1024 é de uma convolução na FPGA; o `conv_por_blocos` já corta o h em pedaços).
+
 ## 15/10/2026 (noite) — Filtrar o áudio no IIR da placa (sem bitstream novo)
 
 Janela Áudio, cartão **Filtrar na placa (IIR)**: a última captura ou um arquivo

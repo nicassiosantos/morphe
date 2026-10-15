@@ -28,15 +28,18 @@ As amostras sao int16 em arrays (N, 2): coluna 0 = esquerdo, 1 = direito.
 
 from __future__ import annotations
 
+import shutil
 import socket
 import struct
+import subprocess
 import threading
 from typing import Iterator, Optional
 
 import numpy as np
 
 from morphe_protocol import (ADC_BLOCO_FIM, ADC_BLOCO_PERDEU, ADC_BLOCO_SEGUE,
-                             ADC_BLOCO_TIMEOUT, AUDIO_CAPTURA, AUDIO_LOOPBACK,
+                             ADC_BLOCO_TIMEOUT, AUDIO_AO_VIVO, AUDIO_CAPTURA,
+                             AUDIO_LOOPBACK,
                              AUDIO_REPRODUZ, DTYPE_INT32, MAGIC_REQ, OP_AUDIO,
                              RESP_HEADER_SIZE, STATUS_OK, VERSION, TcpClient,
                              parse_response_header)
@@ -130,13 +133,18 @@ def para_int16(sinal: np.ndarray, fs: float = FS, ganho: float = 1.0) -> np.ndar
 # ---- captura -------------------------------------------------------------------
 
 def _captura(client: TcpClient, n_total: int, loopback: bool,
-             parar: Optional[threading.Event]) -> Iterator[np.ndarray]:
+             parar: Optional[threading.Event],
+             pedido: Optional[bytes] = None,
+             medidas: Optional[dict] = None) -> Iterator[np.ndarray]:
     """Os blocos como o servidor os manda (tamanho variavel), em int16 (k, 2).
-    Termina no bloco final; levanta AudioErro se o hardware nao acompanhou."""
+    Termina no bloco final; levanta AudioErro se o hardware nao acompanhou.
+    `pedido` troca o pedido de captura por outro com a mesma resposta em
+    blocos (o ao vivo)."""
     if n_total < 0:
         raise ValueError("n_total deve ser >= 0 (0 = ate `parar`)")
     with _conecta(client) as s:
-        s.sendall(_pedido(AUDIO_CAPTURA, n_total, 1 if loopback else 0))
+        s.sendall(pedido if pedido is not None
+                  else _pedido(AUDIO_CAPTURA, n_total, 1 if loopback else 0))
         _n, extra = _cabecalho(s)
         if extra != DIVISOR:
             raise AudioErro(f"a placa respondeu fs = 50 MHz / {extra}; esperava / {DIVISOR}")
@@ -146,6 +154,11 @@ def _captura(client: TcpClient, n_total: int, loopback: bool,
                 s.sendall(b"P")
                 pediu = True
             k, est = struct.unpack(">II", _recv_exato(s, 8))
+            # no ao vivo, os 24 bits altos trazem os us que o bloco gastou na placa
+            if medidas is not None and est >> 8:
+                medidas["placa_us"] = est >> 8
+                medidas["placa_us_max"] = max(medidas.get("placa_us_max", 0), est >> 8)
+            est &= 0xFF
             if k:
                 w = np.frombuffer(_recv_exato(s, 4 * k), dtype=">u4")
                 yield palavras_para_estereo(w)
@@ -188,6 +201,117 @@ def capturar(client: TcpClient, n: int, loopback: bool = False) -> np.ndarray:
     if x.shape[0] != n:
         raise AudioErro(f"chegaram {x.shape[0]} quadros; pedi {n}")
     return x
+
+
+# ---- ao vivo: captura filtrada pelo IIR da placa ---------------------------------
+
+AQUEC_MAX = 896     # o bloco IIR tem 1024; sobra no minimo 1/8 de amostras novas
+
+
+def ao_vivo_filtrado(client: TcpClient, coefs_q, aquecimento: int, n_total: int = 0,
+                     parar: Optional[threading.Event] = None,
+                     medidas: Optional[dict] = None) -> Iterator[np.ndarray]:
+    """Captura do codec filtrada pelo bloco IIR da placa, em tempo real.
+
+    O laco roda no servidor: a cada 1024 - aquecimento amostras novas, as
+    ultimas 1024 vao ao IIR (que zera o estado a cada execucao; o
+    aquecimento e o trecho que ele precisa para esquecer o zero), e as
+    novas saidas voltam. Sem bitstream novo. Cada bloco e int16 (k, 2):
+    coluna 0 = entrada, coluna 1 = saida filtrada.
+
+    `coefs_q`: os inteiros Q15.16 de iir_design.coeficientes_inteiros.
+    `medidas` (dict), se dado, recebe "placa_us" e "placa_us_max": o tempo
+    que cada bloco gastou na placa (copia + IIR), medido no servidor.
+    A saida chega ao computador; tocar pela LINE-out ao mesmo tempo que se
+    grava exigiria mudar a FPGA (docs/IDEIA-FILTRO-TEMPO-REAL.md).
+    """
+    coefs = [int(v) for sec in coefs_q for v in sec]
+    n_sec = len(coefs) // 5
+    if not 1 <= n_sec <= 16:
+        raise ValueError("o filtro tem de ter de 1 a 16 secoes")
+    if not 0 <= aquecimento <= AQUEC_MAX:
+        raise ValueError(f"aquecimento fora de [0, {AQUEC_MAX}]")
+    payload = struct.pack(f">I{len(coefs)}i", int(aquecimento), *coefs)
+    yield from _captura(client, n_total, False, parar,
+                        pedido=_pedido(AUDIO_AO_VIVO, n_total, n_sec) + payload,
+                        medidas=medidas)
+
+
+def modelo_ao_vivo(x16: np.ndarray, coefs_q, aquecimento: int,
+                   n_janela: int = 1024) -> np.ndarray:
+    """O que o servidor faz no ao vivo, em Python, bit a bit: janela de
+    n_janela amostras que desliza `n_janela - aquecimento` por vez (comeca em
+    silencio), cada janela pelo modelo em ponto fixo do IIR
+    (iir_design.filtra_sos_fixo, o mesmo do RTL), e das saidas valem as
+    ultimas. So blocos completos, como o servidor. Devolve int16."""
+    import iir_design as iir
+    c = np.asarray(coefs_q, dtype=np.float64) / 65536.0
+    sos = np.column_stack([c[:, 0:3], np.ones(len(c)), c[:, 3:5]])
+    util = n_janela - aquecimento
+    x16 = np.asarray(x16, dtype=np.int64)
+    janela = np.zeros(n_janela, dtype=np.int64)
+    saida = []
+    for i in range(0, x16.size - util + 1, util):
+        janela = np.concatenate([janela[util:], x16[i:i + util]])
+        y = iir.filtra_sos_fixo(janela / 32768.0, sos, 16, 32)
+        yq = np.round(np.asarray(y) * 65536).astype(np.int64)
+        saida.append(np.clip((yq[aquecimento:] + 1) >> 1, -32768, 32767))
+    return np.concatenate(saida).astype(np.int16) if saida else np.zeros(0, np.int16)
+
+
+class SaidaSom:
+    """Toca int16 mono na saida de som do COMPUTADOR, em fluxo.
+
+    Usa o sounddevice se estiver instalado; senao o aplay (alsa-utils, que
+    vem no Ubuntu dos computadores do laboratorio). Sem nenhum dos dois,
+    `meio` fica None e escrever nao faz nada.
+    """
+
+    def __init__(self, fs: float = FS, buffer_ms: int = 150):
+        self.meio: Optional[str] = None
+        self._sd = None
+        self._proc = None
+        taxa = int(round(fs))
+        try:
+            import sounddevice as sd
+            self._sd = sd.RawOutputStream(samplerate=taxa, channels=1, dtype="int16",
+                                          latency=buffer_ms / 1000.0)
+            self._sd.start()
+            self.meio = "sounddevice"
+            return
+        except Exception:
+            self._sd = None
+        aplay = shutil.which("aplay")
+        if aplay:
+            self._proc = subprocess.Popen(
+                [aplay, "-q", "-t", "raw", "-f", "S16_LE", "-c", "1", "-r", str(taxa),
+                 f"--buffer-time={buffer_ms * 1000}"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self.meio = "aplay"
+
+    def escreve(self, v: np.ndarray) -> None:
+        dados = np.asarray(v, dtype="<i2").tobytes()
+        try:
+            if self._sd is not None:
+                self._sd.write(dados)
+            elif self._proc is not None and self._proc.stdin is not None:
+                self._proc.stdin.write(dados)
+                self._proc.stdin.flush()
+        except (OSError, ValueError):
+            pass
+
+    def fecha(self) -> None:
+        try:
+            if self._sd is not None:
+                self._sd.stop()
+                self._sd.close()
+            if self._proc is not None:
+                if self._proc.stdin is not None:
+                    self._proc.stdin.close()
+                self._proc.wait(timeout=2)
+        except Exception:
+            if self._proc is not None:
+                self._proc.kill()
 
 
 # ---- reproducao ----------------------------------------------------------------

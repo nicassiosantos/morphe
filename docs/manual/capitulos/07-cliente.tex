@@ -62,8 +62,14 @@ A janela principal é um menu de botões, um por ferramenta:
     \(|H(f)|\), toca as duas e salva a saída. Não é tempo real: o quadro
     \emph{Medidas} mostra o atraso até ouvir (a gravação inteira, mais a
     filtragem, perto de 2 vezes o tempo real, mais o atraso de grupo do filtro).
-    O filtro em tempo real ficou como ideia, na branch
-    \texttt{estagio/filtro-tempo-real}. Uma seção recolhível resume o codec: \(f_s\), o filtro
+    \emph{Filtrar ao vivo (IIR)} faz o mesmo em tempo real, sem bitstream novo:
+    o servidor passa cada bloco que o codec grava pelo bloco IIR da placa (a
+    janela de 1024 desliza, com o aquecimento) e manda entrada e saída ao
+    computador, que as mostra e toca a saída na caixa \emph{do computador}
+    (\texttt{aplay} ou \texttt{sounddevice}). O quadro \emph{Medidas} soma o
+    atraso: encher o bloco, a placa (medida no servidor), o atraso de grupo e o
+    buffer de som. Tocar pela LINE-out da placa enquanto grava exige mudar a
+    FPGA: é a ideia guardada na branch \texttt{estagio/filtro-tempo-real}. Uma seção recolhível resume o codec: \(f_s\), o filtro
     \emph{anti-aliasing}, os níveis e o atraso.
   \item[Convolução] dois sinais, \(x[n]\) e \(h[n]\), convoluídos na FPGA. Mostra
     as entradas, a saída da placa, a referência do NumPy e o erro entre elas.

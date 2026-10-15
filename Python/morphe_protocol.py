@@ -68,6 +68,7 @@ OP_AUDIO = 9   # codec de audio (audio_buf.v); flags = suboperacao (audio.py)
 AUDIO_CAPTURA = 0
 AUDIO_REPRODUZ = 1
 AUDIO_LOOPBACK = 2
+AUDIO_AO_VIVO = 4   # captura filtrada pelo bloco IIR, no servidor, em tempo real
 
 # Estado de cada bloco da resposta do OP_ADC_CONTINUO (ver morphe_protocol.h).
 ADC_BLOCO_SEGUE = 0

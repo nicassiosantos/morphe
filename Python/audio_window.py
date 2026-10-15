@@ -15,8 +15,13 @@ pelo codec WM8731, com as funções de audio.py.
                método das janelas; ou o filtro de um dos projetistas), em
                blocos de 1024, e mostra os espectros da entrada e da saída
                com |H(f)|; as duas podem ser tocadas e a saída salva.
-               Não é tempo real: grava, filtra, ouve. O filtro em tempo
-               real ficou como ideia (docs/IDEIA-FILTRO-TEMPO-REAL.md).
+               Não é tempo real: grava, filtra, ouve.
+  Ao vivo      o filtro IIR da placa em tempo real, sem bitstream novo: o
+               servidor passa cada bloco que o codec grava pelo bloco IIR e
+               manda entrada e saída para cá; a saída toca na caixa do
+               COMPUTADOR (a RAM do áudio grava ou toca, não os dois: ouvir
+               pela LINE-out da placa exige a ideia guardada em
+               docs/IDEIA-FILTRO-TEMPO-REAL.md).
 
 A taxa é fixa, 48 828,125 Hz (50 MHz / 1024), 16 bits, estéreo. O espectro
 desta janela é calculado no computador (NumPy): enquanto o áudio corre, a
@@ -107,6 +112,12 @@ APROX_IIR = {"Butterworth": "butter", "Chebyshev I": "cheby1",
 JANELAS_FIR = {"Hamming": "hamming", "Hann": "hann", "Blackman": "blackman",
                "Kaiser": "kaiser"}
 FONTES_FILTRAR = ("Última captura", "Arquivo (o de Reproduzir)")
+# O bloco FIR faz 1024 x 1024 por vez; por blocos (overlap-add no sinal e nos
+# coeficientes) o comprimento so custa tempo: cada 1024 coeficientes a mais e
+# mais uma convolucao por bloco do sinal.
+FIR_COEF_MAX = 8192
+VIVO_TELA_MS = 250           # o ao vivo redesenha 4 vezes por segundo
+VIVO_JANELA = 8192           # amostras mostradas (0,17 s)
 TELA_MS = 100
 
 
@@ -140,6 +151,7 @@ class AudioWindow(tk.Toplevel):
         self._loop_placa = False
         self._proj: dict = {}                        # "IIR"/"FIR" -> filtro do projetista
         self._filtragem: Optional[dict] = None       # a ultima: entrada, saida, sos, fs
+        self._vivo: Optional[dict] = None            # o ao vivo em curso
         self.protocol("WM_DELETE_WINDOW", self._on_fechar)
 
         self.status = tk.StringVar(value="Pronto. Configure o codec na placa "
@@ -341,6 +353,14 @@ class AudioWindow(tk.Toplevel):
         self.btn_filtrar = ttk.Button(fl, text="Filtrar na placa", style="Primary.TButton",
                                       command=self._on_filtrar)
         self.btn_filtrar.pack(side="bottom", fill="x", pady=(6, 0))
+        # ao vivo (so IIR): o servidor filtra cada bloco que o codec grava
+        self.btn_vivo = ttk.Button(fl, text="Filtrar ao vivo (IIR)", style="Primary.TButton",
+                                   command=self._on_vivo)
+        self.btn_vivo.pack(side="bottom", fill="x", pady=(6, 0))
+        self.var_vivo_som = tk.BooleanVar(value=True)
+        ttk.Checkbutton(fl, text="Ao vivo: tocar a saída na caixa do computador",
+                        variable=self.var_vivo_som,
+                        style="Card.TCheckbutton").pack(side="bottom", anchor="w", pady=(4, 0))
         linha_f = ttk.Frame(fl, style="Card.TFrame")
         linha_f.pack(side="bottom", fill="x", pady=(6, 0))
         self.btn_toca_ent = ttk.Button(linha_f, text="Tocar entrada", style="Secondary.TButton",
@@ -438,8 +458,10 @@ class AudioWindow(tk.Toplevel):
 
     def _botoes(self, livre: bool):
         estado = "normal" if livre else "disabled"
-        for b in (self.btn_capturar, self.btn_tocar, self.btn_filtrar):
+        for b in (self.btn_capturar, self.btn_tocar, self.btn_filtrar, self.btn_vivo):
             b.configure(state=estado)
+        if self._vivo is not None:
+            self.btn_vivo.configure(state="normal")
         if self._filtragem is not None:
             for b in (self.btn_toca_ent, self.btn_toca_sai, self.btn_salva_sai):
                 b.configure(state=estado)
@@ -691,9 +713,9 @@ class AudioWindow(tk.Toplevel):
             if int(float(self.var_fordem.get() or 0)) < 8:
                 self.var_fordem.set("101")
             self.var_fdica.set("FIR pelo método das janelas (β só na Kaiser). f2: passa-faixa "
-                               "e rejeita-faixa. Roda no bloco FIR da placa (até 1024 "
-                               "coeficientes); cada bloco de 1024 amostras leva ~0,2 s, perto "
-                               "de 10 vezes o tempo real.")
+                               "e rejeita-faixa. Roda no bloco FIR da placa, por blocos no sinal "
+                               "E nos coeficientes (até 8192): cada 1024 amostras × 1024 "
+                               "coeficientes leva ~0,2 s. Ao vivo, só IIR.")
 
     def _on_projetista(self):
         qual = "IIR" if self.var_forig.get() == ORIGENS_FILTRO[1] else "FIR"
@@ -754,7 +776,7 @@ class AudioWindow(tk.Toplevel):
             sos = iir.distribui_ganho(sos)
             return {"tipo": "iir", "sos": sos,
                     "desc": f"IIR {metodo} ordem {ordem}, {self.var_ftipo.get()} {faixa}"}
-        n = int(self._num(self.var_fordem, "Coeficientes", 3, cfg.CONV_N_MAX))
+        n = int(self._num(self.var_fordem, "Coeficientes", 3, FIR_COEF_MAX))
         if tipo in ("highpass", "bandstop") and n % 2 == 0:
             n += 1                # passa-altas e rejeita-faixa precisam de n impar
         janela = JANELAS_FIR[metodo]
@@ -785,8 +807,9 @@ class AudioWindow(tk.Toplevel):
             viab = iir.verifica_viabilidade(f["sos"], cfg.IIR_FRAC_BITS, 32, simular=False)
             if viab["veredito"] == "recusar":
                 raise ValueError("o filtro não cabe em Q15.16:\n\n" + "\n\n".join(viab["motivos"]))
-        elif f["h"].size > cfg.CONV_N_MAX:
-            raise ValueError(f"{f['h'].size} coeficientes; o bloco FIR aceita {cfg.CONV_N_MAX}")
+        elif f["h"].size > FIR_COEF_MAX:
+            raise ValueError(f"{f['h'].size} coeficientes; o máximo aqui é {FIR_COEF_MAX} "
+                             f"(cada {cfg.CONV_N_MAX} a mais custam mais uma convolução por bloco)")
         return f
 
     def _resposta(self, f: dict, fs: float, n: int = 8192):
@@ -873,6 +896,126 @@ class AudioWindow(tk.Toplevel):
                 self.after(0, lambda err=e: self._erro(err))
         threading.Thread(target=worker, daemon=True).start()
 
+    def _on_vivo(self):
+        if self._vivo is not None:                     # em curso: parar
+            self._vivo["parar"].set()
+            self.btn_vivo.configure(state="disabled", text="Parando...")
+            return
+        try:
+            fs = audio.FS
+            f = self._filtro_escolhido(fs)
+            if f["tipo"] != "iir":
+                raise ValueError("ao vivo só com IIR: o bloco FIR da placa gasta ~0,2 s "
+                                 "para cada 21 ms de áudio e não acompanha o tempo real. "
+                                 "Use o FIR em “Filtrar na placa”.")
+            aquec = blocos.aquecimento_iir(f["sos"], cfg.IIR_FRAC_BITS)
+            nota = ""
+            if aquec > audio.AQUEC_MAX:
+                resto_db = 20 * np.log10(max(polo_max(f["sos"]) ** audio.AQUEC_MAX, 1e-300))
+                if resto_db > -90:
+                    raise ValueError(
+                        f"este filtro precisa de {aquec} amostras de aquecimento por bloco, e "
+                        f"o máximo é {audio.AQUEC_MAX}: os polos estão perto demais do círculo "
+                        f"unitário. Suba a frequência de corte, baixe a ordem ou o ripple.")
+                aquec = audio.AQUEC_MAX
+                nota = f" (aquecimento reduzido a {aquec}: emendas a {resto_db:.0f} dB)"
+            cli = self._cliente()
+        except Exception as e:
+            messagebox.showerror("Filtrar ao vivo", str(e), parent=self)
+            return
+        coefs = iir.coeficientes_inteiros(f["sos"], cfg.IIR_FRAC_BITS, 32)
+        util = cfg.IIR_N_MAX - aquec
+        som = audio.SaidaSom(fs) if self.var_vivo_som.get() else None
+        parar = threading.Event()
+        v = {"parar": parar, "filtro": f, "util": util, "som": som, "x": [], "y": [],
+             "n": 0, "medidas": {}, "novo": False}
+        self._vivo = v
+        self._ocupado = True
+        self._botoes(False)
+        self.btn_vivo.configure(text="Parar o ao vivo")
+        meio = ("tocando na caixa do computador (" + som.meio + ")" if som and som.meio else
+                "SEM saída de som no computador (falta o aplay ou o sounddevice)"
+                if som else "sem tocar")
+        self.status.set(f"Ao vivo: {f['desc']}{nota}, blocos de {util} amostras "
+                        f"({util / fs * 1e3:.1f} ms), {meio}. Fale no microfone.")
+
+        def worker():
+            try:
+                for b in audio.ao_vivo_filtrado(cli, coefs, aquec, 0, parar, v["medidas"]):
+                    if som is not None:
+                        som.escreve(b[:, 1])
+                    with self._trava:
+                        v["x"].append(b[:, 0])
+                        v["y"].append(b[:, 1])
+                        v["n"] += b.shape[0]
+                        tot = sum(p.size for p in v["x"])
+                        while tot - v["x"][0].size >= VIVO_JANELA:
+                            tot -= v["x"].pop(0).size
+                            v["y"].pop(0)
+                        v["novo"] = True
+                self.after(0, lambda: self._fim_vivo(None))
+            except Exception as e:
+                self.after(0, lambda err=e: self._fim_vivo(err))
+        threading.Thread(target=worker, daemon=True).start()
+        self.after(VIVO_TELA_MS, self._tela_vivo)
+
+    def _tela_vivo(self):
+        v = self._vivo
+        if v is None:
+            return
+        with self._trava:
+            novo, v["novo"] = v["novo"], False
+            x = np.concatenate(v["x"]) if v["x"] else None
+            y = np.concatenate(v["y"]) if v["y"] else None
+            n = v["n"]
+            placa = v["medidas"].get("placa_us")
+            placa_max = v["medidas"].get("placa_us_max")
+        if novo and x is not None and x.size >= 64:
+            f = v["filtro"]
+            self._filtragem = {"x": x.astype(np.float64) / 32768.0,
+                               "y": y.astype(np.float64) / 32768.0, "fs": audio.FS,
+                               "filtro": f, "nome": "ao vivo", "desc": f["desc"],
+                               "vivo": True}
+            self._desenha_filtragem()
+            f0 = audio.freq_dominante(self._filtragem["x"], audio.FS)
+            gd = self.atraso_de_grupo(f, audio.FS, f0) if np.isfinite(f0) else float("nan")
+            som = v["som"]
+            buf = 0.150 if som is not None and som.meio else 0.0
+            # O atraso da fala ao ouvido: o bloco tem de encher (a 1a amostra
+            # dele espera o bloco inteiro, a ultima nada: em media, metade),
+            # a placa copia e filtra (medido no servidor), a rede (LAN, ~1 ms,
+            # nao medido), o buffer da saida de som e o atraso de grupo.
+            bloco = v["util"] / audio.FS
+            linhas = [f"ao vivo: {n / audio.FS:7.1f} s filtrados na placa",
+                      f"  bloco       {bloco * 1e3:7.1f} ms ({v['util']} amostras: "
+                      f"espera até encher)"]
+            p_s = (placa or 0) / 1e6
+            if placa is not None:
+                linhas.append(f"  placa       {p_s * 1e3:7.1f} ms (cópia + IIR; máx "
+                              f"{placa_max / 1e3:.1f})")
+            linhas.append(f"  do filtro   {gd * 1e3:7.3f} ms (atraso de grupo em {f0:.0f} Hz)")
+            if buf:
+                linhas.append(f"  som do PC   {buf * 1e3:7.0f} ms (buffer)")
+            linhas.append(f"  total       {(bloco + p_s + gd + buf + 0.001) * 1e3:7.0f} ms "
+                          f"da fala ao ouvido (pior caso)")
+            self.var_medidas.set("\n".join(linhas))
+        self.after(VIVO_TELA_MS, self._tela_vivo)
+
+    def _fim_vivo(self, err):
+        v, self._vivo = self._vivo, None
+        if v is not None and v["som"] is not None:
+            v["som"].fecha()
+        self._ocupado = False
+        self.btn_vivo.configure(state="normal", text="Filtrar ao vivo (IIR)")
+        self._botoes(True)
+        if err is not None:
+            self.status.set("Erro no ao vivo — ver mensagem.")
+            messagebox.showerror("Filtrar ao vivo", str(err), parent=self)
+            return
+        n = v["n"] if v else 0
+        self.status.set(f"Ao vivo parado: {n / audio.FS:.1f} s filtrados na placa. "
+                        "Os últimos 0,17 s ficam na tela.")
+
     def _fim_filtrar(self, x, y, fs, f, nome, saturou, dt, nota=""):
         self._filtragem = {"x": x, "y": y, "fs": fs, "filtro": f, "nome": nome, "desc": f["desc"]}
         # O atraso desta opcao (gravar -> filtrar na placa -> tocar), do
@@ -934,7 +1077,7 @@ class AudioWindow(tk.Toplevel):
                 ini = 0
         else:
             ini = f["h"].size
-        if x.size - ini < nfft:
+        if x.size - ini < nfft or d.get("vivo"):
             ini = 0
 
         def espectro(v):
@@ -1161,6 +1304,8 @@ class AudioWindow(tk.Toplevel):
     def _on_fechar(self):
         if self._parar is not None:
             self._parar.set()
+        if self._vivo is not None:
+            self._vivo["parar"].set()
         if self._loop_placa:
             try:
                 audio.loopback(self._cliente(), "desligado")

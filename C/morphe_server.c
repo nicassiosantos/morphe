@@ -1568,6 +1568,151 @@ static int audio_reproduz(int sock, uint32_t n) {
     return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
 }
 
+/* Ao vivo: o codec grava sem parar na RAM do audio e, a cada `util` amostras
+ * novas, as ultimas 1024 (o aquecimento + as novas) vao para o bloco IIR da
+ * placa -- outra memoria, outro circuito, que trabalha em paralelo com a
+ * captura. Das 1024 saidas valem as `util` ultimas: o IIR zera o estado a
+ * cada execucao, e o aquecimento e o trecho que ele precisa para esquecer o
+ * zero. O IIR leva ~1 ms para 1024 amostras; o audio leva 21 ms para encher
+ * o bloco: o laco acompanha o tempo real com folga.
+ *
+ * O laco roda AQUI, e nao no cliente, porque o servidor atende uma conexao
+ * por vez: com a captura aberta, o cliente nao conseguiria pedir o IIR.
+ * A saida vai para o cliente (que a mostra e toca no computador): a RAM do
+ * audio grava OU toca, e tocar pela LINE-out ao mesmo tempo exigiria mudar
+ * a FPGA -- e a ideia guardada em docs/IDEIA-FILTRO-TEMPO-REAL.md. */
+static int audio_ao_vivo(int sock, uint32_t n_total, uint32_t n_sec) {
+    if (n_sec == 0 || n_sec > MORPHE_IIR_SECOES_MAX) {
+        drain_pending(sock);
+        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
+                          "AUDIO ao vivo: secoes fora de [1, 16]");
+    }
+    const uint32_t N = MORPHE_IIR_N_MAX;
+    uint32_t n_coef = n_sec * MORPHE_IIR_COEF_POR_SECAO;
+    static uint8_t rx[4 * (1 + MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO)];
+    if (recv_exact(sock, rx, (size_t) (1 + n_coef) * 4) < 0) return -1;
+    uint32_t aquec = u32_from_be(rx);
+    if (aquec > N - N / 8) {
+        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
+                          "AUDIO ao vivo: aquecimento acima de 896 amostras");
+    }
+    const uint32_t util = N - aquec;
+    LOG("AUDIO ao vivo: %u secoes, aquecimento %u, %u amostras novas por bloco (%.1f ms)",
+        n_sec, aquec, util, util * 1000.0 / MORPHE_AUDIO_FS);
+    for (uint32_t i = 0; i < n_coef; i++) g_iir_coef[i] = (int32_t) u32_from_be(rx + 4 + i * 4);
+    *g_pio_iir_nsecoes = n_sec;
+
+    audio_inicia(MORPHE_AUDIO_OP_CAPTURA, 1, 0);
+    if (!audio_anda(0, 300)) {
+        audio_para();
+        LOG("  -> %s", MSG_SEM_AUDIO);
+        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
+    }
+    struct timeval espera = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &espera, sizeof espera);
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
+    u32_to_be(hdr + 16, MORPHE_AUDIO_DIVISOR);
+    if (send_all(sock, hdr, sizeof hdr) < 0) { audio_para(); return -1; }
+
+    const uint32_t n_buf = MORPHE_ADC_N_MAX;
+    static int32_t janela[MORPHE_IIR_N_MAX];     /* Q15.16: as ultimas N entradas */
+    static int16_t janela16[MORPHE_IIR_N_MAX];   /* as mesmas, int16, para o cliente */
+    static uint8_t tx[8 + MORPHE_IIR_N_MAX * 4];
+    memset(janela, 0, sizeof janela);            /* antes do som: silencio, estado zero */
+    memset(janela16, 0, sizeof janela16);
+    uint32_t lidos = 0;
+    uint64_t enviados = 0;
+    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
+    int cliente_foi = 0;
+    long iir_us_max = 0;
+    uint32_t blocos_feitos = 0;
+    struct timespec t0, t_ultimo, agora, a, b;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    t_ultimo = t0;
+
+    for (;;) {
+        char c;
+        ssize_t r = recv(sock, &c, 1, MSG_DONTWAIT);
+        if (r == 1) { LOG("  -> o cliente pediu para parar"); break; }
+        if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+            cliente_foi = 1; LOG("  -> o cliente fechou a conexao"); break;
+        }
+        if (n_total && enviados >= n_total) break;
+
+        uint32_t disp = *g_pio_adc_contador - lidos;
+        if (disp > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
+        if (disp < util) {
+            clock_gettime(CLOCK_MONOTONIC, &agora);
+            if (ts_diff_us(&t_ultimo, &agora) > 1000000L) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
+            usleep(2000);
+            continue;
+        }
+        /* desliza a janela: sai o mais antigo, entram `util` amostras novas
+         * (o canal esquerdo; com o microfone os dois sao iguais) */
+        memmove(janela, janela + util, (size_t) aquec * sizeof janela[0]);
+        memmove(janela16, janela16 + util, (size_t) aquec * sizeof janela16[0]);
+        for (uint32_t i = 0; i < util; i++) {
+            int16_t s = (int16_t) (g_adc_buf[(lidos + i) & (n_buf - 1)] & 0xFFFFU);
+            janela16[aquec + i] = s;
+            janela[aquec + i] = (int32_t) s * 2;          /* int16 -> Q15.16 */
+        }
+        lidos += util;
+
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        for (uint32_t i = 0; i < N; i++) g_iir_xn[i] = janela[i];
+        *g_pio_iir_start = 0;
+        usleep(1);
+        *g_pio_iir_start = 1;
+        if (wait_done(g_pio_iir_done, FPGA_DONE_TIMEOUT_MS) < 0) {
+            *g_pio_iir_start = 0;
+            estado = MORPHE_ADC_BLOCO_TIMEOUT;
+            LOG("  -> o IIR nao terminou");
+            break;
+        }
+        *g_pio_iir_start = 0;
+        for (uint32_t i = 0; i < util; i++) {
+            int32_t y = g_iir_yn[aquec + i];
+            int64_t y16 = ((int64_t) y + 1) >> 1;                 /* Q15.16 -> int16 */
+            if (y16 > 32767) y16 = 32767;
+            if (y16 < -32768) y16 = -32768;
+            uint32_t w = ((uint32_t) (uint16_t) (int16_t) y16 << 16) | (uint16_t) janela16[aquec + i];
+            u32_to_be(tx + 8 + i * 4, w);
+        }
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        long us = ts_diff_us(&a, &b);
+        if (us > iir_us_max) iir_us_max = us;
+        blocos_feitos++;
+
+        uint32_t k = util;
+        if (n_total && (uint64_t) k > n_total - enviados) k = (uint32_t) (n_total - enviados);
+        u32_to_be(tx + 0, k);
+        /* estado nos 8 bits baixos; nos 24 altos, os microssegundos que este
+         * bloco gastou na placa (copia + IIR): o cliente soma isso ao atraso */
+        u32_to_be(tx + 4, MORPHE_ADC_BLOCO_SEGUE | ((uint32_t) (us > 0xFFFFFF ? 0xFFFFFF : us) << 8));
+        if (send_all(sock, tx, 8 + (size_t) k * 4) < 0) {
+            cliente_foi = 1; LOG("  -> envio falhou: cliente fora"); break;
+        }
+        enviados += k;
+        clock_gettime(CLOCK_MONOTONIC, &t_ultimo);
+    }
+    audio_para();
+
+    if (!cliente_foi) {
+        u32_to_be(tx + 0, 0);
+        u32_to_be(tx + 4, estado);
+        send_all(sock, tx, 8);
+    }
+    struct timeval sem_limite = { .tv_sec = 0, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sem_limite, sizeof sem_limite);
+    clock_gettime(CLOCK_MONOTONIC, &agora);
+    static const char *nomes[] = { "segue", "fim", "PERDEU AMOSTRAS", "TIMEOUT" };
+    LOG("  -> AUDIO ao vivo: %llu quadros em %.2f s, %u blocos, IIR+copia ate %ld us por bloco, "
+        "termino: %s", (unsigned long long) enviados, (double) ts_diff_us(&t0, &agora) / 1e6,
+        blocos_feitos, iir_us_max, estado < 4 ? nomes[estado] : "?");
+    return 0;
+}
+
 static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, uint32_t n_h) {
     if (audio_recusa(sock, dtype)) return 0;
     switch (sub) {
@@ -1585,9 +1730,12 @@ static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, ui
         u32_to_be(hdr + 16, (uint32_t) g_audio_loop);
         return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
     }
+    case MORPHE_AUDIO_AO_VIVO:
+        return audio_ao_vivo(sock, n_x, n_h);
     default:
         return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
-                          "AUDIO: suboperacao desconhecida (0 captura, 1 reproduz, 2 loopback)");
+                          "AUDIO: suboperacao desconhecida (0 captura, 1 reproduz, 2 loopback, "
+                          "4 ao vivo)");
     }
 }
 #endif /* MORPHE_TEM_ADC */

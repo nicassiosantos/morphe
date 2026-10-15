@@ -18,9 +18,14 @@ Testes, na ordem:
              depois "ambos": 2 s saindo na caixa E vindo para o computador.
   adc        com o loopback ligado, uma captura do ADC (LTC2308) ainda
              funciona -- o servidor pausa o loopback e o religa.
+  vivo       filtragem ao vivo pelo IIR da placa (sem bitstream novo): 3 s
+             de microfone por um passa-baixas de 1 kHz. A saida tem de bater
+             BIT A BIT com o modelo (audio.modelo_ao_vivo) aplicado a entrada
+             que a propria placa devolveu, chegar no ritmo do audio e a placa
+             gastar menos que um bloco por bloco.
 
 Uso:
-    python testa_codec.py <host> [captura|reproduz|loopback|adc|tudo]
+    python testa_codec.py <host> [captura|reproduz|loopback|adc|vivo|tudo]
                           [--segundos 5] [--porta 5000]
 """
 from __future__ import annotations
@@ -115,12 +120,45 @@ def teste_adc(c: TcpClient) -> None:
         audio.loopback(c, "desligado")
 
 
+def teste_vivo(c: TcpClient) -> None:
+    import threading
+    from scipy import signal
+    import blocos
+    import iir_design as iir
+    print("\n[vivo] 3 s filtrados ao vivo pelo IIR da placa (fale no microfone)")
+    sos = iir.distribui_ganho(signal.butter(4, 1000, "lowpass", fs=audio.FS, output="sos"))
+    coefs = iir.coeficientes_inteiros(sos, 16, 32)
+    aq = blocos.aquecimento_iir(sos, 16)
+    medidas: dict = {}
+    parar = threading.Event()
+    xs, ys = [], []
+    t0 = time.monotonic()
+    for b in audio.ao_vivo_filtrado(c, coefs, aq, 0, parar, medidas):
+        xs.append(b[:, 0])
+        ys.append(b[:, 1])
+        if time.monotonic() - t0 > 3.0:
+            parar.set()
+    dt = time.monotonic() - t0
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    ym = audio.modelo_ao_vivo(x, coefs, aq)
+    dif = int(np.max(np.abs(y[:ym.size].astype(np.int64) - ym.astype(np.int64)))) if ym.size else -1
+    util = 1024 - aq
+    confere(dif == 0 and ym.size == y.size,
+            f"{y.size} amostras, saida x modelo bit a bit: {dif} LSB de diferenca")
+    confere(abs(y.size / audio.FS - dt) < 0.3,
+            f"ritmo: {y.size / audio.FS:.2f} s de audio em {dt:.2f} s")
+    pmax = medidas.get("placa_us_max", 0) / 1e3
+    confere(0 < pmax < util / audio.FS * 1e3,
+            f"placa: ate {pmax:.1f} ms por bloco de {util / audio.FS * 1e3:.1f} ms")
+    print(f"    entrada {audio.nivel_dbfs(x):.1f} dBFS, saida {audio.nivel_dbfs(y):.1f} dBFS")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("host")
     ap.add_argument("teste", nargs="?", default="tudo",
-                    choices=["captura", "reproduz", "loopback", "adc", "tudo"])
+                    choices=["captura", "reproduz", "loopback", "adc", "vivo", "tudo"])
     ap.add_argument("--segundos", type=float, default=5.0)
     ap.add_argument("--porta", type=int, default=5000)
     a = ap.parse_args()
@@ -134,6 +172,8 @@ def main() -> int:
             teste_loopback(c, a.segundos)
         if a.teste in ("adc", "tudo"):
             teste_adc(c)
+        if a.teste in ("vivo", "tudo"):
+            teste_vivo(c)
     except audio.AudioErro as e:
         confere(False, str(e))
     print(f"\n{'TUDO OK' if falhas == 0 else f'{falhas} FALHA(S)'}")

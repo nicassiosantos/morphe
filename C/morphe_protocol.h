@@ -83,10 +83,16 @@
  *             resposta em blocos, como o ADC_CONTINUO.
  *   REPRODUZ  n_x = quadros, que seguem o cabecalho em int32 {dir, esq};
  *             resposta: cabecalho com n_out = n_x e extra = estado do fim.
- *   LOOPBACK  n_h = 1 liga, 0 desliga; fica ligado entre conexoes. */
+ *   LOOPBACK  n_h = 1 liga, 0 desliga; fica ligado entre conexoes.
+ *   AO_VIVO   captura filtrada pelo bloco IIR da placa, em tempo real, sem
+ *             bitstream novo: n_x = quadros (0 = ate parar), n_h = secoes
+ *             (1 a 16); seguem 1 + 5*n_h int32: o aquecimento (amostras, ate
+ *             896) e os coeficientes Q15.16. Resposta em blocos, como a
+ *             captura, com cada palavra {saida filtrada, entrada}. */
 #define MORPHE_AUDIO_CAPTURA   0U
 #define MORPHE_AUDIO_REPRODUZ  1U
 #define MORPHE_AUDIO_LOOPBACK  2U
+#define MORPHE_AUDIO_AO_VIVO   4U
 
 /* Estado de cada bloco da resposta do ADC_CONTINUO. */
 #define MORPHE_ADC_BLOCO_SEGUE    0U
