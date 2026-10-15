@@ -648,6 +648,6 @@ o volume baixo e afaste os dois.
 O codec precisa ser configurado na placa (\texttt{./codec digital}) depois de
 cada boot; sem isso não há relógio de áudio, e o servidor responde à janela
 Áudio com uma mensagem que diz o que fazer. Desde 15/10/2026 quem faz isso é o
-\arq{morphe-up.sh}, a cada execução (\opt{codec} \texttt{mic} para o
-microfone): a configuração vive no codec e sobrevive a reprogramar a FPGA, e
+\arq{morphe-up.sh}, a cada execução, com o microfone como entrada e volume de
+\(-20\)\,dB (\opt{codec} \texttt{linha} para a LINE-in): a configuração vive no codec e sobrevive a reprogramar a FPGA, e
 depois de um boot o \arq{morphe-up.sh} tem de rodar de qualquer jeito.

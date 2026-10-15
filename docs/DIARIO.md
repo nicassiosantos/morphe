@@ -32,9 +32,14 @@ clone ficou na `estagio/v1.7-adc` — a primeira compilação do dia usou o cód
 antigo. Os relatórios dela foram guardados num `git stash`. Conferir o
 `git log --oneline -1` antes de compilar.
 
-O `morphe-up.sh` passou a configurar o codec (`--codec linha|mic|nao`,
-`--codec-volume`): escrito e testado com uma placa simulada, **falta rodar na
-estação**.
+O `morphe-up.sh` passou a configurar o codec (`--codec mic|linha|nao`,
+`--codec-volume`). **Validado na placa 1** pelo `/opt/morphe`: compilou o
+`codec.c` na placa, configurou o codec, `morphe_ping` 4/4. Padrão: microfone e
+−20 dB, o uso do laboratório. Tropeço: o tether do clone de desenvolvimento
+ainda prendia o cabo (`SLD HUB CLIENT ... is using the target device`), e o
+`/opt/morphe` não o via (o estado dos tethers é por pasta); a segunda execução
+passou. Desde então o `morphe-up.sh` encerra qualquer `quartus_pgm` aberto no
+mesmo cabo antes de programar, venha de onde vier.
 
 ## 15/10/2026 — Convolução e FIR arredondando; loopback do codec audível
 

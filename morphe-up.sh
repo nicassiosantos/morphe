@@ -18,9 +18,9 @@
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --forca              # nao pergunta se a placa esta em uso
-#   ./morphe-up.sh --codec mic          # codec de audio com a entrada no MIC-in
-#                                       # (padrao: linha = LINE-in; nao = nao mexe)
-#   ./morphe-up.sh --codec-volume -20   # volume da LINE-out, de -73 a +6 dB
+#   ./morphe-up.sh --codec linha        # codec de audio com a entrada na LINE-in
+#                                       # (padrao: mic = MIC-in; nao = nao mexe)
+#   ./morphe-up.sh --codec-volume -10   # volume da LINE-out, de -73 a +6 dB (padrao -20)
 #   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
 #   ./morphe-up.sh --status             # o que esta no ar agora, placa a placa
 #   ./morphe-up.sh --down               # encerra os tethers de TODAS as placas
@@ -93,8 +93,11 @@ CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
 FORCA=0             # --forca: reprograma mesmo com a placa em uso, sem perguntar
-CODEC_ENTRADA=linha # --codec linha|mic|nao: a entrada do codec de audio
-CODEC_VOLUME=-10    # --codec-volume: dB na LINE-out (o padrao do codec.c)
+# O laboratorio usa o microfone do fone no MIC-in e uma caixa na LINE-out. O
+# volume baixo e de proposito: microfone e caixa na mesma sala, com o loopback
+# ligado, viram microfonia (combinacao testada em 15/10/2026).
+CODEC_ENTRADA=mic   # --codec mic|linha|nao: a entrada do codec de audio
+CODEC_VOLUME=-20    # --codec-volume: dB na LINE-out
 FPGA_PROGRAMADA=0   # vira 1 quando o quartus_pgm confirmar, nesta execucao
 PARAR_SERVIDOR=0
 ACAO=up
@@ -377,6 +380,43 @@ lembrar_placa() {
     fi
 }
 
+# Tethers de OUTRA pasta no mesmo cabo. O estado em .morphe-estado e por clone:
+# o /opt/morphe nao via o tether que o clone de desenvolvimento deixou no mesmo
+# cabo, e o quartus_pgm falhava com "Application SLD HUB CLIENT ... is using the
+# target device" (15/10/2026). Aqui vale qualquer quartus_pgm aberto NESTE cabo,
+# de qualquer pasta ou conta: o grupo dele e encerrado antes de programar. Os
+# outros cabos nao sao tocados.
+liberar_cabo() {
+    local cabo="$1" linha pid pgid dono livres=0
+    command -v pgrep >/dev/null 2>&1 || return 0
+    while IFS= read -r linha; do
+        [[ -n "$linha" ]] || continue
+        pid="${linha%% *}"
+        ps -p "$pid" >/dev/null 2>&1 || continue
+        pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+        dono="$(ps -o user= -p "$pid" 2>/dev/null | tr -d ' ')"
+        if [[ -n "$pgid" ]]; then
+            kill -TERM "-$pgid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+        else
+            kill -TERM "$pid" 2>/dev/null || true
+        fi
+        sleep 1
+        if ps -p "$pid" >/dev/null 2>&1; then
+            [[ -n "$pgid" ]] && kill -KILL "-$pgid" 2>/dev/null || true
+            kill -KILL "$pid" 2>/dev/null || true
+            sleep 1
+        fi
+        if ps -p "$pid" >/dev/null 2>&1; then
+            morrer "o cabo $cabo esta preso por um quartus_pgm da conta '$dono' (PID $pid), que esta conta nao pode encerrar." \
+                   "essa conta precisa rodar ./morphe-up.sh --down na pasta dela, ou: kill $pid"
+        fi
+        livres=$((livres + 1))
+    done < <(pgrep -a quartus_pgm 2>/dev/null | grep -F -- "$cabo" || true)
+    if (( livres > 0 )); then
+        ok "cabo $cabo liberado: $livres tether(s) de outra pasta encerrado(s)"
+    fi
+}
+
 programar_fpga() {
     [[ -f "$SOF" ]] || morrer "bitstream nao encontrado: $SOF" \
         "confira que o clone esta completo (sha256sum -c PROVENIENCIA.sha256)."
@@ -399,6 +439,7 @@ programar_fpga() {
         aviso "ja existe um tether NESTE cabo; reprogramando e substituindo"
         derrubar_tether "$CABO"
     fi
+    liberar_cabo "$CABO"
 
     local outros; outros="$(tethers_vivos | wc -l)"
     if (( outros > 0 )); then

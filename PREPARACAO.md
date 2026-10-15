@@ -43,9 +43,10 @@ Na ordem, e parando com mensagem clara no primeiro problema:
    programação passa nos testes 1 e 2 do ping e dá `FPGA_TIMEOUT` nos testes 3 e 4;
    é o sintoma mais confuso da plataforma, e agora é impossível por construção.
 7. **Configura o codec de áudio** (desde 15/10/2026): envia e compila o `C/codec.c`
-   na placa quando ele muda e roda `./codec digital`. `--codec mic` usa o MIC-in em
-   vez da LINE-in, `--codec nao` não mexe no codec, `--codec-volume -20` muda o
-   volume da LINE-out. Se o codec falhar, só avisa: o resto não depende dele.
+   na placa quando ele muda e o configura com a entrada no **microfone (MIC-in)** e
+   volume de −20 dB na LINE-out. `--codec linha` usa a LINE-in, `--codec nao` não
+   mexe no codec, `--codec-volume -10` muda o volume. Se o codec falhar, só avisa:
+   o resto não depende dele.
 8. **Verifica com o `morphe_ping`** antes de devolver o controle, e traduz a falha:
    quais testes falharam significam rede, FPGA ou `hps_0.h` desatualizado.
 
