@@ -1,24 +1,27 @@
 # PROVENIENCIA -- sha256 do conjunto validado em hardware.
 #
 # Origem  : LABPS-47723:/home/coordenador/Documentos/validacao-final/morphe
-# Commit  : c8b0137
-# Coleta  : 2026-09-28T15:32:16-0300
-# Build   : Quartus Prime 20.1 Lite, Quartus/output_files/soc_system_time_limited.sof de 2026-09-24 11:07
-# Validado: ADC: 0 V e 3,3 V na placa, continua 2M amostras a 200 kHz sem perda; ifft, iir e blocos sem regressao; porta de estado nas 2 placas; Fmax 61,56 MHz
+# Commit  : ed9992c
+# Coleta  : 2026-10-15T12:47:59-0300
+# Build   : Quartus Prime 20.1 Lite, Quartus/output_files/soc_system_time_limited.sof de 2026-10-15 12:41
+# Validado: morphe_ping 4/4; testa_codec TUDO OK; slack minimo 1,727 ns (setup) e 0,059 ns (hold); Quartus 20.1
 #
 # Gerado por ./gera_proveniencia.sh -- nao edite a mao; rode de novo.
 # Verificar:  sha256sum -c PROVENIENCIA.sha256
 #
-cc079300729271c4030828fa4c9479a1cd547bd285edeb0bf6da57a371c5327d  Quartus/conv1d.v
+4db983f157141ddb235eae515397926be364d6d255e5fb83f4da5f072436b9d4  Quartus/conv1d.v
 dfb90740d2bccf2778201336f0a77c09c20ba67f9124ef50a6022bbfbfd8d5f5  Quartus/fft_wrapper.v
 f32101e5a7e276aa9fcc05660c83b1f4f483a9f09851a4cc418002171437b842  Quartus/iir_cascade.v
 e382469ef32105fcc483952a3e90548789ff0198d5f36eaf68b4921bfcbfcc66  Quartus/iir_biquad_mac.v
 5f272f6cb133c4b8308cf0c83fcf2984b339dbda0d8b999bb5977864f3d82971  Quartus/adc_captura.v
-dd97e9643d806da633799729200dab90e3cf5bfbd012b4eaf00c8482b295dd35  Quartus/ghrd_top.v
+7fc1098dc60027610768cef8b1dabda0fd00f4c708a94fc56374d335ac4a805c  Quartus/audio_i2s.v
+7547888e152039f15b479cb865cc7e1b1a22be08c78a83b409ed49c5b382df72  Quartus/audio_vu.v
+b588b2c55d080bfda74b653f0d078cab613f6ad97847c833e1b057863f19b831  Quartus/audio_buf.v
+3123824891e1a5d6a2e945797b9fea67474c8a8a4655278a7ed11c8a3d991d28  Quartus/ghrd_top.v
 0a781231341eeea0a6257783b2ee303bc199297061d82f9f019e4227a67964c8  Quartus/soc_system.qsys
 48f5fd13b3abf8a138388a81563dcabfe977c9ae574abcfb87ded82b17c2a694  Quartus/soc_system.sopcinfo
-fa33d0270fa16fb868b4e2d57016326603908aadde2f71769ba49702270136c9  Quartus/output_files/soc_system_time_limited.sof
+85955894125f3a1c541f4df972f1e1a34c664a48903c596195594c3679117e69  Quartus/output_files/soc_system_time_limited.sof
 e1c75e4ef1e9041446c45a50a51d4dc709978378c3c88e125dd8c3dfbc30d2f4  C/hps_0.h
-4ac28b4aabb144e06587cd492a889da41d7dd3475d4c2883b87e8f36e6e19287  C/morphe_config.h
-2ba78994076f3df869db364f2c41177a38dc2ee5f528824236a35a58193f5023  C/morphe_server.c
+9876dc7dcf9c4e1b470e24e1fa6c5b2c7ed297b235872d8ef008c1a8c1bdda7d  C/morphe_config.h
+464d5a3b07aea62258f22ece8b79527f8c94d3e6b79a4e5408628f7832258714  C/morphe_server.c
 2a887b03e166a65ae9c7083ec76a576667d99741e73e4d824c32698940fc9d0e  C/address_map_arm.h
