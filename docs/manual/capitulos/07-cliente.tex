@@ -47,7 +47,8 @@ A janela principal é um menu de botões, um por ferramenta:
   \item[Áudio (codec)] o som entrando e saindo da placa pelo codec
     (seção~\ref{sec:codec}). \emph{Capturar} grava alguns segundos em blocos
     (256, 1024 ou 4096 quadros), mostra o último bloco e o espectro (em dB ou
-    linear, com a janela escolhida) e salva em \arq{.wav} ou \arq{.npy}.
+    linear, com a janela escolhida, de 0 a \(f_s/2\) ou de 0 a \(f_s\) com a
+    réplica) e salva em \arq{.wav} ou \arq{.npy}.
     \emph{Reproduzir} toca na LINE-out um sinal do gerador (senoide, quadrada,
     dente de serra, varredura, ruído branco), a última captura ou um arquivo;
     a opção ``ajustar o volume'' leva o pico a 90\,\% do fundo de escala.

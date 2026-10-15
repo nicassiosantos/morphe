@@ -278,6 +278,13 @@ class AudioWindow(tk.Toplevel):
         ttk.Checkbutton(topo, text="Espectro em dB  (desmarcado: linear)", variable=self.var_db,
                         command=self._troca_escala,
                         style="Card.TCheckbutton").pack(side="left")
+        # O espectro inteiro, de 0 a fs: a metade de cima (fs/2 a fs) e a
+        # replica da de baixo, espelhada -- o mesmo que o analisador espectral
+        # mostra. Desmarcado, so de 0 a fs/2, onde esta a informacao.
+        self.var_completo = tk.BooleanVar(value=False)
+        ttk.Checkbutton(topo, text="0 a fs  (com a réplica)", variable=self.var_completo,
+                        command=self._troca_escala,
+                        style="Card.TCheckbutton").pack(side="left", padx=(14, 0))
         # A janela do espectro. Hann e Blackman-Harris separam tons vizinhos;
         # a flat-top acerta a amplitude de um tom entre dois bins (as outras
         # perdem ate 1,4 dB); a retangular mostra o vazamento sem disfarce.
@@ -561,7 +568,8 @@ class AudioWindow(tk.Toplevel):
 
     # ---- tela ---------------------------------------------------------------------------
     def _prepara_eixos(self, n: int, titulo: str):
-        chave = (n, titulo, self.var_janela.get(), self.var_db.get())
+        chave = (n, titulo, self.var_janela.get(), self.var_db.get(),
+                 self.var_completo.get())
         if self._eixos_prontos == chave:
             return
         self._eixos_prontos = chave
@@ -580,7 +588,20 @@ class AudioWindow(tk.Toplevel):
         theme.style_plot_axes(ax)
         ax = self.ax_f
         (self._l_f,) = ax.plot([], [], color=dsp.COLOR_MAG, linewidth=0.9)
-        ax.set_xlim(0, audio.FS / 2 / 1e3)
+        if self.var_completo.get():
+            ax.set_xlim(0, audio.FS / 1e3)
+            # fs/2 separa o espectro da replica; a faixa sombreada e a replica
+            ax.axvspan(audio.FS / 2 / 1e3, audio.FS / 1e3, color=theme.COLORS["axis"],
+                       alpha=0.18, linewidth=0)
+            ax.axvline(audio.FS / 2 / 1e3, color=theme.COLORS["axis"], linewidth=0.8,
+                       linestyle=":")
+            ax.text(audio.FS / 2 / 1e3, 0.98, " fs/2", transform=ax.get_xaxis_transform(),
+                    ha="left", va="top", fontsize=8, color=theme.COLORS["text"])
+            ax.text(0.75 * audio.FS / 1e3, 0.90, "réplica (espelho)",
+                    transform=ax.get_xaxis_transform(), ha="center", va="top",
+                    fontsize=8, color=theme.COLORS["text"])
+        else:
+            ax.set_xlim(0, audio.FS / 2 / 1e3)
         if self.var_db.get():
             ax.set_ylim(-140, 0)
             ax.set_ylabel("dBFS")
@@ -605,7 +626,12 @@ class AudioWindow(tk.Toplevel):
         self.ax_t.set_ylim(-lim, lim)
         x = b[:, 0].astype(np.float64) / 32768.0
         w = janela_de(self.var_janela.get(), n)
-        X = np.abs(np.fft.rfft((x - x.mean()) * w)) / (np.sum(w) / 2.0)
+        # Amplitude de pico de um tom: |X[k]| / (soma da janela / 2). No
+        # espectro completo o tom aparece em f e em fs - f, as duas com a mesma
+        # leitura (a convencao do analisador espectral).
+        xw = (x - x.mean()) * w
+        X = np.abs(np.fft.fft(xw) if self.var_completo.get() else np.fft.rfft(xw))
+        X = X / (np.sum(w) / 2.0)
         f = np.arange(X.size) * audio.FS / n / 1e3
         if self.var_db.get():
             self._l_f.set_data(f, 20 * np.log10(np.maximum(X, 1e-7)))
