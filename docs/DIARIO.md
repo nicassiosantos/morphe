@@ -37,6 +37,24 @@ na primeira seção, e num passa-baixas de 1 kHz a 48,8 kHz os b dela viram 1, 2
 1 em Q15.16 — espúrios a −36 dB. Com `iir.distribui_ganho` (o que o projetista
 já fazia) os b vão a centenas de LSB e os espúrios caem a −88 dB.
 
+Depois, a pedido: **todas as famílias**. IIR Butterworth, Chebyshev I e II e
+elíptico (bloco IIR) e FIR pelo método das janelas (bloco FIR, overlap-add),
+projetados na janela ou vindos dos projetistas IIR e FIR. Medido na placa 1,
+500 Hz + 5 kHz:
+
+| filtro | contra a referência | 500 Hz / 5 kHz medido (|H|) | filtragem |
+|---|---|---|---|
+| IIR elíptico ord. 4, PB 1 kHz | 0 LSB (modelo) | −0,22 / −69,54 dB (−0,22 / −69,60) | 12,2× o tempo real |
+| IIR Chebyshev II ord. 6, PA 2 kHz | 0 LSB (modelo) | −83,63 / −0,08 dB (−84,08 / −0,08) | 1,6× |
+| FIR Hamming 101 coef., PB 1 kHz | 4,9e-5 (np.convolve) | −0,68 / −67,26 dB (−0,68 / −67,28) | 11,9× |
+
+O elíptico precisaria de 1092 amostras de aquecimento por bloco (a estimativa
+tem 50 % de folga), mais que o bloco de 1024: a janela usa o máximo possível
+(896) quando o resto do transitório na emenda, |p|^896, fica abaixo de −90 dB, e
+diz quanto; senão recusa explicando. Com só 128 amostras úteis por bloco, a
+filtragem fica 12 vezes mais lenta que o tempo real. O FIR também (~0,2 s por
+bloco de 21 ms: o conv1d sempre faz 1024 × 1024).
+
 O **filtro em tempo real** (um bloco novo na FPGA entre a entrada e a saída do
 codec) ficou como ideia: escrito e simulado bit a bit, sem compilar, na branch
 `estagio/filtro-tempo-real` (`docs/IDEIA-FILTRO-TEMPO-REAL.md`).

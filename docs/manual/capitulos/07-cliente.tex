@@ -53,10 +53,12 @@ A janela principal é um menu de botões, um por ferramenta:
     dente de serra, varredura, ruído branco), a última captura ou um arquivo;
     a opção ``ajustar o volume'' leva o pico a 90\,\% do fundo de escala.
     \emph{Loopback} devolve o som pela saída da placa, ao computador ou aos
-    dois. \emph{Filtrar na placa} passa a última captura (ou um arquivo) pelo
-    filtro IIR da FPGA --- um Butterworth projetado ali mesmo, com o ganho
-    distribuído entre as seções, ou o do projetista IIR ---, em blocos de 1024
-    com aquecimento; mostra os espectros médios da entrada e da saída com
+    dois. \emph{Filtrar na placa} passa a última captura (ou um arquivo) por
+    um filtro da FPGA: IIR (Butterworth, Chebyshev I e II, elíptico, com o
+    ganho distribuído entre as seções) no bloco IIR, em blocos de 1024 com
+    aquecimento, ou FIR (método das janelas: Hamming, Hann, Blackman, Kaiser) no
+    bloco FIR, por \emph{overlap-add} --- projetado ali mesmo ou vindo do
+    projetista IIR ou FIR; mostra os espectros médios da entrada e da saída com
     \(|H(f)|\), toca as duas e salva a saída. Não é tempo real: o quadro
     \emph{Medidas} mostra o atraso até ouvir (a gravação inteira, mais a
     filtragem, perto de 2 vezes o tempo real, mais o atraso de grupo do filtro).

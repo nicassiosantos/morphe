@@ -11,9 +11,10 @@ pelo codec WM8731, com as funções de audio.py.
                (a FPGA repassa, sem passar pelo computador), para o
                computador (ao vivo, bloco a bloco), ou para os dois.
   Filtrar      passa a última captura (ou um arquivo) pelo filtro IIR da
-               placa -- o mesmo bloco da janela Filtro IIR, em blocos de
-               1024 com aquecimento -- e mostra os espectros da entrada e da
-               saída com |H(f)|; as duas podem ser tocadas e a saída salva.
+               placa (IIR: Butterworth, Chebyshev I e II, elíptico; FIR:
+               método das janelas; ou o filtro de um dos projetistas), em
+               blocos de 1024, e mostra os espectros da entrada e da saída
+               com |H(f)|; as duas podem ser tocadas e a saída salva.
                Não é tempo real: grava, filtra, ouve. O filtro em tempo
                real ficou como ideia (docs/IDEIA-FILTRO-TEMPO-REAL.md).
 
@@ -45,6 +46,7 @@ import morphe_config as cfg
 import morphe_theme as theme
 import sinal_arquivo
 from analisador_window import JANELAS, janela as janela_de
+from fir_designer_window import FIRDesignerWindow
 from iir_designer_window import IIRDesignerWindow
 from plot_toolbar import PlotToolbar
 
@@ -98,9 +100,24 @@ SOBRE_CODEC = (
     "12 bits, acoplado em DC, fs escolhida, e SEM anti-aliasing.")
 TIPOS_FILTRO = {"Passa-baixas": "lowpass", "Passa-altas": "highpass",
                 "Passa-faixa": "bandpass", "Rejeita-faixa": "bandstop"}
-ORIGENS_FILTRO = ("Butterworth (aqui)", "Projetista IIR")
+ORIGENS_FILTRO = ("Projetar aqui", "Projetista IIR", "Projetista FIR")
+CLASSES = ("IIR", "FIR")
+APROX_IIR = {"Butterworth": "butter", "Chebyshev I": "cheby1",
+             "Chebyshev II": "cheby2", "Elíptico": "ellip"}
+JANELAS_FIR = {"Hamming": "hamming", "Hann": "hann", "Blackman": "blackman",
+               "Kaiser": "kaiser"}
 FONTES_FILTRAR = ("Última captura", "Arquivo (o de Reproduzir)")
 TELA_MS = 100
+
+
+def polo_max(sos: np.ndarray) -> float:
+    """Modulo do polo mais externo da cascata."""
+    p = 0.0
+    for sec in np.atleast_2d(sos):
+        a = sec[3:6]
+        if np.any(a[1:] != 0):
+            p = max(p, float(np.max(np.abs(np.roots(a)))))
+    return p
 GUARDA_MAX_S = 60.0          # o ao vivo guarda no máximo o último minuto
 
 
@@ -121,7 +138,7 @@ class AudioWindow(tk.Toplevel):
         self._captura: Optional[np.ndarray] = None   # última captura completa
         self._arquivo: Optional[tuple] = None        # (sinal, fs, nome)
         self._loop_placa = False
-        self._sos_proj: Optional[tuple] = None       # (sos, descricao, fs) do projetista
+        self._proj: dict = {}                        # "IIR"/"FIR" -> filtro do projetista
         self._filtragem: Optional[dict] = None       # a ultima: entrada, saida, sos, fs
         self.protocol("WM_DELETE_WINDOW", self._on_fechar)
 
@@ -266,9 +283,9 @@ class AudioWindow(tk.Toplevel):
         self.btn_tocar.pack(side="bottom", fill="x", pady=(6, 0))
         self.ck_norm.pack(side="bottom", anchor="w")
 
-        # Filtrar na placa (IIR, por blocos)
-        fl = ttk.LabelFrame(parent, text=" Filtrar na placa (IIR) ", style="Card.TLabelframe",
-                            padding=(14, 10, 14, 10))
+        # Filtrar na placa (IIR ou FIR, por blocos)
+        fl = ttk.LabelFrame(parent, text=" Filtrar na placa (IIR ou FIR) ",
+                            style="Card.TLabelframe", padding=(14, 10, 14, 10))
         fl.pack(fill="x", pady=(10, 0))
         self.var_ffonte = tk.StringVar(value=FONTES_FILTRAR[0])
         ttk.Combobox(self._linha(fl, "Sinal"), textvariable=self.var_ffonte,
@@ -279,22 +296,48 @@ class AudioWindow(tk.Toplevel):
                           values=ORIGENS_FILTRO, state="readonly", width=20)
         cb.pack(side="left", fill="x", expand=True)
         cb.bind("<<ComboboxSelected>>", lambda e: self._troca_origem_filtro())
-        self.fr_butter = ttk.Frame(fl, style="Card.TFrame")
+
+        # projetar aqui: IIR (4 aproximacoes) ou FIR (metodo das janelas)
+        self.fr_aqui = ttk.Frame(fl, style="Card.TFrame")
+        self.var_fclasse = tk.StringVar(value=CLASSES[0])
+        cb = ttk.Combobox(self._linha(self.fr_aqui, "Classe"), textvariable=self.var_fclasse,
+                          values=CLASSES, state="readonly", width=16)
+        cb.pack(side="left", fill="x", expand=True)
+        cb.bind("<<ComboboxSelected>>", lambda e: self._troca_classe())
         self.var_ftipo = tk.StringVar(value=next(iter(TIPOS_FILTRO)))
-        ttk.Combobox(self._linha(self.fr_butter, "Tipo"), textvariable=self.var_ftipo,
+        ttk.Combobox(self._linha(self.fr_aqui, "Tipo"), textvariable=self.var_ftipo,
                      values=list(TIPOS_FILTRO), state="readonly", width=16).pack(
                          side="left", fill="x", expand=True)
-        self.var_fordem = self._entrada(self.fr_butter, "Ordem", "4")
-        self.var_ff1 = self._entrada(self.fr_butter, "f1 (Hz)", "1000")
-        self.var_ff2 = self._entrada(self.fr_butter, "f2 (Hz)", "3000")
-        ttk.Label(self.fr_butter, text="f2 só vale em passa-faixa e rejeita-faixa.",
-                  style="SectionHint.TLabel").pack(anchor="w")
+        self.var_faprox = tk.StringVar(value=next(iter(APROX_IIR)))
+        linha = self._linha(self.fr_aqui, "Método")
+        self.cb_aprox = ttk.Combobox(linha, textvariable=self.var_faprox,
+                                     values=list(APROX_IIR), state="readonly", width=16)
+        self.cb_aprox.pack(side="left", fill="x", expand=True)
+        linha = ttk.Frame(self.fr_aqui, style="Card.TFrame")
+        linha.pack(fill="x", pady=(0, 6))
+        self.lb_ordem = ttk.Label(linha, text="Ordem", style="Card.TLabel", width=11)
+        self.lb_ordem.pack(side="left")
+        self.var_fordem = tk.StringVar(value="4")
+        ttk.Entry(linha, textvariable=self.var_fordem, width=10).pack(
+            side="left", fill="x", expand=True)
+        self.var_ff1 = self._entrada(self.fr_aqui, "f1 (Hz)", "1000")
+        self.var_ff2 = self._entrada(self.fr_aqui, "f2 (Hz)", "3000")
+        self.var_frp = self._entrada(self.fr_aqui, "Ripple (dB)", "1")
+        self.var_frs = self._entrada(self.fr_aqui, "Atenuação (dB)", "60")
+        self.var_fbeta = self._entrada(self.fr_aqui, "β (Kaiser)", "8")
+        self.var_fdica = tk.StringVar()
+        ttk.Label(self.fr_aqui, textvariable=self.var_fdica, style="SectionHint.TLabel",
+                  wraplength=300, justify="left").pack(anchor="w")
+
+        # projetistas da plataforma
         self.fr_proj = ttk.Frame(fl, style="Card.TFrame")
-        ttk.Button(self.fr_proj, text="Abrir o projetista IIR…", style="Secondary.TButton",
-                   command=self._on_projetista).pack(fill="x", pady=(0, 4))
+        self.btn_proj = ttk.Button(self.fr_proj, text="Abrir o projetista…",
+                                   style="Secondary.TButton", command=self._on_projetista)
+        self.btn_proj.pack(fill="x", pady=(0, 4))
         self.var_fproj = tk.StringVar(value="(nenhum filtro do projetista ainda)")
         ttk.Label(self.fr_proj, textvariable=self.var_fproj, style="SectionHint.TLabel",
                   wraplength=300, justify="left").pack(anchor="w")
+
         self.btn_filtrar = ttk.Button(fl, text="Filtrar na placa", style="Primary.TButton",
                                       command=self._on_filtrar)
         self.btn_filtrar.pack(side="bottom", fill="x", pady=(6, 0))
@@ -310,6 +353,7 @@ class AudioWindow(tk.Toplevel):
                                         style="Secondary.TButton", state="disabled",
                                         command=self._on_salva_filtragem)
         self.btn_salva_sai.pack(side="bottom", fill="x", pady=(4, 0))
+        self._troca_classe()
         self._troca_origem_filtro()
 
         # Loopback
@@ -613,23 +657,67 @@ class AudioWindow(tk.Toplevel):
 
     # ---- filtrar na placa ------------------------------------------------------------------
     def _troca_origem_filtro(self):
-        self.fr_butter.pack_forget()
+        self.fr_aqui.pack_forget()
         self.fr_proj.pack_forget()
-        if self.var_forig.get() == ORIGENS_FILTRO[0]:
-            self.fr_butter.pack(fill="x")
+        orig = self.var_forig.get()
+        if orig == ORIGENS_FILTRO[0]:
+            self.fr_aqui.pack(fill="x")
+            return
+        self.fr_proj.pack(fill="x")
+        qual = "IIR" if orig == ORIGENS_FILTRO[1] else "FIR"
+        self.btn_proj.configure(text=f"Abrir o projetista {qual}…")
+        guardado = self._proj.get(qual)
+        self.var_fproj.set(guardado["texto"] if guardado else
+                           f"(nenhum filtro do projetista {qual} ainda)")
+
+    def _troca_classe(self):
+        """IIR: metodo = aproximacao, 'Ordem'. FIR: metodo = janela,
+        'Coeficientes'. A dica diz quais campos valem."""
+        if self.var_fclasse.get() == "IIR":
+            self.cb_aprox.configure(values=list(APROX_IIR))
+            if self.var_faprox.get() not in APROX_IIR:
+                self.var_faprox.set(next(iter(APROX_IIR)))
+            self.lb_ordem.configure(text="Ordem")
+            if int(float(self.var_fordem.get() or 0)) > 32:
+                self.var_fordem.set("4")
+            self.var_fdica.set("Ripple: Chebyshev I e elíptico. Atenuação: Chebyshev II e "
+                               "elíptico. f2: passa-faixa e rejeita-faixa. Roda no bloco IIR "
+                               "da placa (até 16 seções).")
         else:
-            self.fr_proj.pack(fill="x")
+            self.cb_aprox.configure(values=list(JANELAS_FIR))
+            if self.var_faprox.get() not in JANELAS_FIR:
+                self.var_faprox.set(next(iter(JANELAS_FIR)))
+            self.lb_ordem.configure(text="Coeficientes")
+            if int(float(self.var_fordem.get() or 0)) < 8:
+                self.var_fordem.set("101")
+            self.var_fdica.set("FIR pelo método das janelas (β só na Kaiser). f2: passa-faixa "
+                               "e rejeita-faixa. Roda no bloco FIR da placa (até 1024 "
+                               "coeficientes); cada bloco de 1024 amostras leva ~0,2 s, perto "
+                               "de 10 vezes o tempo real.")
 
     def _on_projetista(self):
-        def aplicar(sos, descricao, fs):
-            self._sos_proj = (np.atleast_2d(np.asarray(sos, dtype=np.float64)), descricao, fs)
-            texto = f"{self._sos_proj[0].shape[0]} seções"
+        qual = "IIR" if self.var_forig.get() == ORIGENS_FILTRO[1] else "FIR"
+
+        def aplicar(coef, descricao="", fs=None):
+            coef = np.asarray(coef, dtype=np.float64)
+            if qual == "IIR":
+                filtro = {"tipo": "iir", "sos": np.atleast_2d(coef)}
+                texto = f"{filtro['sos'].shape[0]} seções"
+            else:
+                filtro = {"tipo": "fir", "h": coef.ravel()}
+                texto = f"{coef.size} coeficientes"
             if descricao:
                 texto += f" — {descricao[:60]}"
             if fs:
                 texto += f"\nprojetado para fs = {fs:g} Hz"
+            filtro.update(desc=descricao or f"do projetista {qual}", fs=fs, texto=texto)
+            self._proj[qual] = filtro
             self.var_fproj.set(texto)
-        IIRDesignerWindow(self, on_apply=aplicar)
+
+        if qual == "IIR":
+            IIRDesignerWindow(self, on_apply=aplicar)
+        else:
+            FIRDesignerWindow(self, on_apply=aplicar)
 
     def _sinal_para_filtrar(self) -> tuple[np.ndarray, float, str]:
         if self.var_ffonte.get() == FONTES_FILTRAR[0]:
@@ -642,56 +730,121 @@ class AudioWindow(tk.Toplevel):
         x, fs, nome = self._arquivo
         return np.asarray(x, dtype=np.float64), fs, nome
 
-    def _filtro_escolhido(self, fs: float) -> tuple[np.ndarray, str]:
-        """(sos, descricao) do filtro, ja conferido para o hardware."""
-        if self.var_forig.get() == ORIGENS_FILTRO[0]:
-            from scipy import signal
-            tipo = TIPOS_FILTRO[self.var_ftipo.get()]
-            ordem = int(self._num(self.var_fordem, "Ordem", 1, 32))
-            f1 = self._num(self.var_ff1, "f1", 1, fs / 2 - 1)
-            if tipo in ("bandpass", "bandstop"):
-                f2 = self._num(self.var_ff2, "f2", f1 + 1, fs / 2 - 1)
-                wn, desc = [f1, f2], f"{self.var_ftipo.get()} {f1:g}–{f2:g} Hz"
-            else:
-                wn, desc = f1, f"{self.var_ftipo.get()} {f1:g} Hz"
-            # O butter poe o ganho inteiro na 1a secao: num passa-baixas de
-            # 1 kHz a 48,8 kHz o b0 dela fica em 1,5e-5, que em Q15.16 vira 1
-            # LSB -- e o filtro deixa de ser o projetado (medido: espurios a
-            # -36 dB). Distribuir o ganho entre as secoes, como o projetista
-            # IIR faz, leva os b para centenas de LSB (espurios a -88 dB).
-            sos = iir.distribui_ganho(signal.butter(ordem, wn, tipo, fs=fs, output="sos"))
-            desc = f"Butterworth ordem {ordem}, {desc}"
+    def _projeta_aqui(self, fs: float) -> dict:
+        from scipy import signal
+        tipo = TIPOS_FILTRO[self.var_ftipo.get()]
+        f1 = self._num(self.var_ff1, "f1", 1, fs / 2 - 1)
+        if tipo in ("bandpass", "bandstop"):
+            f2 = self._num(self.var_ff2, "f2", f1 + 1, fs / 2 - 1)
+            wn, faixa = [f1, f2], f"{f1:g}–{f2:g} Hz"
         else:
-            if self._sos_proj is None:
-                raise ValueError("abra o projetista IIR e aplique um filtro")
-            sos, desc, fs_proj = self._sos_proj
-            if fs_proj and abs(fs_proj - fs) > 1e-6 * fs:
-                raise ValueError(f"o filtro foi projetado para fs = {fs_proj:g} Hz e o sinal "
-                                 f"tem fs = {fs:g} Hz: projete de novo com a fs do sinal "
-                                 f"({fs:g} Hz)")
-        if sos.shape[0] > cfg.IIR_SECOES_MAX:
-            raise ValueError(f"{sos.shape[0]} seções; o hardware aceita {cfg.IIR_SECOES_MAX}")
-        viab = iir.verifica_viabilidade(sos, cfg.IIR_FRAC_BITS, 32, simular=False)
-        if viab["veredito"] == "recusar":
-            raise ValueError("o filtro não cabe em Q15.16:\n\n" + "\n\n".join(viab["motivos"]))
-        return sos, desc
+            wn, faixa = f1, f"{f1:g} Hz"
+        metodo = self.var_faprox.get()
+        if self.var_fclasse.get() == "IIR":
+            ordem = int(self._num(self.var_fordem, "Ordem", 1, 32))
+            ftype = APROX_IIR[metodo]
+            rp = self._num(self.var_frp, "Ripple", 0.01, 20) if ftype in ("cheby1", "ellip") else None
+            rs = self._num(self.var_frs, "Atenuação", 1, 200) if ftype in ("cheby2", "ellip") else None
+            # O scipy poe o ganho inteiro na 1a secao: num passa-baixas de 1 kHz
+            # a 48,8 kHz os b dela viram 1 LSB em Q15.16 (espurios medidos a
+            # -36 dB). Distribuir o ganho, como o projetista IIR faz, os leva a
+            # centenas de LSB (-88 dB).
+            sos = signal.iirfilter(ordem, wn, rp=rp, rs=rs, btype=tipo, ftype=ftype,
+                                   fs=fs, output="sos")
+            sos = iir.distribui_ganho(sos)
+            return {"tipo": "iir", "sos": sos,
+                    "desc": f"IIR {metodo} ordem {ordem}, {self.var_ftipo.get()} {faixa}"}
+        n = int(self._num(self.var_fordem, "Coeficientes", 3, cfg.CONV_N_MAX))
+        if tipo in ("highpass", "bandstop") and n % 2 == 0:
+            n += 1                # passa-altas e rejeita-faixa precisam de n impar
+        janela = JANELAS_FIR[metodo]
+        if janela == "kaiser":
+            janela = ("kaiser", self._num(self.var_fbeta, "β", 0, 30))
+        h = signal.firwin(n, wn, window=janela, pass_zero=tipo, fs=fs)
+        return {"tipo": "fir", "h": h,
+                "desc": f"FIR {metodo}, {n} coeficientes, {self.var_ftipo.get()} {faixa}"}
+
+    def _filtro_escolhido(self, fs: float) -> dict:
+        """O filtro escolhido, conferido para o hardware:
+        {"tipo": "iir", "sos"} ou {"tipo": "fir", "h"}, mais "desc"."""
+        orig = self.var_forig.get()
+        if orig == ORIGENS_FILTRO[0]:
+            f = self._projeta_aqui(fs)
+        else:
+            qual = "IIR" if orig == ORIGENS_FILTRO[1] else "FIR"
+            if qual not in self._proj:
+                raise ValueError(f"abra o projetista {qual} e aplique um filtro")
+            f = dict(self._proj[qual])
+            if f.get("fs") and abs(f["fs"] - fs) > 1e-6 * fs:
+                raise ValueError(f"o filtro foi projetado para fs = {f['fs']:g} Hz e o sinal "
+                                 f"tem fs = {fs:g} Hz: projete de novo com a fs do sinal")
+        if f["tipo"] == "iir":
+            if f["sos"].shape[0] > cfg.IIR_SECOES_MAX:
+                raise ValueError(f"{f['sos'].shape[0]} seções; o bloco IIR aceita "
+                                 f"{cfg.IIR_SECOES_MAX} (ordem {2 * cfg.IIR_SECOES_MAX})")
+            viab = iir.verifica_viabilidade(f["sos"], cfg.IIR_FRAC_BITS, 32, simular=False)
+            if viab["veredito"] == "recusar":
+                raise ValueError("o filtro não cabe em Q15.16:\n\n" + "\n\n".join(viab["motivos"]))
+        elif f["h"].size > cfg.CONV_N_MAX:
+            raise ValueError(f"{f['h'].size} coeficientes; o bloco FIR aceita {cfg.CONV_N_MAX}")
+        return f
+
+    def _resposta(self, f: dict, fs: float, n: int = 8192):
+        """(freqs, H) com os coeficientes QUANTIZADOS que vao para a placa."""
+        if f["tipo"] == "iir":
+            c = np.asarray(iir.coeficientes_inteiros(f["sos"], cfg.IIR_FRAC_BITS, 32),
+                           dtype=np.float64) / 65536.0
+            sos_q = np.column_stack([c[:, 0:3], np.ones(len(c)), c[:, 3:5]])
+            return iir.resposta_sos(sos_q, n, fs)
+        hq = np.asarray(dsp.float_to_q1516(f["h"]), dtype=np.float64) / 65536.0
+        fr = np.arange(n) * (fs / 2) / (n - 1)
+        H = np.exp(-2j * np.pi * np.outer(fr / fs, np.arange(hq.size))) @ hq
+        return fr, H
+
+    def atraso_de_grupo(self, f: dict, fs: float, f0: float) -> float:
+        """Atraso de grupo do filtro em f0, em segundos: -d(fase)/d(omega).
+        E o atraso que o envelope de um sinal perto de f0 sofre ao passar pelo
+        filtro -- existe em qualquer filtro, tambem em tempo real. Num FIR de
+        fase linear e (N-1)/2 amostras em toda a banda."""
+        if f["tipo"] == "fir":
+            h = f["h"]
+            if np.allclose(h, h[::-1]) or np.allclose(h, -h[::-1]):
+                return (h.size - 1) / 2.0 / fs
+        fr, H = self._resposta(f, fs, 16384)
+        w = 2 * np.pi * fr / fs
+        gd = -np.gradient(np.unwrap(np.angle(H)), w)
+        return float(np.interp(f0, fr, gd)) / fs
 
     def _on_filtrar(self):
         try:
             x, fs, nome = self._sinal_para_filtrar()
-            sos, desc = self._filtro_escolhido(fs)
-            aquec = blocos.aquecimento_iir(sos, cfg.IIR_FRAC_BITS)
-            if x.size > cfg.IIR_N_MAX and cfg.IIR_N_MAX - aquec < cfg.IIR_N_MAX // 8:
-                raise ValueError(
-                    f"este filtro precisa de {aquec} amostras de aquecimento por bloco, e o "
-                    f"bloco da placa tem {cfg.IIR_N_MAX}: os polos estão perto demais do "
-                    f"círculo unitário para a fs de {fs:g} Hz. Suba a frequência de corte "
-                    f"ou baixe a ordem.")
+            f = self._filtro_escolhido(fs)
+            nota = ""
+            if f["tipo"] == "iir":
+                aquec = blocos.aquecimento_iir(f["sos"], cfg.IIR_FRAC_BITS)
+                limite = cfg.IIR_N_MAX - cfg.IIR_N_MAX // 8
+                if x.size > cfg.IIR_N_MAX and aquec > limite:
+                    # O aquecimento estimado tem 50 % de folga. Com o maximo que
+                    # o bloco permite, o que sobra do transitorio na emenda e
+                    # |p|^limite (p = o polo mais externo): se for desprezivel,
+                    # segue com ele e diz quanto.
+                    resto_db = 20 * np.log10(max(polo_max(f["sos"]) ** limite, 1e-300))
+                    if resto_db > -90:
+                        raise ValueError(
+                            f"este filtro precisa de {aquec} amostras de aquecimento por "
+                            f"bloco, e o bloco da placa tem {cfg.IIR_N_MAX}: os polos estão "
+                            f"perto demais do círculo unitário para a fs de {fs:g} Hz (com "
+                            f"{limite} amostras, as emendas entre blocos ficariam a "
+                            f"{resto_db:.0f} dB). Suba a frequência de corte, baixe a ordem "
+                            f"ou o ripple, ou use um FIR.")
+                    aquec = limite
+                    nota = (f" Aquecimento reduzido a {limite} amostras por bloco: as emendas "
+                            f"ficam a {resto_db:.0f} dB.")
             cli = self._cliente()
         except Exception as e:
             messagebox.showerror("Filtrar na placa", str(e), parent=self)
             return
-        coefs = iir.coeficientes_inteiros(sos, cfg.IIR_FRAC_BITS, 32)
+        desc = f["desc"]
         self._ocupado = True
         self._botoes(False)
         self.status.set(f"Filtrando {nome} ({x.size / fs:.2f} s) na placa: {desc}...")
@@ -703,38 +856,32 @@ class AudioWindow(tk.Toplevel):
         def worker():
             try:
                 t0 = time.monotonic()
-                yq, saturou = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aquec,
-                                                    cfg.IIR_N_MAX, progresso)
+                saturou = False
+                if f["tipo"] == "iir":
+                    coefs = iir.coeficientes_inteiros(f["sos"], cfg.IIR_FRAC_BITS, 32)
+                    yq, saturou = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aquec,
+                                                        cfg.IIR_N_MAX, progresso)
+                    y = np.asarray(yq, dtype=np.float64) / 65536.0
+                else:
+                    # overlap-add no bloco FIR (conv1d); a saida causal tem o
+                    # tamanho da entrada
+                    y = blocos.conv_por_blocos(x, f["h"], blocos.FirPlaca(cli),
+                                               cfg.CONV_N_MAX, progresso)[:x.size]
                 dt = time.monotonic() - t0
-                y = np.asarray(yq, dtype=np.float64) / 65536.0
-                self.after(0, lambda: self._fim_filtrar(x, y, fs, sos, nome, desc, saturou, dt))
+                self.after(0, lambda: self._fim_filtrar(x, y, fs, f, nome, saturou, dt, nota))
             except Exception as e:
                 self.after(0, lambda err=e: self._erro(err))
         threading.Thread(target=worker, daemon=True).start()
 
-    @staticmethod
-    def atraso_de_grupo(sos: np.ndarray, fs: float, f0: float) -> float:
-        """Atraso de grupo do filtro em f0, em segundos: -d(fase)/d(omega),
-        com os coeficientes quantizados que vao para a placa. E o atraso que o
-        envelope de um sinal perto de f0 sofre ao passar pelo filtro -- existe
-        em qualquer filtro, tambem em tempo real."""
-        c = np.asarray(iir.coeficientes_inteiros(sos, cfg.IIR_FRAC_BITS, 32),
-                       dtype=np.float64) / 65536.0
-        sos_q = np.column_stack([c[:, 0:3], np.ones(len(c)), c[:, 3:5]])
-        f, H = iir.resposta_sos(sos_q, 16384, fs)
-        w = 2 * np.pi * f / fs
-        gd = -np.gradient(np.unwrap(np.angle(H)), w)          # em amostras
-        return float(np.interp(f0, f, gd)) / fs
-
-    def _fim_filtrar(self, x, y, fs, sos, nome, desc, saturou, dt):
-        self._filtragem = {"x": x, "y": y, "fs": fs, "sos": sos, "nome": nome, "desc": desc}
+    def _fim_filtrar(self, x, y, fs, f, nome, saturou, dt, nota=""):
+        self._filtragem = {"x": x, "y": y, "fs": fs, "filtro": f, "nome": nome, "desc": f["desc"]}
         # O atraso desta opcao (gravar -> filtrar na placa -> tocar), do
         # comeco do som ate ouvi-lo filtrado: a gravacao inteira tem de
         # terminar antes de filtrar, depois vem o processamento na placa, e
         # o atraso de grupo do proprio filtro.
         dur = x.size / fs
         f0 = audio.freq_dominante(x, fs)
-        gd = self.atraso_de_grupo(sos, fs, f0) if np.isfinite(f0) else float("nan")
+        gd = self.atraso_de_grupo(f, fs, f0) if np.isfinite(f0) else float("nan")
         self._atraso = {"gravacao": dur, "proc": dt, "grupo": gd, "f0": f0}
         self.var_medidas.set(
             f"atraso desta opção (gravar → placa → tocar)\n"
@@ -749,15 +896,15 @@ class AudioWindow(tk.Toplevel):
         self._desenha_filtragem()
         aviso = "  SATUROU em alguma amostra (a saída passou do Q15.16)." if saturou else ""
         self.status.set(f"Filtrado na placa: {nome}, {x.size} amostras em {dt:.1f} s "
-                        f"({desc}); atraso até ouvir: {dur + dt:.1f} s. Toque a entrada "
-                        f"e a saída para comparar.{aviso}")
+                        f"({f['desc']}); atraso até ouvir: {dur + dt:.1f} s. Toque a entrada "
+                        f"e a saída para comparar.{aviso}{nota}")
 
     def _desenha_filtragem(self):
         """Entrada e saida no tempo (20 ms do meio do sinal) e os espectros
-        medios das duas (blocos de 4096 com a janela escolhida), com |H(f)| do
-        filtro quantizado -- o que a placa de fato aplicou."""
+        medios das duas (blocos de 4096 com a janela escolhida), com |H(f)| dos
+        coeficientes quantizados -- o que a placa de fato aplicou."""
         d = self._filtragem
-        x, y, fs, sos = d["x"], d["y"], d["fs"], d["sos"]
+        x, y, fs, f = d["x"], d["y"], d["fs"], d["filtro"]
         completo, em_db = self.var_completo.get(), self.var_db.get()
         self._vista_filtro = True
         self._eixos_prontos = None
@@ -777,15 +924,16 @@ class AudioWindow(tk.Toplevel):
 
         nfft = int(min(4096, 2 ** int(np.floor(np.log2(max(x.size, 8))))))
         w = janela_de(self.var_janela.get(), nfft)
-        # A media comeca depois do transitorio de partida: o filtro sai do
-        # estado zero e oscila perto do corte por algumas centenas de
-        # amostras. E real (a placa e o modelo fazem igual), mas misturado a
-        # media pareceria distorcao do regime. A duracao e a mesma estimativa
-        # do aquecimento dos blocos.
-        try:
-            ini = blocos.aquecimento_iir(sos, cfg.IIR_FRAC_BITS)
-        except ValueError:
-            ini = 0
+        # A media comeca depois do transitorio de partida (o filtro sai do
+        # estado zero): no IIR, a estimativa do aquecimento dos blocos; no FIR,
+        # o comprimento do filtro.
+        if f["tipo"] == "iir":
+            try:
+                ini = blocos.aquecimento_iir(f["sos"], cfg.IIR_FRAC_BITS)
+            except ValueError:
+                ini = 0
+        else:
+            ini = f["h"].size
         if x.size - ini < nfft:
             ini = 0
 
@@ -800,18 +948,14 @@ class AudioWindow(tk.Toplevel):
             return np.sqrt(acc / len(pedacos))
 
         X, Y = espectro(x), espectro(y)
-        f = np.arange(X.size) * fs / nfft / 1e3
+        fr = np.arange(X.size) * fs / nfft / 1e3
         ax = self.ax_f
         if em_db:
-            ax.plot(f, 20 * np.log10(np.maximum(X, 1e-7)), color=dsp.COLOR_X,
+            ax.plot(fr, 20 * np.log10(np.maximum(X, 1e-7)), color=dsp.COLOR_X,
                     linewidth=0.8, label="entrada")
-            ax.plot(f, 20 * np.log10(np.maximum(Y, 1e-7)), color=dsp.COLOR_Y,
+            ax.plot(fr, 20 * np.log10(np.maximum(Y, 1e-7)), color=dsp.COLOR_Y,
                     linewidth=0.8, label="saída (placa)")
-            # |H| com os MESMOS inteiros Q15.16 que foram para a placa
-            c = np.asarray(iir.coeficientes_inteiros(sos, cfg.IIR_FRAC_BITS, 32),
-                           dtype=np.float64) / 65536.0
-            sos_q = np.column_stack([c[:, 0:3], np.ones(len(c)), c[:, 3:5]])
-            fh, H = iir.resposta_sos(sos_q, 4096, fs)
+            fh, H = self._resposta(f, fs, 4096)
             hdb = 20 * np.log10(np.maximum(np.abs(H), 1e-7))
             if completo:
                 fh = np.concatenate([fh, fs - fh[::-1]])
@@ -821,8 +965,8 @@ class AudioWindow(tk.Toplevel):
             ax.set_ylim(-140, 10)
             ax.set_ylabel("dBFS  (|H| em dB)")
         else:
-            ax.plot(f, X, color=dsp.COLOR_X, linewidth=0.8, label="entrada")
-            ax.plot(f, Y, color=dsp.COLOR_Y, linewidth=0.8, label="saída (placa)")
+            ax.plot(fr, X, color=dsp.COLOR_X, linewidth=0.8, label="entrada")
+            ax.plot(fr, Y, color=dsp.COLOR_Y, linewidth=0.8, label="saída (placa)")
             ax.set_ylim(0, max(1e-4, 1.1 * float(max(np.max(X), np.max(Y)))))
             ax.set_ylabel("amplitude de pico (fundo = 1)")
         ax.set_xlim(0, (fs if completo else fs / 2) / 1e3)
