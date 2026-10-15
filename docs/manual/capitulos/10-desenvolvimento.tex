@@ -118,6 +118,16 @@ no Linux e no Windows sem Quartus.
     memória dando a volta, parada no meio de um quadro, e captura única depois
     da contínua. Confere o período exato, o canal, a ordem dos bits e, na
     contínua, que o contador corresponde à última amostra gravada.
+  \item[\arq{Quartus/testbench/roda_tb_conv.sh}] simula o \arq{conv1d.v}
+    (convolução e FIR) com 16 e com 1024 amostras aleatórias e confere as
+    saídas, uma a uma, contra a conta inteira exata arredondada; mostra também
+    o erro que o truncamento antigo daria. Os
+    \arq{memory_*_controller.v} escrevem literais como \texttt{1'b\_0}, que o
+    Quartus aceita e o Icarus não: o script simula cópias corrigidas, sem
+    tocar nos originais.
+  \item[\arq{Quartus/testbench/tb_audio_i2s.v}, \arq{tb_audio_vu.v}] simulam a
+    interface I2S do codec contra um modelo do WM8731 (recepção,
+    \emph{loopback} e tom) e o medidor de nível.
 \end{description}
 
 Os dois terminam imprimindo \texttt{TUDO OK} ou a primeira divergência.

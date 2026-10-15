@@ -24,12 +24,16 @@ rodar depois de cada boot dela. As saídas são uma licença do núcleo da Intel
 ou uma FFT própria em Verilog, que tiraria a restrição e daria controle sobre a
 aritmética interna (hoje o teto de 92\,dB é do núcleo).
 
-\paragraph{A aritmética do \texttt{conv1d}.} A convolução e o FIR truncam os
-produtos e deixam o acumulador dar a volta. Trocar por arredondamento e
-saturação reduziria o erro máximo de 521 para 25 LSB e eliminaria o estouro
-silencioso. A troca foi avaliada e deliberadamente não feita, para manter o
-comportamento descrito no TCC original (seção~\ref{sec:acel-conv}); é uma
-decisão a rever com o supervisor, não uma pendência técnica.
+\paragraph{A aritmética do \texttt{conv1d}.} Desde 15/10/2026 a convolução e
+o FIR arredondam, com erro de meio LSB (seção~\ref{sec:acel-conv}). O estouro
+continua silencioso: a soma dá a volta em vez de saturar. Saturar, como no IIR,
+custaria pouco e tiraria a última surpresa do bloco. O bitstream oficial com o
+arredondamento, compilado no Quartus 20.1 da estação, ainda não foi gerado; o
+que foi medido usou um bitstream de teste do Quartus 23.1.
+
+\paragraph{A aritmética dentro do núcleo da FFT.} O núcleo da Intel é
+criptografado: dá para ver que ele tem uma unidade de arredondamento e
+saturação, mas não em que modo ela trabalha, nem mudá-la.
 
 \paragraph{Restos do projeto original.} O IP de FIR da Intel (\texttt{fir\_ii})
 e o seu adaptador continuam no projeto sem instância, e o registrador
@@ -79,6 +83,30 @@ conversão, alternar dois canais é uma mudança pequena no \arq{adc_captura.v}
 a conexão aberta, e o servidor não atende mais ninguém nesse tempo
 (capítulo~\ref{cap:placas}). Limitar a duração, ou atender outras operações
 durante a captura, são decisões ainda em aberto.
+
+\section{Codec de áudio}
+
+\paragraph{Áudio e ADC dividem a memória.} Como o áudio usa a memória e os
+registradores do ADC (seção~\ref{sec:codec-hps}), os dois não capturam ao
+mesmo tempo, e o servidor atende uma operação por vez: enquanto a janela Áudio
+captura ou faz \emph{loopback} ao vivo, a placa fica ocupada. Uma memória
+própria para o áudio, numa próxima regeneração do Platform Designer, tiraria
+essa restrição.
+
+\paragraph{O som ainda não passa pelos aceleradores.} O áudio chega ao
+computador e volta, mas os filtros da placa não o processam em tempo real: o
+próximo passo natural é um filtro no caminho do áudio, entre a entrada e a
+saída do codec, com os coeficientes vindos do aplicativo.
+
+\paragraph{O codec é configurado à mão.} Depois de cada boot da placa é preciso
+rodar \texttt{./codec digital} nela; o \arq{morphe-up.sh} ainda não faz isso.
+
+\paragraph{Bitstream de teste.} O que foi medido usou um bitstream compilado no
+Quartus 23.1; o oficial, da 20.1 da estação, ainda precisa ser gerado e
+validado.
+
+\paragraph{Taxa fixa.} Sem PLL, a única taxa é 48\,828,125\,Hz. Outras taxas do
+codec (8, 32, 44,1, 96\,kHz) exigem outro relógio-mestre.
 
 \section{Infraestrutura}
 

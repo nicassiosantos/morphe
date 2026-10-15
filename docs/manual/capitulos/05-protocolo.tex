@@ -107,6 +107,13 @@ Todos os campos são inteiros sem sinal em ordem de rede
       (0 = até o cliente parar)
       & cabeçalho com \(n_{out} = 0\) e depois blocos
         (seção~\ref{sec:adc-continuo}) \\
+    \addlinespace
+    9 & \texttt{AUDIO} & \texttt{flags} = 0, captura: \(n_x\) quadros (0 = até
+      parar), \(n_h\) = 1 com \emph{loopback}; 1, reprodução: \(n_x\) quadros
+      seguem o cabeçalho; 2, \emph{loopback}: \(n_h\) = 1 liga, 0 desliga
+      & captura: blocos, como o \texttt{ADC\_CONTINUO}, com
+        \texttt{extra} = 1024 (\(f_s = 50\,\text{MHz}/1024\)); reprodução:
+        \texttt{extra} = como terminou \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -139,6 +146,10 @@ unipolar (0 a 4,095\,V) ou bipolar (\(\pm 2{,}048\)\,V). O modo de
 economia de energia (\texttt{SLP}) é recusado, porque a referência interna leva
 200\,ms para voltar dele. Quem monta a palavra é o \arq{Python/aquisicao.py}; a
 janela só oferece o canal e o modo.
+
+\paragraph{O áudio vai em palavras de 32 bits.} Cada quadro estéreo é uma
+palavra \texttt{\{direito, esquerdo\}}, 16 bits cada, em complemento de dois,
+como está na memória da FPGA. O \arq{Python/audio.py} separa e junta os canais.
 
 \section{A descoberta: \texttt{PING}}
 \label{sec:ping}

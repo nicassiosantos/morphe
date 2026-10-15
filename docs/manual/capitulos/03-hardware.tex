@@ -174,25 +174,31 @@ uma máquina de estados com um único multiplicador-acumulador: para cada \(n\),
 lê \(x[k]\) e \(h[n-k]\), multiplica, acumula e, ao fim da soma, escreve
 \(y[n]\).
 
-A aritmética é em Q15.16. O produto de dois números de 32 bits tem 64 bits;
-o \texttt{conv1d} guarda os bits 47 a 16, o que realinha o ponto fracionário
-\emph{truncando} os 16 bits de baixo. O acumulador tem 32 bits e \emph{não
-satura}: quando a soma passa de \(\pm 32768\) ela dá a volta e aparece com o
-sinal trocado. Duas consequências práticas:
+A aritmética é em Q15.16. O produto de dois números de 32 bits tem 64 bits
+(Q32.32), e a soma corre com os produtos \emph{inteiros}, num acumulador de 64
+bits. Só ao escrever \(y[n]\) o resultado volta a Q15.16, \emph{arredondado}
+uma única vez:
+\[
+  y[n] = \left\lfloor \frac{\textstyle\sum_k x[k]\,h[n-k]}{2^{16}} + \frac12
+  \right\rfloor ,
+\]
+meio para cima também nos negativos, a mesma regra do IIR. O erro contra a
+conta exata é de no máximo meio LSB (\(7{,}6\times10^{-6}\)), qualquer que seja
+o número de termos. A saída são os bits 47 a 16 do acumulador e \emph{não
+satura}: com sinais de amplitude \(A\) e \(N\) termos, ela estoura quando
+\(N A^2 \ge 32768\) --- com \(N = 1024\), a partir de \(A \approx 5{,}7\) --- e
+aparece com o sinal trocado. Uma saída negativa para sinais positivos é esse
+estouro, não um defeito.
 
-\begin{itemize}
-  \item o erro de truncamento se acumula com o número de termos: numa
-    convolução de 1024 por 1024 ele chega a centenas de LSB. É esperado;
-  \item com sinais de amplitude \(A\) e \(N\) termos, a saída estoura quando
-    \(N A^2 \ge 32768\) --- com \(N = 1024\), a partir de \(A \approx 5{,}7\).
-    Uma saída negativa para sinais positivos é esse estouro, não um defeito.
-\end{itemize}
-
-Trocar o truncamento por arredondamento reduziria o erro máximo medido de 521
-para 25 LSB. A troca foi avaliada e \textbf{deliberadamente não feita}
-(14/09/2026): o comportamento numérico do \texttt{conv1d} é o que o TCC
-original descreve, e ele fica registrado em \arq{docs/RESSALVAS.md} como
-escolha, não como defeito esquecido.
+\paragraph{Antes era truncamento.} Até 14/10/2026 o \texttt{conv1d} cortava
+cada produto para Q15.16 (bits 47 a 16) \emph{antes} de somar, como no TCC
+original: um erro de até um LSB por termo, sempre para baixo, que numa
+convolução de 1024 por 1024 chegava a 521 LSB (\(8\times10^{-3}\)). A troca pelo
+arredondamento foi feita em 15/10/2026 e medida na placa: 1024 por 1024
+amostras aleatórias em \(\pm 2\) deram erro máximo de \textbf{0,500 LSB} na
+convolução e no FIR, e 137\,dB de SNR contra o \texttt{np.convolve} em ponto
+flutuante de 64 bits. O testbench \arq{Quartus/testbench/roda_tb_conv.sh}
+confere as 2047 saídas contra a conta exata.
 
 \paragraph{O FIR é o mesmo circuito.} O filtro FIR é uma segunda instância do
 \texttt{conv1d} (\texttt{fir\_inst}), com memórias próprias. Filtrar um sinal
@@ -274,8 +280,10 @@ Cada escolha desse projeto foi medida antes de ser feita:
     circula.
   \item[Arredondar, e não truncar.] Truncar introduz um viés de meio LSB
     negativo por amostra. Num filtro realimentado esse viés não some: vira um
-    deslocamento DC de \(-0{,}5/(1 + a_1 + a_2)\) LSB na saída. No FIR não
-    importa, e por isso o \texttt{conv1d} pôde manter o truncamento.
+    deslocamento DC de \(-0{,}5/(1 + a_1 + a_2)\) LSB na saída. No FIR o viés
+    não realimenta, mas soma um erro que cresce com o número de termos; por
+    isso, desde 15/10/2026, o \texttt{conv1d} também arredonda
+    (seção~\ref{sec:acel-conv}).
   \item[Q15.16, o mesmo formato do \texttt{conv1d}.] É suficiente: o raio dos
     polos se desloca no máximo cerca de \(10^{-6}\) ao quantizar, mesmo com
     polos em \(|p| = 0{,}9984\).
@@ -303,6 +311,10 @@ testbench em Icarus Verilog (\arq{Quartus/testbench/roda_tb_iir.sh}) e a placa
 (\arq{testa_iir_hw.py}) são comparados com esse modelo e precisam coincidir
 em todas as amostras: num filtro realimentado, divergir um LSB numa amostra é
 divergir para sempre dali em diante, então ``parecido'' não serve de critério.
+Esse modelo faz exatamente a conta do hardware, e por isso o erro contra ele é
+zero \emph{por construção}: ele prova que o circuito está certo, mas não mede
+quanto o ponto fixo custa. Para isso o aplicativo compara a saída da placa com a
+mesma cascata em ponto flutuante de 64 bits (seção~\ref{sec:cliente-janelas}).
 
 \section{A aquisição: o ADC da placa}
 \label{sec:adc}
@@ -348,7 +360,15 @@ aparecem sem ambiguidade.
 conector e o chip. Um sinal alternado do gerador de funções precisa de
 deslocamento DC: por exemplo, 2\,V de deslocamento e no máximo 4\,Vpp, conferido
 no osciloscópio \emph{antes} de ligar à placa, com o terra do gerador no pino
-de terra do conector. A placa também não tem filtro \emph{anti-aliasing}.
+de terra do conector.
+
+\paragraph{Sem filtro \emph{anti-aliasing}.} O conector vai direto ao chip, sem
+nenhum filtro analógico, e a entrada do LTC2308 tem 25\,MHz de banda. Qualquer
+componente acima de \(f_s/2\) é amostrado e aparece rebatido no espectro. Quem
+precisar evitar isso tem de filtrar antes do conector (a folha de dados sugere
+um RC de 50\,\(\Omega\) e 2000\,pF, que limita a banda a 1,6\,MHz, ou um
+passa-baixas mais estreito para a taxa usada). O codec de áudio
+(seção~\ref{sec:codec}), ao contrário, tem filtro.
 
 \paragraph{Referência de tensão.} \textbf{A placa não tem referência externa.}
 O LTC2308 usa a própria referência interna, de 2,5\,V, que um amplificador
@@ -472,3 +492,159 @@ sem salto nas emendas entre blocos). Na captura contínua inteira, a frequência
 medida foi de 1000,013\,Hz, a SINAD de 56,1\,dB e o ENOB de 9,03 bits. O ENOB
 mede o conversor \emph{junto com o gerador}; o capítulo~\ref{cap:limitacoes}
 comenta a folga.
+
+\section{O codec de áudio}
+\label{sec:codec}
+
+A placa tem um codec de áudio, o WM8731 da Wolfson (hoje Cirrus Logic), com três
+conectores P2 de 3,5\,mm: \textbf{LINE-in} (azul), \textbf{LINE-out} (verde) e
+\textbf{MIC-in} (rosa). Ele tem um conversor analógico-digital e um
+digital-analógico estéreo, sigma-delta, com taxas fixas de 8 a 96\,kHz. Desde
+13/10/2026 o Morphe o usa, na branch \texttt{estagio/v1.8-codec}. É a única
+saída analógica da plataforma: com ele a FPGA também \emph{gera} som.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Os dois conversores da placa.}
+  \label{tab:adc-codec}
+  \begin{tabularx}{\textwidth}{@{}lXX@{}}
+    \toprule
+    & \textbf{LTC2308 (conector J15)} & \textbf{WM8731 (codec)} \\
+    \midrule
+    tipo & aproximações sucessivas, 12 bits, 8 canais
+      & sigma-delta, 16 bits no Morphe, 2 canais \\
+    acoplamento & DC, de 0 a 4,095\,V & AC: não mede tensão contínua \\
+    taxa & qualquer uma até 200\,kHz no Morphe & 48\,828\,Hz no Morphe \\
+    \emph{anti-aliasing} & \textbf{não tem} & filtro digital de dizimação \\
+    saída analógica & não tem & DAC e LINE-out \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Configuração pelo HPS}
+
+O WM8731 é configurado por I\textsuperscript{2}C, escrevendo registradores de
+9 bits no endereço \texttt{0x1A}. O barramento passa por um multiplexador da
+placa: com o pino \texttt{HPS\_I2C\_CONTROL} (GPIO48 do HPS) em 1, quem fala com
+o codec é o controlador I2C0 do HPS. O programa \arq{C/codec.c} faz isso pelo
+Linux da placa, sem mudar o bitstream:
+
+\begin{verbatim}
+make codec
+./codec digital                         LINE-in (azul) -> FPGA -> LINE-out
+./codec --entrada mic digital           MIC-in (rosa), com +20 dB
+./codec --volume -20 --entrada mic digital
+./codec bypass                          LINE-in -> LINE-out, só no chip
+./codec desliga
+\end{verbatim}
+
+O \opt{volume} vai de \(-73\) a \(+6\)\,dB (padrão \(-10\)). A imagem da
+placa não tem \texttt{/dev/i2c}, e o programa então programa o controlador
+I2C0 direto pelos registradores. Um detalhe custou uma tarde: o I2C0 do Cyclone~V
+só gera a condição de STOP se o último byte levar o bit 9 do
+\texttt{IC\_DATA\_CMD}; sem ele, o barramento fica preso.
+
+\subsection{O áudio na FPGA}
+
+O \arq{audio_i2s.v} troca as amostras com o codec pelo formato I2S, palavras de
+16 bits em complemento de dois. O codec é o \emph{mestre} dos relógios de
+áudio; a FPGA só lhe entrega o relógio-mestre, \(50\,\text{MHz}/4 =
+12{,}5\,\text{MHz}\), de um contador, sem PLL. Com o codec em 256\(f_s\),
+\[
+  f_s = \frac{12{,}5\,\text{MHz}}{256} = 48\,828{,}125\ \text{Hz},
+\]
+exata, e não 48\,kHz: para 48\,kHz seria preciso um PLL fracionário, e uma
+taxa exata conhecida basta no laboratório. Tudo roda no domínio de 50\,MHz,
+como o resto do projeto.
+
+A chave \textbf{SW9} escolhe o que vai para o DAC:
+
+\begin{description}
+  \item[SW9 baixa] o que o \arq{audio_buf.v} mandar, comandado pelo HPS:
+    silêncio, a reprodução de um sinal vindo do computador ou o
+    \emph{loopback} (seção~\ref{sec:codec-hps}). Até 14/10/2026 o
+    \emph{loopback} ficava sempre ligado aqui.
+  \item[SW9 alta] uma onda quadrada de \(\pm 4096\) (\(-18\)\,dBFS) gerada na
+    FPGA, a \(48\,828/48 = 1017\)\,Hz. Prova o DAC sem nenhuma fonte de áudio,
+    e tem prioridade sobre tudo.
+\end{description}
+
+O \arq{audio_vu.v} mostra o nível do que chega nos displays HEX0 a HEX4, em
+escala logarítmica, 6\,dB por segmento. Assim a recepção pode ser vista sem
+cabo nenhum: um fone ligado no MIC-in funciona como microfone.
+
+\paragraph{\emph{Anti-aliasing}.} O conversor do codec amostra muito acima de
+\(f_s\) e reduz a taxa com um filtro digital de dizimação. Na folha de dados
+(tabela 31, modo normal), a banda passante vai até \(0{,}4535 f_s\)
+(22,1\,kHz, \(\pm 0{,}05\)\,dB), a atenuação é de 6\,dB em \(f_s/2\) e de pelo
+menos 60\,dB a partir de \(0{,}5465 f_s\) (26,7\,kHz). Entre 24,4 e 26,7\,kHz o
+rebatimento é atenuado só em parte. Há também um passa-altas de 3,7\,Hz na
+entrada, que tira o nível contínuo.
+
+\subsection{O áudio entre o codec e o computador}
+\label{sec:codec-hps}
+
+O \arq{audio_buf.v} leva o áudio do codec para a memória que o HPS lê, e de
+volta. Ele usa a \textbf{mesma memória e os mesmos registradores do ADC}
+(\texttt{adc\_buf}, 32\,768 palavras): não sobra registrador livre no Platform
+Designer, e acrescentar um exigiria regenerar o sistema. Quem escolhe é o bit
+31 do \texttt{adc\_divisor}, que o ADC nunca usa (o divisor dele vai no máximo a
+50\,000): com ele em 1, o \arq{ghrd_top.v} liga a memória, o \texttt{start}, o
+\texttt{done} e o contador ao áudio, e o \arq{adc_captura.v} não vê o
+\texttt{start}. Cada palavra guarda um quadro estéreo:
+\texttt{\{direito[31:16], esquerdo[15:0]\}}.
+
+As operações, em \texttt{adc\_config[1:0]}, com o bit 6 escolhendo o modo
+contínuo (a memória como \emph{buffer} circular):
+
+\begin{description}
+  \item[0, captura] entrada do codec \(\to\) memória;
+  \item[1, reprodução] memória \(\to\) saída do codec;
+  \item[2, captura com \emph{loopback}] as duas coisas ao mesmo tempo;
+  \item[3, \emph{loopback}] entrada \(\to\) saída, sem memória.
+\end{description}
+
+O ritmo é o do próprio codec: ele é o mestre dos relógios, e cada quadro
+recebido é também um quadro enviado. O servidor atende a operação
+\texttt{AUDIO} (capítulo~\ref{cap:protocolo}): a captura chega ao cliente em
+blocos, sem limite de duração; a reprodução de um sinal maior que a memória
+(0,67\,s) toca enquanto o servidor a reabastece atrás do contador; o
+\emph{loopback} fica ligado entre conexões, e qualquer operação do ADC ou do
+áudio o pausa e religa sozinha. No aplicativo, é a janela \textbf{Áudio}
+(seção~\ref{sec:cliente-janelas}).
+
+\subsection{O que foi validado}
+\label{sec:codec-validado}
+
+Na placa 1, com um bitstream de teste compilado no Quartus 23.1:
+
+\begin{itemize}
+  \item 13/10/2026: o codec responde no I2C; o tom de 1017\,Hz sai na
+    LINE-out; com um fone no MIC-in, o medidor fica em 5 segmentos em
+    repouso e chega a 8 mexendo no fone, e a LINE-in vazia fica em 1;
+  \item 15/10/2026: o \emph{loopback} é audível. Com o microfone de um fone
+    no MIC-in, uma caixa de som na LINE-out e
+    \texttt{./codec -{}-volume -20 -{}-entrada mic digital}, o sopro no microfone
+    sai na caixa, passando pela FPGA;
+  \item 15/10/2026, com o \arq{audio_buf.v}: captura de 10 blocos de 1024
+    quadros e de 3\,s seguidos (4,5 vezes a memória) sem perda; reprodução de
+    0,5\,s e de 4\,s (195\,312 quadros, seis vezes a memória) sem falha, com o
+    tom ouvido na caixa; o ADC continua funcionando com o \emph{loopback}
+    ligado; \texttt{morphe\_ping} 4/4. A janela Áudio foi acionada contra a
+    placa (captura, gerador, reprodução da captura, os três \emph{loopbacks}).
+\end{itemize}
+
+O \arq{Quartus/testbench/tb_audio_i2s.v} simula o \arq{audio_i2s.v} contra um
+modelo do WM8731 em modo mestre (recepção, \emph{loopback} e tom); o
+\arq{tb_audio_buf.v}, as quatro operações do \arq{audio_buf.v}, únicas e
+contínuas, com a memória dando a volta; e o \arq{tb_audio_vu.v}, o medidor.
+Na placa, \arq{Python/ferramentas/testa_codec.py}.
+
+\textbf{Cuidado com a microfonia}: com microfone e caixa de som no mesmo
+ambiente, o microfone capta a própria caixa e a realimentação apita. Comece com
+o volume baixo e afaste os dois.
+
+O codec precisa ser configurado na placa (\texttt{./codec digital}) depois de
+cada boot; sem isso não há relógio de áudio, e o servidor responde à janela
+Áudio com uma mensagem que diz o que fazer.

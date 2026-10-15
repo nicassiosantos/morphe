@@ -16,6 +16,39 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 15/10/2026 — Convolução e FIR arredondando; loopback do codec audível
+
+**Validado na placa 1** (172.16.230.24), com um bitstream de **teste** compilado pelo
+Quartus 23.1 do notebook (folga de setup ≥ 1,73 ns). O oficial, pela 20.1 da
+estação, ainda falta.
+
+- **`conv1d.v` arredonda em vez de truncar** (convolução e FIR, que é a segunda
+  instância do mesmo módulo): soma em 64 bits (Q32.32) e um arredondamento só, na
+  saída. 1024 × 1024 amostras aleatórias em ±2,0, contra a conta inteira exata:
+  **erro máximo 0,500 LSB** nas duas operações, duas rodadas cada (antes: 521 LSB).
+  Contra o `np.convolve` em float64: SNR de 136,6 a 137,2 dB. Simulado antes em
+  `Quartus/testbench/roda_tb_conv.sh` (0,5 LSB contra 539,6 do truncamento).
+  `morphe_ping` 4/4.
+- **Loopback do codec audível**: microfone de fone no MIC-in, caixa de som na
+  LINE-out, `./codec --volume -20 --entrada mic digital`, SW9 baixa: o sopro no
+  microfone sai na caixa, passando pela FPGA.
+- **IIR comparado com float64**: a janela IIR e o comparador passaram a usar a
+  mesma cascata em float64 como referência; o modelo em ponto fixo (bit a bit)
+  ficou só como alarme de defeito. Escrito, **ainda não rodado na placa**.
+- **Áudio entre o codec e o computador** (etapa 3 do codec), com outro bitstream
+  de teste da 23.1 (folga de setup ≥ 1,73 ns, de hold ≥ 0,07 ns):
+  `Quartus/audio_buf.v` usa a memória e os registradores do ADC (bit 31 do
+  `adc_divisor` = modo áudio; o Platform Designer não foi regenerado); operação
+  `AUDIO` (9) no servidor; `Python/audio.py`; janela **Áudio** no app. Medido
+  na placa 1: captura de 10 blocos de 1024 e de 3 s seguidos sem perda (o
+  microfone pegou os 60 Hz da rede); reprodução de 0,5 s e de 4 s (195 312
+  quadros, seis vezes a memória) sem falha, **tom ouvido na caixa**; ADC
+  funcionando com o loopback ligado; `morphe_ping` 4/4. A janela foi acionada
+  contra a placa por script (captura, as cinco formas do gerador, reprodução da
+  captura, os três loopbacks). `tb_audio_buf.v`: as quatro operações, únicas e
+  contínuas, TUDO OK. **Mudança de comportamento**: com a SW9 baixa a saída
+  fica em silêncio até o software ligar o loopback ou tocar algo.
+
 ## 13/10/2026 — Codec de áudio WM8731: configuração pelo HPS, saída e entrada pela FPGA
 
 Feito na **placa 1** (`de1soclinux`), ligada por USB ao notebook do estagiário, com a

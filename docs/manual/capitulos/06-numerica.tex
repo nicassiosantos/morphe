@@ -175,17 +175,29 @@ coincide com o \arq{idft.m} do Prof.\ Sanca a \(2{,}5\times10^{-5}\).
 \section{Convolução, FIR e IIR}
 
 Os aceleradores em Q15.16 têm comportamentos numéricos próprios, descritos com
-o circuito no capítulo~\ref{cap:hardware}. Em resumo:
+o circuito no capítulo~\ref{cap:hardware}.
+
+\paragraph{Contra o que se compara.} Em todos os blocos a referência do
+aplicativo é a conta em ponto flutuante de 64 bits (\texttt{float64}, 53 bits de
+mantissa), feita sobre o mesmo sinal: \texttt{np.convolve} na convolução e no
+FIR, \texttt{np.fft.fft} na FFT e a mesma cascata de seções no IIR. O erro
+mostrado é, portanto, o custo do ponto fixo. Até 14/10/2026 o IIR era comparado
+com o modelo em ponto fixo, que faz a mesma conta do hardware e dava erro zero
+por construção; esse modelo continua rodando, só como alarme de defeito.
+
+Em resumo:
 
 \begin{description}
-  \item[Convolução e FIR] \emph{truncam} cada produto e acumulam em 32 bits
-    \emph{sem saturar}. O erro de truncamento cresce com o número de termos
-    (chega a centenas de LSB em 1024 por 1024), e uma soma além de
+  \item[Convolução e FIR] somam os produtos inteiros em 64 bits e
+    \emph{arredondam} uma vez, na saída: o erro é de no máximo meio LSB, qualquer
+    que seja o número de termos (desde 15/10/2026; antes truncavam cada produto,
+    e o erro chegava a 521 LSB em 1024 por 1024). Não saturam: uma soma além de
     \(\pm 32\,768\) dá a volta com o sinal trocado
     (seção~\ref{sec:acel-conv}).
   \item[IIR] \emph{arredonda} na saída de cada seção e \emph{satura} em vez de
     dar a volta; o registrador \texttt{iir\_error} avisa quando saturou. O
-    resultado da placa coincide bit a bit com o modelo em Python
+    resultado da placa coincide bit a bit com o modelo em ponto fixo em Python,
+    e é comparado com a mesma cascata em ponto flutuante
     (seção~\ref{sec:acel-iir}).
 \end{description}
 
@@ -233,8 +245,12 @@ deslocamento (seção~\ref{sec:adc}).
     FFT \(\to\) IFFT, erro máximo & \(9{,}5\times10^{-4}\) & nenhuma normalizada \\
     FFT contra o NumPy & 91,5\,dB & normalizada \\
     IFFT contra o NumPy & 92,7\,dB & normalizada, espectro de pico 1280 \\
-    Convolução 1024 \(\times\) 1024, erro máximo & 521 LSB & truncamento \\
-    IIR contra o modelo em Python & 0 LSB & qualquer filtro testado \\
+    Convolução e FIR 1024 \(\times\) 1024, erro máximo & 0,500 LSB
+      & arredondamento, 15/10/2026 \\
+    Convolução e FIR contra o NumPy & 137\,dB & amostras aleatórias em \(\pm 2\) \\
+    Convolução 1024 \(\times\) 1024, erro máximo & 521 LSB
+      & truncamento, até 14/10/2026 \\
+    IIR contra o modelo em ponto fixo & 0 LSB & conferência do hardware \\
     Coeficientes FIR, ponto flutuante contra Q15.16 & \(\le 7{,}6\times10^{-6}\)
       & meio passo \\
     ADC, entrada no terra & 0,0000\,V, desvio 0,03\,mV & 24/09/2026 \\
