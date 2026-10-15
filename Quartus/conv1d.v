@@ -93,15 +93,23 @@ module conv1d #(
     reg  [DATA_WIDTH-1:0]        yn_data_in;
     wire                         yn_write_done;
 
-    reg signed [DATA_WIDTH-1:0] accumulator; // Running sum for current y[n]
     reg signed [DATA_WIDTH-1:0] xn_latched;  // Sample from x[k]
     reg signed [DATA_WIDTH-1:0] hn_latched;  // Sample from h[n-k]
-    
-    // [FIX] Pipeline register for multiplication
-    reg signed [2*DATA_WIDTH-1:0] mult_result_reg; 
 
-    // [FIX] Shift by 16 bits to maintain the Q16.16 fractional alignment from the registered result
-    wire signed [DATA_WIDTH-1:0]  mult_fixed  = mult_result_reg[DATA_WIDTH+16-1:16];
+    // [FIX] Pipeline register for multiplication
+    reg signed [2*DATA_WIDTH-1:0] mult_result_reg;
+
+    // Arredondamento (15/10/2026). Antes cada produto era TRUNCADO para Q16.16
+    // (mult_result_reg[47:16]) antes de somar: erro de ate 1 LSB por produto,
+    // sempre para baixo, que se acumulava -- 521 LSB com N = 1024. Agora a soma
+    // corre com os produtos inteiros (Q32.32, 64 bits) e o resultado e
+    // arredondado UMA vez, na escrita de y[n]: floor(acc/2^16 + 1/2), meio para
+    // cima tambem nos negativos, a mesma regra do iir_biquad_mac.v. Erro maximo:
+    // meio LSB, qualquer que seja N. Os bits que saem continuam sendo [47:16],
+    // entao o estouro do Q16.16 da a mesma volta (wraparound) de antes.
+    reg  signed [2*DATA_WIDTH-1:0] accumulator; // Running sum for current y[n], Q32.32
+    wire signed [2*DATA_WIDTH-1:0] acc_arred = accumulator + (64'sd1 <<< 15);
+    wire signed [DATA_WIDTH-1:0]   y_arred   = acc_arred[DATA_WIDTH+16-1:16];
 
     // --- Sub-module Instances (Memory Controllers) ---
     memory_read_controller #(.DATA_WIDTH(DATA_WIDTH), .MEM_ADDRESS_N_BITS(XN_ADDR_N_BITS)) u_xn_read_ctrl (
@@ -199,14 +207,14 @@ module conv1d #(
 
                 ACCUMULATE: begin
                     // Perform the summation part of the convolution formula
-                    accumulator <= accumulator + mult_fixed;
+                    accumulator <= accumulator + mult_result_reg;
                     k <= k + 1'b1; // Advance the inner summation index
                     state <= COMPUTING;
                 end
 
                 WRITE_MEM: begin
                     yn_data_in_addr <= n;
-                    yn_data_in <= accumulator; // Load the final sum into write register
+                    yn_data_in <= y_arred; // Final sum, rounded to Q16.16
                     yn_start_write <= 1'b1;
                     state <= WAIT_WRITE;
                 end

@@ -40,20 +40,22 @@ versionado ao lado. Rode isso **antes** de suspeitar de qualquer outra coisa.
 **Como aplicar:** teste com amplitudes pequenas primeiro. Um resultado
 negativo inesperado em sinais positivos é wraparound, não defeito.
 
-## 3. Erro de truncamento cresce com N — é previsto
+## 3. Erro de truncamento cresce com N — CORRIGIDO em 15/10/2026
 
-O erro contra o NumPy chega a centenas de LSBs com N=1024, por truncamento
-acumulado em `Quartus/conv1d.v:104`. Não é regressão. Só passa de milhares se
-houver wraparound (item 2).
+Até 14/10 o `conv1d.v` truncava cada produto para Q16.16 antes de somar
+(`mult_result_reg[47:16]`), e o erro contra o NumPy chegava a centenas de LSBs
+com N=1024 (521 medido na placa; 539,6 no testbench).
 
-A correção de melhor retorno seria arredondar no shift, trocando `[47:16]` por
-`[47:16] + mult_result_reg[15]`: derrubaria o erro máximo de 521 para 25 LSB.
+**Desde 15/10/2026** a soma corre com os produtos inteiros (Q32.32, 64 bits) e o
+resultado é arredondado uma vez só, na escrita de y[n] — `floor(acc/2^16 + 1/2)`,
+a mesma regra do `iir_biquad_mac.v`. Erro máximo: **0,5 LSB, qualquer que seja
+N** (`Quartus/testbench/roda_tb_conv.sh`, N = 16 e N = 1024). Vale para a
+convolução e para o FIR, que é outra instância do mesmo módulo. Os bits de saída
+continuam sendo [47:16], então o wraparound do item 2 continua igual.
 
-**Decidido em 14/09/2026 NÃO aplicar.** O truncamento é a implementação original do
-autor da plataforma e fica como está; o comportamento numérico do conv1d permanece o
-que o TCC descreve. A alternativa fica registrada aqui, com o número já medido, para
-quem quiser retomar a discussão mais tarde — não é um defeito esquecido, é uma
-escolha.
+A decisão de 14/09 de manter o truncamento do autor foi revogada a pedido do
+Antonio (ver `DECISOES.md`). **Medido na placa em 15/10/2026**, com bitstream de
+teste da 23.1: 0,500 LSB na convolução e no FIR (`DIARIO.md`). Falta o oficial da 20.1.
 
 ## 4. O corte por `nx+nh-1` no cliente não é bug
 

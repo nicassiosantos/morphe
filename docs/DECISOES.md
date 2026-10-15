@@ -38,3 +38,4 @@ pediu.
 | 08/10 | Roteiro da convolução **sem testbench** | correção pedida ao seguir o roteiro no laboratório |
 | 13/10 | Codec de áudio: configuração **pelo HPS** (I2C0), codec como mestre dos relógios, relógio-mestre de **12,5 MHz sem PLL** (fs = 48 828,125 Hz) | dispensa controlador I2C na FPGA e mantém um só domínio de relógio |
 | 13/10 | **Sem atas formais**; este arquivo registra as decisões | o acompanhamento com o supervisor é diário e presencial |
+| 15/10 | **Arredondar** no `conv1d.v` (convolução e FIR) em vez de truncar: soma em 64 bits (Q32.32) e um arredondamento só, na saída; revoga a decisão de 14/09 | pedido do Antonio; o erro máximo contra a conta exata cai de 539,6 para 0,5 LSB com N = 1024 (simulado) |
