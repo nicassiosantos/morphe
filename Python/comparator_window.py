@@ -124,9 +124,10 @@ class ComparatorWindow(tk.Toplevel):
         self.bundle: Optional[dict] = None
         self.bundle_type: Optional[str] = None
         self.metrics: Optional[dict] = None
-        # Segunda referência, só no IIR: a mesma cascata em float64. O
-        # erro contra ela é o custo do ponto fixo, que o zero da
-        # comparação bit a bit esconde por construção.
+        # Segunda referência, só no IIR: o modelo em ponto fixo, bit a
+        # bit. A comparação principal do IIR é contra a cascata em
+        # float64 (desde 15/10/2026); o modelo fica como conferência do
+        # hardware -- contra ele o esperado é zero, e qualquer LSB é defeito.
         self.metrics_dbl: Optional[dict] = None
         self._y_double = None
         self.var_fft_mode = tk.StringVar(value="magnitude")
@@ -340,7 +341,7 @@ class ComparatorWindow(tk.Toplevel):
         # linhas de baixo pareceriam mais do mesmo, e elas respondem a
         # uma pergunta diferente.
         self._titulo_ref2 = ttk.Label(
-            mbox, text="contra a cascata em float64:", style="Card.TLabel")
+            mbox, text="conferência: modelo Q15.16 (esperado 0):", style="Card.TLabel")
         self._titulo_ref2.grid(row=_LINHA_TITULO2, column=0, columnspan=2,
                                sticky="w", pady=(10, 2))
         self._esconde_ref2()
@@ -580,14 +581,15 @@ class ComparatorWindow(tk.Toplevel):
         self._cmp_label = "y[n] (FIR)"
 
     def _compute_iir(self):
-        """Comparação IIR: FPGA × modelo em ponto fixo, bit a bit.
+        """Comparação IIR: FPGA × a mesma cascata em float64.
 
-        A referência NÃO é o NumPy em ponto flutuante: é o
-        iir_design.filtra_sos_fixo, o mesmo modelo que o testbench do RTL e
-        o testa_iir_hw.py usam. Num filtro realimentado o hardware faz
-        contas inteiras com um arredondamento por amostra, e comparar com
-        float daria um "erro" que não é da placa. Contra o modelo certo o
-        erro esperado é exatamente zero -- qualquer LSB é defeito.
+        Desde 15/10/2026 a referência principal é a cascata em float64
+        (iir_design.filtra_sos_double), com os mesmos coeficientes Q15.16
+        que a placa usou: o erro medido é o custo da aritmética em ponto
+        fixo. Antes era o modelo em ponto fixo (iir_design.filtra_sos_fixo),
+        que faz exatamente a conta do hardware e por isso dava erro zero
+        por construção -- ele continua aqui como segunda referência, a
+        conferência do hardware: contra ele qualquer LSB é defeito.
 
         A seção h não é uma resposta ao impulso: são os coeficientes
         inteiros Q15.16, 5 por seção (b0 b1 b2 a1 a2), como o servidor e a
@@ -637,16 +639,17 @@ class ComparatorWindow(tk.Toplevel):
         y_python = y_python[:n_compare]
         y_fpga_cmp = y_fpga[:n_compare]
 
-        self.metrics = dsp.compute_error_metrics(y_fpga_cmp, y_python)
-
-        # Segunda referência: a MESMA cascata, com os MESMOS coeficientes
-        # já quantizados, só que em float64. O erro contra ela é o preço
-        # da aritmética em ponto fixo -- exatamente o que o zero da
-        # comparação acima não pode mostrar, porque ali o modelo e o
-        # hardware fazem a mesma conta de propósito.
+        # Referência principal: a MESMA cascata, com os MESMOS coeficientes
+        # já quantizados, só que em float64. O erro é o preço da
+        # aritmética em ponto fixo.
         y_double = np.asarray(iir.filtra_sos_double(x, sos))[:n_compare]
-        self._y_double = y_double
-        self.metrics_dbl = dsp.compute_error_metrics(y_fpga_cmp, y_double)
+        self.metrics = dsp.compute_error_metrics(y_fpga_cmp, y_double)
+
+        # Segunda referência: o modelo em ponto fixo, bit a bit. O
+        # esperado é zero; se não for, o hardware errou.
+        self._y_double = y_python          # (o modelo Q15.16, no relatório)
+        self.metrics_dbl = dsp.compute_error_metrics(y_fpga_cmp, y_python)
+        y_python = y_double
 
         self._x_input  = x
         self._n_input  = sec_x["n"]
@@ -706,8 +709,8 @@ class ComparatorWindow(tk.Toplevel):
         self._is_complex_compare = False
 
     def _nome_ref(self) -> str:
-        """Quem e a referencia: NumPy em float, ou o modelo Q15.16 no IIR."""
-        return "modelo Q15.16" if self.bundle_type == _BUNDLE_IIR else "NumPy"
+        """Quem e a referencia: NumPy em float, ou a cascata em float64 no IIR."""
+        return "cascata float64" if self.bundle_type == _BUNDLE_IIR else "NumPy"
 
     def _rotulos_entrada(self):
         """(titulo, rotulo x, rotulo y) do subplot de entrada.
@@ -797,7 +800,7 @@ class ComparatorWindow(tk.Toplevel):
         else:
             md = self.metrics_dbl
             self.var_m2_max.set(fmt_g(md["max_abs_error"]))
-            self.var_m2_snr.set(fmt_snr(md["snr_db"], "cascata float64"))
+            self.var_m2_snr.set(fmt_snr(md["snr_db"], "modelo Q15.16"))
             self._mostra_ref2()
 
     def _redraw_plots(self):
@@ -1063,18 +1066,16 @@ class ComparatorWindow(tk.Toplevel):
                     snr2_str = "-inf (referência praticamente zero)"
                 else:
                     snr2_str = f"{snr2:.4f} dB"
-                f.write("## METRICAS (FPGA vs cascata em float64)\n")
-                f.write("# a mesma cascata, os mesmos coeficientes Q15.16,\n")
-                f.write("# so que em double: e o custo da aritmetica em\n")
-                f.write("# ponto fixo, que a comparacao bit a bit acima\n")
-                f.write("# nao mede por construcao.\n")
+                f.write("## CONFERENCIA (FPGA vs modelo em ponto fixo Q15.16)\n")
+                f.write("# o modelo faz exatamente a conta do hardware:\n")
+                f.write("# o esperado e erro zero, e qualquer LSB e defeito.\n")
                 f.write(f"erro_abs_max:           {md['max_abs_error']:.10g}\n")
                 f.write(f"erro_rms:               {md['rms_error']:.10g}\n")
                 f.write(f"snr_db:                 {snr2_str}\n")
                 f.write(f"norma_referencia:       {md['norm_ref']:.10g}\n")
                 f.write(f"norma_diferenca:        {md['norm_diff']:.10g}\n")
                 f.write("\n")
-                f.write("## ARRAYS (n  fpga  modelo_q15_16  erro  float64)\n")
+                f.write("## ARRAYS (n  fpga  float64  erro  modelo_q15_16)\n")
                 for i in range(len(self._n_output)):
                     f.write(f"{int(self._n_output[i])}\t"
                             f"{float(self._y_fpga[i]):.8e}\t"

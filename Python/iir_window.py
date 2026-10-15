@@ -9,11 +9,14 @@ Duas diferencas que vem do IIR ser realimentado:
   - o grafico do meio nao e h[n] (que num IIR e infinito e pouco diz), e
     sim |H(f)| do projeto e do filtro quantizado -- e o que se ve numa
     tela de MATLAB e o que o aluno compara com a especificacao;
-  - a saida da placa e conferida NA HORA, bit a bit, contra o modelo em
-    ponto fixo (iir_design.filtra_sos_fixo). Num FIR um LSB de diferenca
-    e ruido; num IIR e o sinal de que alguma coisa esta errada, porque a
-    diferenca realimenta e nunca mais some. A barra de status diz se
-    bateu e, se nao, em qual amostra comecou a divergir.
+  - a saida da placa e comparada NA HORA com a mesma cascata em float64
+    (iir_design.filtra_sos_double), com os coeficientes de projeto e a
+    entrada sem quantizar: o erro mostrado e o custo do ponto fixo
+    (entrada, coeficientes e aritmetica). Desde 15/10/2026; antes a
+    referencia era o modelo em ponto fixo, que faz a mesma conta do
+    hardware e por isso dava erro zero por construcao. O modelo continua
+    rodando, so como alarme: se a placa diferir dele, e defeito do
+    hardware, e a barra de status avisa em qual amostra comecou.
 
 Saturacao chega no campo `extra` da resposta, nao como erro: o resultado
 e mostrado (grudado no limite onde estourou) com o aviso.
@@ -188,7 +191,7 @@ class IIRWindow(tk.Toplevel):
                   "acumulador de 72 bits, arredondamento na saída\n"
                   "• Saturação em vez de wrap: a saída gruda no limite e "
                   "a placa avisa\n"
-                  "• Saída conferida bit a bit com o modelo em Python"),
+                  "• Saída comparada com a mesma cascata em float64"),
         ).pack(fill="x")
 
         self.builder = SuperpositionBuilder(
@@ -402,10 +405,11 @@ class IIRWindow(tk.Toplevel):
             try:
                 resp = client.request(build_iir_request(x_q, coefs, dtype_code))
                 y_q, saturou = decode_iir_response(resp)
-                # Referencia: o mesmo modelo que o testbench e o
-                # testa_iir_hw usam. Se a placa bate aqui, bate em tudo.
+                # Alarme: o modelo que o testbench usa (a placa tem de
+                # bater bit a bit). Referencia da comparacao: float64.
                 y_ref = _q(iir.filtra_sos_fixo(x, sos, FRAC, TOTAL))
-                self.after(0, lambda: self._on_run_done(y_q, saturou, y_ref))
+                y_dbl = iir.filtra_sos_double(x, sos)
+                self.after(0, lambda: self._on_run_done(y_q, saturou, y_ref, y_dbl))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_run_error(err))
 
@@ -443,28 +447,35 @@ class IIRWindow(tk.Toplevel):
                 # Quanto os blocos se afastam do filtro rodando sem parar.
                 y_cont = _q(iir.filtra_sos_fixo(x, sos, FRAC, TOTAL))
                 dist = int(np.max(np.abs(y_ref - y_cont)))
+                y_dbl = iir.filtra_sos_double(x, sos)
                 info = ("%d blocos, aquecimento %d; blocos × filtro contínuo: "
                         "%d LSB" % (1 + int(np.ceil((x.size - MAX_N) / (MAX_N - aquec))),
                                     aquec, dist))
-                self.after(0, lambda: self._on_run_done(y_q, saturou, y_ref, info))
+                self.after(0, lambda: self._on_run_done(y_q, saturou, y_ref, y_dbl, info))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_run_error(err))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_run_done(self, y_q, saturou, y_ref, info_blocos: str = ""):
+    def _on_run_done(self, y_q, saturou, y_ref, y_dbl, info_blocos: str = ""):
         self.y_output = dsp.q1516_to_float(y_q)
         self.y_saturou = saturou
+        # Comparacao: placa x cascata em float64. O erro e o custo do ponto
+        # fixo -- nao da zero, e nao deveria.
+        ref = np.asarray(y_dbl, dtype=np.float64)[:len(y_q)]
+        m = dsp.compute_error_metrics(self.y_output, ref)
+        snr = ("∞" if m["snr_db"] == float("inf") else "%.1f dB" % m["snr_db"])
+        self.y_confere = ("× float64: erro máx %.3g (%.1f LSB), SNR %s"
+                          % (m["max_abs_error"], m["max_abs_error"] * ESCALA, snr))
+        msg = "IIR concluído: %d amostras; %s." % (len(y_q), self.y_confere)
+        # Alarme: o hardware tem de fazer exatamente a conta do modelo.
         dif = np.nonzero(y_q != y_ref[:len(y_q)])[0]
-        if dif.size == 0:
-            self.y_confere = "bit a bit igual ao modelo"
-            msg = "IIR concluído: %d amostras, bit a bit igual ao modelo em Python." % len(y_q)
-        else:
+        if dif.size:
             i = int(dif[0])
-            self.y_confere = "DIFERE do modelo em %d amostras (1ª em n=%d)" % (dif.size, i)
-            msg = ("[!] IIR concluído, mas a saída difere do modelo em %d amostras; "
-                   "primeira em n=%d (placa %d, modelo %d)."
-                   % (dif.size, i, y_q[i], y_ref[i]))
+            self.y_confere += " — DIFERE do modelo Q15.16 em %d amostras" % dif.size
+            msg = ("[!] %s  A saída difere do modelo em ponto fixo em %d amostras "
+                   "(defeito do hardware); primeira em n=%d (placa %d, modelo %d)."
+                   % (msg, dif.size, i, y_q[i], y_ref[i]))
         if saturou:
             msg += "  SATUROU em alguma amostra."
         if info_blocos:
