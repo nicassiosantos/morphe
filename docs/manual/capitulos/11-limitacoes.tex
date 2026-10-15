@@ -98,12 +98,9 @@ computador e volta, mas os filtros da placa não o processam em tempo real: o
 próximo passo natural é um filtro no caminho do áudio, entre a entrada e a
 saída do codec, com os coeficientes vindos do aplicativo.
 
-\paragraph{O codec é configurado à mão.} Depois de cada boot da placa é preciso
-rodar \texttt{./codec digital} nela; o \arq{morphe-up.sh} ainda não faz isso.
-
-\paragraph{Bitstream de teste.} O que foi medido usou um bitstream compilado no
-Quartus 23.1; o oficial, da 20.1 da estação, ainda precisa ser gerado e
-validado.
+\paragraph{Uma entrada por vez.} O codec lê a LINE-in ou o MIC-in, conforme o
+\arq{morphe-up.sh} o configurou (\opt{codec}); trocar exige rodá-lo de novo, ou
+o \texttt{./codec} na placa.
 
 \paragraph{Taxa fixa.} Sem PLL, a única taxa é 48\,828,125\,Hz. Outras taxas do
 codec (8, 32, 44,1, 96\,kHz) exigem outro relógio-mestre.

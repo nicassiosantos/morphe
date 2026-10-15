@@ -42,7 +42,11 @@ Na ordem, e parando com mensagem clara no primeiro problema:
 6. **Reinicia o servidor — sempre depois da FPGA.** Um servidor que subiu antes da
    programação passa nos testes 1 e 2 do ping e dá `FPGA_TIMEOUT` nos testes 3 e 4;
    é o sintoma mais confuso da plataforma, e agora é impossível por construção.
-7. **Verifica com o `morphe_ping`** antes de devolver o controle, e traduz a falha:
+7. **Configura o codec de áudio** (desde 15/10/2026): envia e compila o `C/codec.c`
+   na placa quando ele muda e roda `./codec digital`. `--codec mic` usa o MIC-in em
+   vez da LINE-in, `--codec nao` não mexe no codec, `--codec-volume -20` muda o
+   volume da LINE-out. Se o codec falhar, só avisa: o resto não depende dele.
+8. **Verifica com o `morphe_ping`** antes de devolver o controle, e traduz a falha:
    quais testes falharam significam rede, FPGA ou `hps_0.h` desatualizado.
 
 Outros modos:

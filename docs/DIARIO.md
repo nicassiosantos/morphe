@@ -16,6 +16,26 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 15/10/2026 (estação) — Bitstream oficial 20.1 validado e no laboratório
+
+Compilado na estação LABPS-47723 com o Quartus 20.1, a partir de `ed9992c`, sem
+`qsys-generate`. Folga mínima: 1,727 ns de setup e 0,059 ns de hold (nenhuma
+negativa). Na placa 1: `morphe_ping` 4/4, codec configurado, **`testa_codec` TUDO
+OK** (captura de 3 s em 3,00 s, reprodução de 4 s sem falha, os loopbacks, o ADC
+junto). Versionado em `34a57b8` com a `PROVENIENCIA.sha256` regerada (16
+arquivos). `/opt/morphe` e **7 dos 8 PCs** atualizados pelo `atualizar-lab.sh`; o
+PC1 (172.16.101.233) estava sem SSH (desligado).
+
+Tropeço registrado: o primeiro `git checkout` falhou por causa de um
+`Quartus/c5_pin_model_dump.txt` que o Quartus gera e a branch nova versiona, e o
+clone ficou na `estagio/v1.7-adc` — a primeira compilação do dia usou o código
+antigo. Os relatórios dela foram guardados num `git stash`. Conferir o
+`git log --oneline -1` antes de compilar.
+
+O `morphe-up.sh` passou a configurar o codec (`--codec linha|mic|nao`,
+`--codec-volume`): escrito e testado com uma placa simulada, **falta rodar na
+estação**.
+
 ## 15/10/2026 — Convolução e FIR arredondando; loopback do codec audível
 
 **Validado na placa 1** (172.16.230.24), com um bitstream de **teste** compilado pelo

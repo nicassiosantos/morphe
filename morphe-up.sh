@@ -18,6 +18,9 @@
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --forca              # nao pergunta se a placa esta em uso
+#   ./morphe-up.sh --codec mic          # codec de audio com a entrada no MIC-in
+#                                       # (padrao: linha = LINE-in; nao = nao mexe)
+#   ./morphe-up.sh --codec-volume -20   # volume da LINE-out, de -73 a +6 dB
 #   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
 #   ./morphe-up.sh --status             # o que esta no ar agora, placa a placa
 #   ./morphe-up.sh --down               # encerra os tethers de TODAS as placas
@@ -90,6 +93,8 @@ CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
 FORCA=0             # --forca: reprograma mesmo com a placa em uso, sem perguntar
+CODEC_ENTRADA=linha # --codec linha|mic|nao: a entrada do codec de audio
+CODEC_VOLUME=-10    # --codec-volume: dB na LINE-out (o padrao do codec.c)
 FPGA_PROGRAMADA=0   # vira 1 quando o quartus_pgm confirmar, nesta execucao
 PARAR_SERVIDOR=0
 ACAO=up
@@ -105,6 +110,12 @@ while [[ $# -gt 0 ]]; do
         --deploy)   FORCA_DEPLOY=1; REPASSE+=(--deploy); shift ;;
         --skip-fpga) PULA_FPGA=1; REPASSE+=(--skip-fpga); shift ;;
         --forca|--force) FORCA=1; REPASSE+=(--forca); shift ;;
+        --codec)    CODEC_ENTRADA="${2:-}"; REPASSE+=(--codec "$CODEC_ENTRADA"); shift 2
+                    [[ "$CODEC_ENTRADA" =~ ^(linha|mic|nao)$ ]] \
+                        || morrer "--codec aceita linha, mic ou nao" ;;
+        --codec-volume) CODEC_VOLUME="${2:-}"; REPASSE+=(--codec-volume "$CODEC_VOLUME"); shift 2
+                    [[ "$CODEC_VOLUME" =~ ^[+-]?[0-9]+$ ]] \
+                        || morrer "--codec-volume e um inteiro em dB, de -73 a +6" ;;
         --down)     ACAO=down; shift ;;
         --stop-server) PARAR_SERVIDOR=1; shift ;;
         --status)   ACAO=status; shift ;;
@@ -730,6 +741,48 @@ pgrep -x morphe_server > /dev/null"
            "  ssh $USUARIO_PLACA@$ALVO 'cd $DIR_REMOTO && ./morphe_server $PORTA'"
 }
 
+# O codec de audio (WM8731) e configurado pelo HPS, pelo C/codec.c: sem isso
+# nao ha relogio de audio, e a janela Audio do cliente recebe "configure o
+# codec". A configuracao vive no proprio codec e sobrevive a reprogramar a
+# FPGA; so se perde quando a placa desliga -- e depois de um boot o
+# morphe-up.sh tem de rodar de novo de qualquer jeito, pelo bitstream. Por isso
+# basta fazer aqui. Falhar aqui so avisa: o resto da plataforma nao depende do
+# codec.
+configurar_codec() {
+    if [[ "$CODEC_ENTRADA" == nao ]]; then
+        aviso "--codec nao: o codec de audio nao foi configurado"
+        return 0
+    fi
+    passo "configurando o codec de audio (entrada: $CODEC_ENTRADA, volume $CODEC_VOLUME dB)"
+    local aqui la
+    aqui="$(sha256sum "$RAIZ/C/codec.c" | cut -d' ' -f1)"
+    la="$(ssh_placa "test -x $DIR_REMOTO/codec && cat $DIR_REMOTO/.codec.sha256" 2>/dev/null || true)"
+    if (( FORCA_DEPLOY )) || [[ "$la" != "$aqui" ]]; then
+        if scp -q "${SSH_OPTS[@]}" "$RAIZ/C/codec.c" "$USUARIO_PLACA@$ALVO:$DIR_REMOTO/" \
+            && ssh_placa "cd $DIR_REMOTO && gcc -std=gnu99 -O2 -Wall -o codec codec.c \
+                          && printf '%s' '$aqui' > .codec.sha256"; then
+            ok "programa do codec compilado na placa"
+        else
+            aviso "nao consegui compilar o C/codec.c na placa; o audio fica sem configurar"
+            return 0
+        fi
+    fi
+    local opcoes="--volume $CODEC_VOLUME"
+    [[ "$CODEC_ENTRADA" == mic ]] && opcoes="$opcoes --entrada mic"
+    if ssh_placa "cd $DIR_REMOTO && if [ \"\$(id -u)\" = 0 ]; then SU=; else SU=sudo; fi; \
+                  \$SU ./codec $opcoes digital > codec.log 2>&1"; then
+        if [[ "$CODEC_ENTRADA" == mic ]]; then
+            ok "codec configurado: entrada MIC-in (rosa, +20 dB), saida LINE-out (verde)"
+        else
+            ok "codec configurado: entrada LINE-in (azul), saida LINE-out (verde)"
+        fi
+    else
+        aviso "o codec nao respondeu; o audio fica sem configurar. Veja na placa:"
+        ssh_placa "tail -n 6 $DIR_REMOTO/codec.log 2>/dev/null" 2>/dev/null \
+            | sed 's/^/       /' >&2 || true
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # 6. Verificacao
 # ---------------------------------------------------------------------------
@@ -1056,6 +1109,7 @@ acao_up() {
     fi
 
     reiniciar_servidor
+    configurar_codec
     verificar || exit 1
 
     printf '\n%sPlataforma pronta.%s  placa %s, porta %s\n' "$NEG" "$FIM" "$ALVO" "$PORTA"

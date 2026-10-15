@@ -122,6 +122,11 @@ que os clientes leem (capítulo~\ref{cap:placas}).
     \opt{deploy} & reenvia e recompila o servidor mesmo sem mudança \\
     \opt{skip-fpga} & só o servidor, sem reprogramar a FPGA \\
     \opt{forca} & não pergunta, mesmo com a placa em uso \\
+    \opt{codec} \textit{entrada} & o codec de áudio com a entrada
+      \texttt{linha} (LINE-in, o padrão), \texttt{mic} (MIC-in) ou
+      \texttt{nao} (não mexe no codec) \\
+    \opt{codec-volume} \textit{dB} & volume da LINE-out, de \(-73\) a
+      \(+6\) (padrão \(-10\)) \\
     \opt{setup-ssh} & uma vez por placa e por conta: instala a chave SSH
       (seção~\ref{sec:ssh}) \\
     \opt{status} & mostra, placa a placa, o que está no ar e se o
