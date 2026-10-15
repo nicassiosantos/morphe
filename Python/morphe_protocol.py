@@ -64,6 +64,10 @@ OP_IFFT = 5   # transformada inversa: mesmo IP da FFT, bit inverse=1
 OP_IIR  = 6   # cascata de biquads Q15.16 (iir_cascade.v); n_h = no. de secoes
 OP_ADC  = 7   # captura do LTC2308 (adc_captura.v); n_h = divisor, flags = config
 OP_ADC_CONTINUO = 8   # a mesma, sem limite de tamanho: resposta em blocos
+OP_AUDIO = 9   # codec de audio (audio_buf.v); flags = suboperacao (audio.py)
+AUDIO_CAPTURA = 0
+AUDIO_REPRODUZ = 1
+AUDIO_LOOPBACK = 2
 
 # Estado de cada bloco da resposta do OP_ADC_CONTINUO (ver morphe_protocol.h).
 ADC_BLOCO_SEGUE = 0

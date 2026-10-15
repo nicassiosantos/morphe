@@ -76,6 +76,17 @@
 #define MORPHE_OP_IIR      6U   /* cascata de biquads Q15.16 (iir_cascade.v) */
 #define MORPHE_OP_ADC      7U   /* captura do LTC2308 a fs fixa (adc_captura.v) */
 #define MORPHE_OP_ADC_CONTINUO 8U   /* a mesma, sem limite de tamanho, em blocos */
+#define MORPHE_OP_AUDIO    9U   /* codec de audio: captura, reproducao, loopback */
+
+/* Suboperacoes do OP_AUDIO, no campo `flags` do cabecalho.
+ *   CAPTURA   n_x = quadros (0 = ate o cliente parar), n_h bit 0 = com loopback;
+ *             resposta em blocos, como o ADC_CONTINUO.
+ *   REPRODUZ  n_x = quadros, que seguem o cabecalho em int32 {dir, esq};
+ *             resposta: cabecalho com n_out = n_x e extra = estado do fim.
+ *   LOOPBACK  n_h = 1 liga, 0 desliga; fica ligado entre conexoes. */
+#define MORPHE_AUDIO_CAPTURA   0U
+#define MORPHE_AUDIO_REPRODUZ  1U
+#define MORPHE_AUDIO_LOOPBACK  2U
 
 /* Estado de cada bloco da resposta do ADC_CONTINUO. */
 #define MORPHE_ADC_BLOCO_SEGUE    0U

@@ -99,6 +99,20 @@
  * RAM como buffer circular. Quem o liga e o servidor, no OP_ADC_CONTINUO. */
 #define MORPHE_ADC_CFG_CONTINUO 0x40U
 
+/* ---- Audio (codec WM8731, audio_buf.v) ---------------------------------- */
+
+/* O audio usa a RAM e os PIOs do ADC; o bit 31 do adc_divisor liga o modo
+ * audio (o divisor do ADC vai no maximo a 50 000). */
+#define MORPHE_AUDIO_MODO       0x80000000U
+/* Operacao do audio_buf.v, em adc_config[1:0]. */
+#define MORPHE_AUDIO_OP_CAPTURA  0U
+#define MORPHE_AUDIO_OP_REPRODUZ 1U
+#define MORPHE_AUDIO_OP_CAP_LOOP 2U
+#define MORPHE_AUDIO_OP_LOOP     3U
+/* fs = 50 MHz / 1024 (AUD_XCK = 12,5 MHz, codec em 256 fs). */
+#define MORPHE_AUDIO_DIVISOR    1024U
+#define MORPHE_AUDIO_FS         (50000000.0 / 1024.0)
+
 /* ---- Rede -------------------------------------------------------------- */
 
 /* Porta TCP padrao do servidor (cliente pode sobrescrever). */

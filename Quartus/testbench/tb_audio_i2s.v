@@ -33,9 +33,14 @@ audio_i2s dut (
     .clk(clk), .reset_n(reset_n),
     .aud_xck(xck), .aud_bclk(bclk), .aud_adclrck(lrck), .aud_daclrck(lrck),
     .aud_adcdat(adcdat), .aud_dacdat(dacdat),
-    .tom(tom),
+    .tom(tom), .tx_esq_in(lb_esq), .tx_dir_in(lb_dir),
     .rx_esq(rx_esq), .rx_dir(rx_dir), .rx_quadro(rx_quadro)
 );
+
+// loopback como o audio_buf.v faz na operacao LOOPBACK: copia o quadro
+// recebido no pulso rx_quadro
+reg [15:0] lb_esq = 0, lb_dir = 0;
+always @(posedge clk) if (rx_quadro) begin lb_esq <= rx_esq; lb_dir <= rx_dir; end
 
 localparam NQ = 200;
 reg [15:0] env_esq [0:NQ-1];

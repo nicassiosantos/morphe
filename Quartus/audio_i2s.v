@@ -28,8 +28,9 @@
 // estavel), nunca na descida em que muda -- ali haveria corrida.
 //
 // Fonte do DAC (`tom`):
-//   0 = loopback digital: o que entra pela LINE-in volta pela LINE-out,
-//       atrasado um quadro (o caminho passa pela FPGA, prova recepcao e envio);
+//   0 = o que vier em tx_esq_in/tx_dir_in -- desde 15/10/2026, o audio_buf.v:
+//       silencio, reproducao da RAM ou loopback, comandados pelo HPS (antes
+//       disso o loopback digital era fixo aqui, sempre ligado);
 //   1 = onda quadrada gerada aqui, +-4096 (-18 dBFS), trocando a cada 24
 //       quadros: 48 828 / 48 = 1017 Hz. Prova o DAC sem fonte de audio.
 //
@@ -50,6 +51,8 @@ module audio_i2s (
     output reg         aud_dacdat,   // FPGA -> codec
 
     input  wire        tom,          // 1 = onda quadrada de teste no DAC
+    input  wire [15:0] tx_esq_in,    // com tom = 0: a amostra a enviar
+    input  wire [15:0] tx_dir_in,
 
     // ultima amostra recebida (complemento de dois)
     output reg  [15:0] rx_esq,
@@ -128,7 +131,7 @@ always @(posedge clk or negedge reset_n)
     end
 
 // --- fonte do DAC -------------------------------------------------------------
-// Loopback: copia a amostra recebida. Tom: +-4096 trocando a cada 24 quadros.
+// Externa (tx_*_in) ou tom: +-4096 trocando a cada 24 quadros.
 reg        tx_lrc_ant;     // LRCK do DAC visto na ultima subida (bloco de envio)
 reg [5:0]  tx_n;
 reg [15:0] tx_sh;
@@ -157,9 +160,9 @@ always @(posedge clk or negedge reset_n)
         end
         tx_esq <= tom_fase ? 16'sd4096 : -16'sd4096;
         tx_dir <= tom_fase ? 16'sd4096 : -16'sd4096;
-    end else if (rx_quadro) begin
-        tx_esq <= rx_esq;
-        tx_dir <= rx_dir;
+    end else begin
+        tx_esq <= tx_esq_in;
+        tx_dir <= tx_dir_in;
     end
 
 // --- envio (DACDAT) -----------------------------------------------------------

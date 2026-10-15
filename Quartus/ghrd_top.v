@@ -419,6 +419,26 @@ wire [31:0]                       adc_buf_readdata;
 wire [31:0]                       adc_buf_writedata;
 wire [3:0]                        adc_buf_byteenable = 4'b1111;
 
+// --- Modo audio (15/10/2026): os mesmos PIOs e a mesma RAM servem ao codec ---
+// Nao sobra PIO no Qsys; o bit 31 do adc_divisor (o divisor vai no maximo a
+// 50 000) diz quem usa a RAM: 0 = adc_captura, 1 = audio_buf.
+wire                              modo_audio = adc_divisor[31];
+wire                              adc_done_adc,  adc_done_audio;
+wire [31:0]                       adc_contador_adc, adc_contador_audio;
+wire [ADC_ADDR_WIDTH-1:0]         adcram_addr_adc;
+wire [31:0]                       adcram_wdata_adc;
+wire                              adcram_write_adc;
+wire [ADC_ADDR_WIDTH-1:0]         adcram_addr_audio;
+wire [31:0]                       adcram_wdata_audio;
+wire                              adcram_write_audio;
+assign adc_done           = modo_audio ? adc_done_audio     : adc_done_adc;
+assign adc_contador       = modo_audio ? adc_contador_audio : adc_contador_adc;
+assign adc_buf_address    = modo_audio ? adcram_addr_audio  : adcram_addr_adc;
+assign adc_buf_writedata  = modo_audio ? adcram_wdata_audio : adcram_wdata_adc;
+assign adc_buf_write      = modo_audio ? adcram_write_audio : adcram_write_adc;
+assign adc_buf_chipselect = 1'b1;
+assign adc_buf_clken      = 1'b1;
+
 
 /* -------------------------------------------------------------------------------------------
  * 4. FIR WRAPPER PERIPHERAL SIGNALS
@@ -609,13 +629,13 @@ adc_captura #(
     .reset_n    (hps_fpga_reset_n),
 
     // PIOs de controle
-    .start      (adc_start),          // HPS -> FPGA
-    .done       (adc_done),           // FPGA -> HPS
+    .start      (adc_start & ~modo_audio),   // HPS -> FPGA
+    .done       (adc_done_adc),              // FPGA -> HPS (pelo mux do modo audio)
     .divisor    (adc_divisor),
     .n_amostras (adc_namostras),
     .config_adc (adc_config[5:0]),
     .continuo   (adc_config[6]),
-    .contador   (adc_contador),
+    .contador   (adc_contador_adc),
 
     // LTC2308
     .adc_convst (ADC_CONVST),
@@ -624,11 +644,11 @@ adc_captura #(
     .adc_dout   (ADC_DOUT),
 
     // SRAM de captura (porta do FPGA)
-    .ram_address    (adc_buf_address),
-    .ram_wdata      (adc_buf_writedata),
-    .ram_write      (adc_buf_write),
-    .ram_chipselect (adc_buf_chipselect),
-    .ram_clken      (adc_buf_clken)
+    .ram_address    (adcram_addr_adc),
+    .ram_wdata      (adcram_wdata_adc),
+    .ram_write      (adcram_write_adc),
+    .ram_chipselect (),              // sempre 1 (adc_captura.v)
+    .ram_clken      ()
 );
 
 // ===========================================================================================
@@ -637,8 +657,8 @@ adc_captura #(
 // O codec e o mestre dos relogios de audio (BCLK, ADCLRCK, DACLRCK): a FPGA so
 // entrega o AUD_XCK (12,5 MHz -> fs = 48 828,125 Hz) e le o resto a 50 MHz.
 // A configuracao (I2C) e feita pelo HPS, programa C/codec.c, "./codec digital".
-// SW[9] = 1: onda quadrada de 1017 Hz no DAC; SW[9] = 0: loopback LINE-in -> LINE-out
-// passando pela FPGA. rx_* ficam prontos para a captura em RAM (etapa 3).
+// SW[9] = 1: onda quadrada de 1017 Hz no DAC; SW[9] = 0: o DAC toca o que o
+// audio_buf mandar -- silencio, a RAM ou o loopback, comandados pelo HPS.
 //
 // I2C do codec em alta impedancia: sem driver, o Quartus prende FPGA_I2C_SCLK
 // em GND (Warning 13410). Com o multiplexador virado para o HPS
@@ -651,6 +671,8 @@ assign FPGA_I2C_SDAT = 1'bz;
 wire [15:0] audio_rx_esq;
 wire [15:0] audio_rx_dir;
 wire        audio_rx_quadro;
+wire [15:0] audio_tx_esq;
+wire [15:0] audio_tx_dir;
 
 audio_i2s audio_inst (
     .clk         (CLOCK_50),
@@ -662,9 +684,35 @@ audio_i2s audio_inst (
     .aud_adcdat  (AUD_ADCDAT),
     .aud_dacdat  (AUD_DACDAT),
     .tom         (SW[9]),
+    .tx_esq_in   (audio_tx_esq),
+    .tx_dir_in   (audio_tx_dir),
     .rx_esq      (audio_rx_esq),
     .rx_dir      (audio_rx_dir),
     .rx_quadro   (audio_rx_quadro)
+);
+
+// Audio <-> RAM adc_buf <-> HPS: captura, reproducao e loopback (etapa 3).
+// adc_config[1:0] = operacao, adc_config[6] = continuo (audio_buf.v).
+audio_buf #(
+    .ADDR_BITS (ADC_ADDR_WIDTH)
+) audio_buf_inst (
+    .clk          (CLOCK_50),
+    .reset_n      (hps_fpga_reset_n),
+    .start        (adc_start & modo_audio),
+    .done         (adc_done_audio),
+    .op           (adc_config[1:0]),
+    .continuo     (adc_config[6]),
+    .n_amostras   (adc_namostras),
+    .contador     (adc_contador_audio),
+    .rx_esq       (audio_rx_esq),
+    .rx_dir       (audio_rx_dir),
+    .rx_quadro    (audio_rx_quadro),
+    .tx_esq       (audio_tx_esq),
+    .tx_dir       (audio_tx_dir),
+    .ram_address  (adcram_addr_audio),
+    .ram_wdata    (adcram_wdata_audio),
+    .ram_write    (adcram_write_audio),
+    .ram_readdata (adc_buf_readdata)
 );
 
 // Medidor de nivel do audio recebido em HEX0..HEX4 (6 dB por degrau). Prova a

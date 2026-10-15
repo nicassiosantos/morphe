@@ -1091,6 +1091,12 @@ static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n, uint32_t di
     (void) dtype; (void) n; (void) divisor; (void) cfg;
     return recusar_sem_adc(sock, MORPHE_OP_ADC_CONTINUO);
 }
+static int audio_loop_pausa(void) { return 0; }
+static void audio_loop_retoma(int estava) { (void) estava; }
+static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, uint32_t n_h) {
+    (void) dtype; (void) sub; (void) n_x; (void) n_h;
+    return recusar_sem_adc(sock, MORPHE_OP_AUDIO);
+}
 #else
 /* O que as duas operacoes do ADC conferem antes de tocar na FPGA. Devolve 1
  * se recusou (a resposta de erro ja foi enviada) e 0 se pode seguir. */
@@ -1318,6 +1324,271 @@ static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n_total, uint3
     LOG("  -> ADC continuo: %llu amostras em %.2f s, termino: %s",
         (unsigned long long) enviados, seg, estado < 4 ? nomes[estado] : "?");
     return 0;
+}
+
+/* ---- Audio do codec (OP_AUDIO): captura, reproducao e loopback -------------
+ *
+ * O audio usa a RAM adc_buf e os PIOs do ADC (audio_buf.v): o bit 31 do
+ * adc_divisor liga o modo audio, adc_config[1:0] e a operacao e adc_config[6]
+ * o modo continuo. Uma palavra por quadro estereo, {dir[31:16], esq[15:0]},
+ * a fs = 50 MHz / 1024 = 48 828,125 Hz. O codec precisa estar configurado
+ * (./codec digital, C/codec.c); sem ele nao ha relogio de audio e nenhum
+ * quadro anda -- e o que o servidor detecta e explica.
+ *
+ * O loopback (entrada -> saida, sem RAM) fica ligado entre as conexoes. Como
+ * ele ocupa a RAM e os PIOs, qualquer operacao do ADC ou do audio o pausa e
+ * o religa no fim (serve_connection). */
+static int g_audio_loop = 0;     /* o cliente pediu o loopback ligado */
+
+static void audio_para(void) {
+    *g_pio_adc_start = 0;
+    usleep(100);                  /* > 2 quadros: o audio_buf volta ao repouso */
+    *g_pio_adc_divisor = 0;       /* RAM e PIOs de volta ao adc_captura */
+    *g_pio_adc_config  = 0;
+}
+
+static void audio_inicia(uint32_t op, int continuo, uint32_t n) {
+    *g_pio_adc_start     = 0;
+    usleep(100);
+    *g_pio_adc_divisor   = MORPHE_AUDIO_MODO;
+    *g_pio_adc_namostras = n;
+    *g_pio_adc_config    = op | (continuo ? MORPHE_ADC_CFG_CONTINUO : 0U);
+    usleep(1);
+    *g_pio_adc_start     = 1;
+}
+
+/* Pausa o loopback ligado antes de uma operacao que precisa da RAM. Devolve
+ * se havia algo a religar. */
+static int audio_loop_pausa(void) {
+    if (!g_audio_loop) return 0;
+    audio_para();
+    return 1;
+}
+
+static void audio_loop_retoma(int estava) {
+    if (estava && g_audio_loop) audio_inicia(MORPHE_AUDIO_OP_LOOP, 1, 0);
+}
+
+/* Espera o contador do audio_buf sair de `de` por ate `ms`. Sem codec
+ * configurado (ou com um bitstream sem o audio_buf) ele nunca anda. */
+static int audio_anda(uint32_t de, int ms) {
+    for (int t = 0; t < ms; t++) {
+        if (*g_pio_adc_contador != de) return 1;
+        usleep(1000);
+    }
+    return 0;
+}
+
+static const char *MSG_SEM_AUDIO =
+    "AUDIO: nenhum quadro de audio em 300 ms -- configure o codec na placa "
+    "(./codec digital) e confira se o bitstream tem o audio_buf";
+
+static int audio_recusa(int sock, uint16_t dtype) {
+    if (!fpga_preparada()) { recusar_sem_fpga(sock, MORPHE_OP_AUDIO, "AUDIO"); return 1; }
+    if (g_sysid[1] != SYSID_QSYS_TIMESTAMP) {
+        send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_NAO_PREPARADA,
+                   "AUDIO: o bitstream na FPGA nao e o deste servidor");
+        return 1;
+    }
+    if (dtype != MORPHE_DTYPE_INT32) {
+        send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_DTYPE,
+                   "AUDIO: as amostras vao em int32 ({dir, esq}, 16 bits cada)");
+        return 1;
+    }
+    return 0;
+}
+
+/* Captura: o hardware grava sem parar na RAM (circular) e este laco manda os
+ * quadros novos em blocos, no mesmo formato do ADC_CONTINUO: cabecalho e
+ * depois [k, estado] + k palavras, ate um bloco com k = 0. n_total = 0 segue
+ * ate o cliente mandar um byte ou fechar. Com `loop`, a entrada tambem sai
+ * pela LINE-out durante a captura. */
+static int audio_captura(int sock, uint32_t n_total, int loop) {
+    LOG("AUDIO captura: n=%u%s%s", n_total, n_total ? "" : " (ate o cliente parar)",
+        loop ? ", com loopback" : "");
+    audio_inicia(loop ? MORPHE_AUDIO_OP_CAP_LOOP : MORPHE_AUDIO_OP_CAPTURA, 1, 0);
+    if (!audio_anda(0, 300)) {
+        audio_para();
+        LOG("  -> %s", MSG_SEM_AUDIO);
+        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
+    }
+
+    struct timeval espera = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &espera, sizeof espera);
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
+    u32_to_be(hdr + 16, MORPHE_AUDIO_DIVISOR);    /* fs = 50 MHz / extra */
+    if (send_all(sock, hdr, sizeof hdr) < 0) { audio_para(); return -1; }
+
+    const uint32_t n_buf = MORPHE_ADC_N_MAX;
+    static uint8_t tx_buf[8 + MORPHE_ADC_BLOCO_MAX * 4];
+    uint32_t lidos = 0;
+    uint64_t enviados = 0;
+    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
+    int cliente_foi = 0;
+    struct timespec t0, t_ultimo, agora;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    t_ultimo = t0;
+
+    for (;;) {
+        char c;
+        ssize_t r = recv(sock, &c, 1, MSG_DONTWAIT);
+        if (r == 1) { LOG("  -> o cliente pediu para parar"); break; }
+        if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+            cliente_foi = 1; LOG("  -> o cliente fechou a conexao"); break;
+        }
+        if (n_total && enviados >= n_total) break;
+
+        uint32_t cont = *g_pio_adc_contador;
+        uint32_t disp = cont - lidos;
+        if (disp > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
+        if (disp == 0) {
+            clock_gettime(CLOCK_MONOTONIC, &agora);
+            if (ts_diff_us(&t_ultimo, &agora) > 1000000L) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
+            usleep(5000);
+            continue;
+        }
+        uint32_t k = disp < MORPHE_ADC_BLOCO_MAX ? disp : MORPHE_ADC_BLOCO_MAX;
+        if (n_total && (uint64_t) k > n_total - enviados) k = (uint32_t) (n_total - enviados);
+        for (uint32_t i = 0; i < k; i++)
+            u32_to_be(tx_buf + 8 + i * 4, g_adc_buf[(lidos + i) & (n_buf - 1)]);
+        if (*g_pio_adc_contador - lidos > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
+
+        u32_to_be(tx_buf + 0, k);
+        u32_to_be(tx_buf + 4, MORPHE_ADC_BLOCO_SEGUE);
+        if (send_all(sock, tx_buf, 8 + (size_t) k * 4) < 0) {
+            cliente_foi = 1; LOG("  -> envio falhou: cliente fora"); break;
+        }
+        lidos += k;
+        enviados += k;
+        clock_gettime(CLOCK_MONOTONIC, &t_ultimo);
+    }
+    audio_para();
+
+    if (!cliente_foi) {
+        u32_to_be(tx_buf + 0, 0);
+        u32_to_be(tx_buf + 4, estado);
+        send_all(sock, tx_buf, 8);
+    }
+    struct timeval sem_limite = { .tv_sec = 0, .tv_usec = 0 };
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sem_limite, sizeof sem_limite);
+    clock_gettime(CLOCK_MONOTONIC, &agora);
+    static const char *nomes[] = { "segue", "fim", "PERDEU AMOSTRAS", "TIMEOUT" };
+    LOG("  -> AUDIO captura: %llu quadros em %.2f s, termino: %s",
+        (unsigned long long) enviados, (double) ts_diff_us(&t0, &agora) / 1e6,
+        estado < 4 ? nomes[estado] : "?");
+    return 0;
+}
+
+/* Le k palavras do cliente direto para a RAM, a partir do quadro `de`
+ * (endereco circular). */
+static int audio_recebe(int sock, uint32_t de, uint32_t k) {
+    static uint8_t buf[4096 * 4];
+    while (k) {
+        uint32_t m = k < 4096 ? k : 4096;
+        if (recv_exact(sock, buf, (size_t) m * 4) < 0) return -1;
+        for (uint32_t i = 0; i < m; i++)
+            g_adc_buf[(de + i) & (MORPHE_ADC_N_MAX - 1)] = u32_from_be(buf + i * 4);
+        de += m;
+        k  -= m;
+    }
+    return 0;
+}
+
+/* Reproducao: n quadros, que chegam do cliente logo depois do cabecalho.
+ * Ate 32768 cabem na RAM: carrega tudo e toca de uma vez. Acima disso a RAM
+ * vira circular e o servidor reabastece atras do contador enquanto toca --
+ * a duracao so e limitada pela rede (195 kB/s a 48,8 kHz). Se a rede
+ * atrasar e o hardware passar do que ja chegou, o fim avisa (extra = 2). */
+static int audio_reproduz(int sock, uint32_t n) {
+    LOG("AUDIO reproduz: n=%u (%.2f s)", n, (double) n / MORPHE_AUDIO_FS);
+    if (n == 0) return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
+                                  "AUDIO: nada para tocar (n = 0)");
+    const uint32_t n_buf = MORPHE_ADC_N_MAX;
+    const uint32_t folga = 1024;           /* nao escrever colado no que toca */
+    uint32_t primeiro = n < n_buf ? n : n_buf - folga;
+    if (audio_recebe(sock, 0, primeiro) < 0) return -1;
+
+    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
+    struct timespec t0, agora;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    if (n <= primeiro) {
+        audio_inicia(MORPHE_AUDIO_OP_REPRODUZ, 0, n);
+        if (!audio_anda(0, 300)) {
+            audio_para();
+            return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
+        }
+        int ms = (int) ((uint64_t) n * 1000U / (uint32_t) MORPHE_AUDIO_FS) + 2000;
+        if (wait_done(g_pio_adc_done, ms) < 0) estado = MORPHE_ADC_BLOCO_TIMEOUT;
+    } else {
+        audio_inicia(MORPHE_AUDIO_OP_REPRODUZ, 1, 0);
+        if (!audio_anda(0, 300)) {
+            audio_para();
+            drain_pending(sock);
+            return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
+        }
+        uint32_t escritos = primeiro;
+        uint32_t ultimo = 0;
+        struct timespec t_mov = t0;
+        /* depois dos n quadros, zeros: o que tocar ate o start baixar e silencio */
+        for (;;) {
+            uint32_t cont = *g_pio_adc_contador;
+            clock_gettime(CLOCK_MONOTONIC, &agora);
+            if (cont != ultimo) { ultimo = cont; t_mov = agora; }
+            else if (ts_diff_us(&t_mov, &agora) > 1000000L) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
+            if (cont >= n) break;
+            if (cont > escritos && escritos < n) estado = MORPHE_ADC_BLOCO_PERDEU;
+            uint32_t livre = cont + n_buf - folga - escritos;
+            if ((int32_t) livre <= 0) { usleep(2000); continue; }
+            if (escritos < n) {
+                uint32_t k = n - escritos;
+                if (k > livre) k = livre;
+                if (k > 4096) k = 4096;
+                if (audio_recebe(sock, escritos, k) < 0) { audio_para(); return -1; }
+                escritos += k;
+            } else {
+                uint32_t k = livre > 4096 ? 4096 : livre;
+                for (uint32_t i = 0; i < k; i++)
+                    g_adc_buf[(escritos + i) & (n_buf - 1)] = 0;
+                escritos += k;
+            }
+        }
+    }
+    audio_para();
+
+    uint8_t hdr[MORPHE_HEADER_SIZE];
+    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, n);
+    u32_to_be(hdr + 16, estado);
+    clock_gettime(CLOCK_MONOTONIC, &agora);
+    LOG("  -> AUDIO reproduz: %u quadros em %.2f s%s", n,
+        (double) ts_diff_us(&t0, &agora) / 1e6,
+        estado == MORPHE_ADC_BLOCO_PERDEU ? " (a rede atrasou: houve falha no som)" :
+        estado == MORPHE_ADC_BLOCO_TIMEOUT ? " (TIMEOUT)" : "");
+    return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
+}
+
+static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, uint32_t n_h) {
+    if (audio_recusa(sock, dtype)) return 0;
+    switch (sub) {
+    case MORPHE_AUDIO_CAPTURA:
+        return audio_captura(sock, n_x, (int) (n_h & 1U));
+    case MORPHE_AUDIO_REPRODUZ:
+        return audio_reproduz(sock, n_x);
+    case MORPHE_AUDIO_LOOPBACK: {
+        g_audio_loop = (n_h & 1U) ? 1 : 0;
+        LOG("AUDIO loopback %s", g_audio_loop ? "LIGADO" : "desligado");
+        if (g_audio_loop) audio_inicia(MORPHE_AUDIO_OP_LOOP, 1, 0);
+        else              audio_para();
+        uint8_t hdr[MORPHE_HEADER_SIZE];
+        build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
+        u32_to_be(hdr + 16, (uint32_t) g_audio_loop);
+        return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
+    }
+    default:
+        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
+                          "AUDIO: suboperacao desconhecida (0 captura, 1 reproduz, 2 loopback)");
+    }
 }
 #endif /* MORPHE_TEM_ADC */
 
@@ -1547,6 +1818,12 @@ static void serve_connection(int sock, const struct sockaddr_in *peer) {
     const int conta = opcode != MORPHE_OP_PING;
     if (conta) estado_inicio(opcode, peer);
 
+    /* O loopback do audio ocupa a RAM e os PIOs do ADC: quem precisa deles o
+     * pausa, e ele volta no fim. */
+    const int usa_ram_adc = opcode == MORPHE_OP_ADC || opcode == MORPHE_OP_ADC_CONTINUO ||
+                            (opcode == MORPHE_OP_AUDIO && flags != MORPHE_AUDIO_LOOPBACK);
+    const int loop_pausado = usa_ram_adc ? audio_loop_pausa() : 0;
+
     switch (opcode) {
         case MORPHE_OP_CONV: handle_conv(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
@@ -1555,11 +1832,13 @@ static void serve_connection(int sock, const struct sockaddr_in *peer) {
         case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_ADC:  handle_adc(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC_CONTINUO: handle_adc_continuo(sock, dtype, n_x, n_h, flags); break;
+        case MORPHE_OP_AUDIO: handle_audio(sock, dtype, flags, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");
             break;
     }
+    audio_loop_retoma(loop_pausado);
     if (conta) estado_fim();
 }
 
