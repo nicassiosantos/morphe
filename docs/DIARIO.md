@@ -16,6 +16,24 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 19/10/2026 (noite, fim) — Bitstream OFICIAL 20.1 com o estado do IIR, validado (a309e06)
+
+Compilado na estação com o Quartus 20.1 a partir de `0bf97a9` (sem `qsys-generate`) e
+gravado na placa 1 pelo `morphe-up.sh`; commit `a309e06` com a proveniência (16 de
+16 OK) feito na estação.
+
+- `testa_blocos.py --placa 172.16.230.24`: **TUDO OK**; item 8 e item 9 (o
+  Butterworth de 200 Hz que pedia 1811 de aquecimento, 20 000 amostras em 20 blocos,
+  0,18 s): **0 amostras diferentes** do filtro contínuo.
+- `testa_codec.py`: **TUDO OK**, com o ao vivo a 0 LSB do modelo.
+- Timing, clock de 50 MHz: pior folga **+3,818 ns** (Fmax ≈ 61,8 MHz; antes +3,716).
+- Uso: **14 501 ALMs (45 %)** contra 12 792 (40 %) do bitstream de 15/10, +55
+  registradores, DSP e memória iguais. O custo é do estado (os multiplexadores que
+  escolhem qual dos 64 registradores vai à SRAM e o caminho de carga na frente de
+  cada um) — e não da versão do Quartus, como a cópia em 23.1 sugeria.
+
+Placa 2 não estava no cabo: ainda sem este bitstream.
+
 ## 19/10/2026 (noite, fim) — Truncar × arredondar no conv1d: comparação medida
 
 O RTL **antigo** do `conv1d.v` (antes de `d52e8ff`, 15/10) e o **novo** simulados no
