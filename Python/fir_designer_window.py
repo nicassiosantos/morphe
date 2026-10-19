@@ -115,9 +115,13 @@ class FIRDesignerWindow(tk.Toplevel):
     que o sinal de entrada na janela FIR seja mantido coerente com o
     projeto do filtro (mesma taxa de amostragem). Tipicamente a janela
     mae encaminha para o CoefficientsLoader.
+
+    fs: se dada, a janela ja abre com essa taxa de amostragem (e bordas de
+    exemplo na faixa de audio), como na janela Audio, com a fs do codec.
     """
 
-    def __init__(self, master, on_apply: Callable[[np.ndarray, str], None]):
+    def __init__(self, master, on_apply: Callable[[np.ndarray, str], None],
+                 fs: Optional[float] = None):
         super().__init__(master)
         self.title("Morphe — Projetar filtro FIR")
         self.configure(bg=theme.COLORS["bg"])
@@ -151,6 +155,15 @@ class FIRDesignerWindow(tk.Toplevel):
         self._build_controls(left)
         self._build_actions(left)
         self._build_plots(right)
+        if fs:
+            # Os exemplos de 200 Hz (fp 50, df 10) pediriam ~16 mil taps a
+            # 48,8 kHz: bordas e transicao na escala do audio.
+            self.var_fs.set("%.10g" % fs)
+            self.var_fp1.set("1000")
+            self.var_fp2.set("3000")
+            self.var_df.set("500")
+            self.var_fc1.set("1000")
+            self.var_fc2.set("3000")
 
         self._on_mode_change()
 

@@ -54,22 +54,16 @@ A janela principal é um menu de botões, um por ferramenta:
     a opção ``ajustar o volume'' leva o pico a 90\,\% do fundo de escala.
     \emph{Loopback} devolve o som pela saída da placa, ao computador ou aos
     dois. \emph{Filtrar na placa} passa a última captura (ou um arquivo) por
-    um filtro da FPGA: IIR (Butterworth, Chebyshev I e II, elíptico, com o
-    ganho distribuído entre as seções) no bloco IIR, em blocos de 1024 com
-    aquecimento, ou FIR (método das janelas: Hamming, Hann, Blackman, Kaiser) no
-    bloco FIR, por \emph{overlap-add} --- projetado ali mesmo ou vindo do
-    projetista IIR ou FIR; mostra os espectros médios da entrada e da saída com
+    um filtro da FPGA, vindo do projetista IIR (no bloco IIR, em blocos de
+    1024 com aquecimento) ou do projetista FIR (no bloco FIR, por
+    \emph{overlap-add}). Aberto desta janela, o projetista já vem com a
+    \(f_s\) do codec, 48\,828,125\,Hz; um filtro projetado para outra \(f_s\)
+    é recusado. A janela mostra os espectros médios da entrada e da saída com
     \(|H(f)|\), toca as duas e salva a saída. Não é tempo real: o quadro
     \emph{Medidas} mostra o atraso até ouvir (a gravação inteira, mais a
     filtragem, perto de 2 vezes o tempo real, mais o atraso de grupo do filtro).
-    \emph{Filtrar ao vivo (IIR)} faz o mesmo em tempo real, sem bitstream novo:
-    o servidor passa cada bloco que o codec grava pelo bloco IIR da placa (a
-    janela de 1024 desliza, com o aquecimento) e manda entrada e saída ao
-    computador, que as mostra e toca a saída na caixa \emph{do computador}
-    (\texttt{aplay} ou \texttt{sounddevice}). O quadro \emph{Medidas} soma o
-    atraso: encher o bloco, a placa (medida no servidor), o atraso de grupo e o
-    buffer de som. Tocar pela LINE-out da placa enquanto grava exige mudar a
-    FPGA: é a ideia guardada na branch \texttt{estagio/filtro-tempo-real}. Uma seção recolhível resume o codec: \(f_s\), o filtro
+    Filtrar em tempo real, com a saída na LINE-out, exige mudar a FPGA: é a
+    ideia guardada na branch \texttt{estagio/filtro-tempo-real}. Uma seção recolhível resume o codec: \(f_s\), o filtro
     \emph{anti-aliasing}, os níveis e o atraso.
   \item[Convolução] dois sinais, \(x[n]\) e \(h[n]\), convoluídos na FPGA. Mostra
     as entradas, a saída da placa, a referência do NumPy e o erro entre elas.
@@ -144,6 +138,12 @@ motivos da seção~\ref{sec:acel-iir}. O Butterworth e os dois Chebyshev são
 calculados só com NumPy; o elíptico usa o SciPy e só aparece se ele estiver
 instalado. Quatro erros encontrados no \arq{.m} original estão corrigidos no
 módulo Python e documentados nele.
+
+Atenção à convenção do professor, mantida na janela: \(f_s\) minúsculo
+(campos ``fs rejeição'', ``fs1'', ``fs2'') é a \emph{borda da banda de
+rejeição}; a taxa de amostragem é o campo ``Fs amostragem''. Num passa-baixas a
+borda de rejeição tem de ficar acima de \(f_p\); num passa-altas, abaixo. Se não
+ficar, a mensagem diz qual campo está fora de ordem e com que valores.
 
 \section{A janela de aquisição}
 \label{sec:janela-aquisicao}

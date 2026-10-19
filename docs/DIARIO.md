@@ -16,6 +16,21 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 19/10/2026 — Janela Áudio simplificada; mensagem do projetista IIR
+
+A pedido, saíram da janela Áudio o **Filtrar ao vivo (IIR)** (de 15/10, nunca testado
+na placa) e o **Projetar aqui**: o filtro vem só dos projetistas IIR e FIR, que,
+abertos dali, já trazem **Fs = 48 828,125 Hz** (exata: a janela recusa filtro de
+outra fs) e bordas na faixa de áudio. A operação `AUDIO` 4 continua no servidor e
+no `audio.py`, sem uso no app.
+
+O "erro" relatado no passa-baixa ("fs tem que ser maior que a frequência de corte",
+com a Fs de amostragem bem maior) **não era bug de cálculo**: no projetista IIR,
+`fs` minúsculo é a borda da banda de rejeição (convenção do professor), e ela estava
+abaixo de `fp`. A mensagem agora nomeia o campo e mostra os valores. Manual, cap. 7,
+atualizado. Testado no computador (sem placa): projetistas abrem com a fs do codec,
+projetam (IIR ordem 13; FIR 323 taps) e aplicam com a fs exata.
+
 ## 15/10/2026 (noite) — Filtrar ao vivo pelo IIR da placa, sem bitstream novo
 
 A pedido: filtragem **ao vivo** com o hardware que está no laboratório. O laço roda

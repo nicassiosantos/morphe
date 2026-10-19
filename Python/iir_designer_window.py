@@ -103,9 +103,13 @@ class IIRDesignerWindow(tk.Toplevel):
     on_apply(sos, descricao, fs): chamado em 'Aplicar a janela IIR' com a
     cascata JA com o ganho distribuido entre as secoes (o que vai para o
     hardware), a descricao e a taxa de amostragem do projeto.
+
+    fs: se dada, a janela ja abre com essa taxa de amostragem (e bordas de
+    exemplo na faixa de audio), como na janela Audio, com a fs do codec.
     """
 
-    def __init__(self, master, on_apply: Callable[[np.ndarray, str, float], None]):
+    def __init__(self, master, on_apply: Callable[[np.ndarray, str, float], None],
+                 fs: Optional[float] = None):
         super().__init__(master)
         self.title("Morphe — Projetar filtro IIR")
         self.configure(bg=theme.COLORS["bg"])
@@ -136,6 +140,12 @@ class IIRDesignerWindow(tk.Toplevel):
         self._build_controls(left)
         self._build_actions(left)
         self._build_plots(right)
+        if fs:
+            self.var_Fs.set("%.10g" % fs)
+            self.var_fp1.set("1000")
+            self.var_fs1.set("1500")
+            self.var_fp2.set("3000")
+            self.var_fs2.set("4000")
 
         self._on_type_change()
         self.after(100, self._on_design)
@@ -398,15 +408,32 @@ class IIRDesignerWindow(tk.Toplevel):
 
         # A regra do professor (o tipo sai da posicao das bordas) continua
         # valendo dentro do design_iir; aqui so conferimos que as bordas
-        # digitadas batem com o tipo escolhido, para o erro ser claro.
+        # digitadas batem com o tipo escolhido, para o erro ser claro. O
+        # "fs" daqui e a borda de REJEICAO, nao a amostragem (Fs): a
+        # mensagem diz o nome do campo e os valores, senao parece que a
+        # taxa de amostragem esta errada.
         if kind == "lowpass" and not fp < fs_borda:
-            raise ValueError("Passa-baixa: fp tem que ser menor que fs.")
+            raise ValueError(
+                "Passa-baixa: a borda de rejeição (campo \"fs rejeição\" = %g Hz) "
+                "tem que ficar ACIMA da passante (fp = %g Hz). Esse fs é a "
+                "borda da banda de rejeição, não a amostragem Fs."
+                % (fs_borda, fp))
         if kind == "highpass" and not fp > fs_borda:
-            raise ValueError("Passa-alta: fp tem que ser maior que fs.")
+            raise ValueError(
+                "Passa-alta: a borda de rejeição (campo \"fs rejeição\" = %g Hz) "
+                "tem que ficar ABAIXO da passante (fp = %g Hz). Esse fs é a "
+                "borda da banda de rejeição, não a amostragem Fs."
+                % (fs_borda, fp))
         if kind == "bandpass" and not (fs_borda[0] < fp[0] < fp[1] < fs_borda[1]):
-            raise ValueError("Passa-banda: fs1 < fp1 < fp2 < fs2.")
+            raise ValueError(
+                "Passa-banda: precisa fs1 < fp1 < fp2 < fs2 (fs1, fs2 = bordas "
+                "de rejeição, não a amostragem Fs); está %g, %g, %g, %g Hz."
+                % (fs_borda[0], fp[0], fp[1], fs_borda[1]))
         if kind == "bandstop" and not (fp[0] < fs_borda[0] < fs_borda[1] < fp[1]):
-            raise ValueError("Rejeita-banda: fp1 < fs1 < fs2 < fp2.")
+            raise ValueError(
+                "Rejeita-banda: precisa fp1 < fs1 < fs2 < fp2 (fs1, fs2 = bordas "
+                "de rejeição, não a amostragem Fs); está %g, %g, %g, %g Hz."
+                % (fp[0], fs_borda[0], fs_borda[1], fp[1]))
         return self.var_aprox.get(), fp, fs_borda, dp, ds, Fs
 
     def _on_design(self):
