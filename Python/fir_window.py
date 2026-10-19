@@ -24,6 +24,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import dsp_core as dsp
 import morphe_theme as theme
 import blocos
+import fir_design as fd
 from sinal_arquivo import TIPOS_DIALOGO, carregar_sinal
 from morphe_protocol import (build_fir_request, decode_fir_response,
                               DTYPE_CODES)
@@ -891,7 +892,9 @@ class FIRWindow(tk.Toplevel):
         self._redraw_plots()
 
     def _open_designer(self, on_apply_callback):
-        FIRDesignerWindow(self, on_apply=on_apply_callback)
+        # acima de MAX_N taps a janela aplica o filtro por blocos
+        FIRDesignerWindow(self, on_apply=on_apply_callback,
+                          max_taps=fd.MAX_TAPS_BLOCOS)
 
     def _on_h_loaded(self, coefs: np.ndarray, descr: str,
                        fs: Optional[float] = None,

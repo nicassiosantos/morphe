@@ -118,10 +118,13 @@ class FIRDesignerWindow(tk.Toplevel):
 
     fs: se dada, a janela ja abre com essa taxa de amostragem (e bordas de
     exemplo na faixa de audio), como na janela Audio, com a fs do codec.
+    max_taps: o teto de coeficientes. O padrao e o que cabe numa
+    convolucao da placa; as janelas que filtram por blocos passam
+    fd.MAX_TAPS_BLOCOS.
     """
 
     def __init__(self, master, on_apply: Callable[[np.ndarray, str], None],
-                 fs: Optional[float] = None):
+                 fs: Optional[float] = None, max_taps: int = fd.MAX_TAPS):
         super().__init__(master)
         self.title("Morphe — Projetar filtro FIR")
         self.configure(bg=theme.COLORS["bg"])
@@ -133,6 +136,7 @@ class FIRDesignerWindow(tk.Toplevel):
         theme.setup_styles(self)
 
         self._on_apply = on_apply
+        self.max_taps = max_taps
         self.h: Optional[np.ndarray] = None
         self.report: Optional[dict] = None
         self.measured: Optional[dict] = None
@@ -328,7 +332,7 @@ class FIRDesignerWindow(tk.Toplevel):
             style="Card.TLabelframe", padding=(14, 12, 14, 14))
 
         f = self.frm_adv
-        ttk.Label(f, text="N (taps, ÍMPAR 3..%d):" % fd.MAX_TAPS,
+        ttk.Label(f, text="N (taps, ÍMPAR 3..%d):" % self.max_taps,
                   style="Card.TLabel").grid(row=0, column=0, sticky="w")
         self.var_N = tk.StringVar(value="63")
         e = ttk.Entry(f, textvariable=self.var_N, width=8)
@@ -450,6 +454,13 @@ class FIRDesignerWindow(tk.Toplevel):
             except tk.TclError:
                 pass
 
+    def _nota_blocos(self) -> str:
+        if self.max_taps <= fd.MAX_TAPS:
+            return ""
+        return ("\nAcima de %d taps o filtro roda em blocos de %d "
+                "coeficientes (overlap-add): cada bloco a mais é mais uma "
+                "convolução na placa." % (fd.MAX_TAPS, fd.CONV_N_MAX))
+
     def _on_mode_change(self):
         spec = self.var_mode.get() == _MODE_SPEC
         if spec:
@@ -459,7 +470,8 @@ class FIRDesignerWindow(tk.Toplevel):
                 "Declare o desempenho; o programa escolhe a janela e "
                 "calcula N (método do Prof. Armando S. Sanca).\n"
                 "δs máximo: 90 dB. Acima de %d taps a especificação é "
-                "recusada, com o Δf mínimo viável." % fd.MAX_TAPS)
+                "recusada, com o Δf mínimo viável." % self.max_taps
+                + self._nota_blocos())
         else:
             self.frm_spec.pack_forget()
             self.frm_adv.pack(fill="x", pady=3)
@@ -467,7 +479,7 @@ class FIRDesignerWindow(tk.Toplevel):
                 "N (taps) deve ser ÍMPAR entre 3 e %d, para fase "
                 "linear. Cutoff < fs/2 (Nyquist). Hamming e Blackman "
                 "dão melhor stopband; Retangular, o pior."
-                % fd.MAX_TAPS)
+                % self.max_taps + self._nota_blocos())
         self._on_type_change()
         self._layout_axes()
 
@@ -548,7 +560,8 @@ class FIRDesignerWindow(tk.Toplevel):
             return
 
         try:
-            h, report = fd.design_from_spec(kind, fp, df, dp, ds, fs)
+            h, report = fd.design_from_spec(kind, fp, df, dp, ds, fs,
+                                               self.max_taps)
         except fd.SpecError as e:
             self._fail(str(e))
             return
@@ -601,10 +614,10 @@ class FIRDesignerWindow(tk.Toplevel):
             kind = _TYPE_UI_TO_INT[self.var_type.get()]
             window = _WINDOW_UI_TO_INT[self.var_window.get()]
             N = int(self.var_N.get())
-            if N > fd.MAX_TAPS:
+            if N > self.max_taps:
                 raise ValueError(
                     "N=%d acima do limite do hardware (%d taps)"
-                    % (N, fd.MAX_TAPS))
+                    % (N, self.max_taps))
             fs = float(self.var_fs.get())
             fc1 = float(self.var_fc1.get())
             fc2 = None

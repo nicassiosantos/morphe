@@ -16,6 +16,26 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 19/10/2026 (tarde) — Stem, FIR acima de 1024 coeficientes e salvar para comparar
+
+A pedido, na janela Áudio:
+- **Stem**: caixa no topo; no tempo, cada amostra vira uma haste (na filtragem, 128
+  amostras do meio — com os 20 ms inteiros, ~1000 hastes viram uma mancha).
+- **FIR com mais de 1024 coeficientes**: a janela já filtrava por blocos até 8192
+  (overlap-add no sinal e nos coeficientes); o teto de 1023 estava no projetista.
+  Ele agora recebe `max_taps`: 8191 quando aberto pelas janelas Áudio e FIR (as que
+  aplicam por blocos), 1023 nas demais.
+- **Salvar para comparar**: depois de filtrar, grava entrada, filtro e saída num
+  bundle `.mrph` (o mesmo formato das janelas FIR e IIR, que o Comparador abre) ou
+  num `.npz`.
+
+Testado **sem placa**, com a saída da placa simulada: projetista FIR com 2687 coef.
+(Δf = 60 Hz a 48,8 kHz; recusado com o teto antigo); bundle FIR aberto no
+Comparador com o erro igual ao ruído injetado (4,4·10⁻⁶); bundle IIR com a saída do
+modelo Q15.16: **0** contra o modelo bit a bit e 1,6·10⁻⁴ contra a cascata em
+float64. **Falta na placa**: filtrar uma captura com FIR > 1024 coef. e abrir o
+bundle no Comparador.
+
 ## 19/10/2026 — Janela Áudio simplificada; mensagem do projetista IIR
 
 A pedido, saíram da janela Áudio o **Filtrar ao vivo (IIR)** (de 15/10, nunca testado

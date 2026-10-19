@@ -58,8 +58,17 @@ A janela principal é um menu de botões, um por ferramenta:
     1024 com aquecimento) ou do projetista FIR (no bloco FIR, por
     \emph{overlap-add}). Aberto desta janela, o projetista já vem com a
     \(f_s\) do codec, 48\,828,125\,Hz; um filtro projetado para outra \(f_s\)
-    é recusado. A janela mostra os espectros médios da entrada e da saída com
-    \(|H(f)|\), toca as duas e salva a saída. Não é tempo real: o quadro
+    é recusado. O FIR pode ter mais de 1024 coeficientes, até 8191: o
+    projetista aceita, e a placa aplica em blocos de 1024 coeficientes (cada
+    bloco a mais é mais uma convolução por bloco do sinal). A janela mostra os
+    espectros médios da entrada e da saída com \(|H(f)|\), toca as duas e salva
+    a saída; a caixa \emph{Stem} desenha as amostras como hastes, sem ligar os
+    pontos (na filtragem, 128 amostras do meio). \emph{Salvar para comparar}
+    grava entrada, filtro e saída da placa num bundle \arq{.mrph}, que o
+    Comparador abre e refaz no NumPy (FIR: convolução; IIR: a cascata em
+    float64 e o modelo Q15.16 bit a bit), ou num \arq{.npz} para um script
+    próprio (\texttt{np.load}: \texttt{x}, \texttt{y\_placa}, \texttt{fs} e
+    \texttt{h} ou \texttt{sos}). Não é tempo real: o quadro
     \emph{Medidas} mostra o atraso até ouvir (a gravação inteira, mais a
     filtragem, perto de 2 vezes o tempo real, mais o atraso de grupo do filtro).
     Filtrar em tempo real, com a saída na LINE-out, exige mudar a FPGA: é a
@@ -125,7 +134,10 @@ passa-banda, rejeita-banda), a borda da banda passante, a largura da transição
 o \emph{ripple} e a atenuação; o programa escolhe a janela (retangular, Hann,
 Hamming, Blackman ou Kaiser) e calcula quantos coeficientes são necessários. É
 o método do \arq{dsp_fir_filter.m} do Prof.\ Sanca, portado para Python. No modo
-\emph{avançado}, o aluno escolhe o número de coeficientes e a janela. Nos dois,
+\emph{avançado}, o aluno escolhe o número de coeficientes e a janela. O teto
+é 1023 coeficientes (uma convolução da placa) quando aberto por outra janela, e
+8191 quando aberto pelas janelas FIR e Áudio, que aplicam o filtro em blocos.
+Nos dois modos,
 o projetista mostra o que o filtro entrega \emph{depois} da quantização em
 Q15.16. Validado na placa em 22/09/2026: 63,0\,dB de rejeição medida contra
 63,3\,dB da referência.

@@ -224,6 +224,11 @@ def save_coefficients_txt(path: str, h: np.ndarray,
 #: memoria; o filtro precisa de comprimento IMPAR, dai o ajuste.
 MAX_TAPS: int = CONV_N_MAX - 1 if CONV_N_MAX % 2 == 0 else CONV_N_MAX
 
+#: Teto quando o filtro e aplicado por blocos (overlap-add no sinal E nos
+#: coeficientes, blocos.conv_por_blocos): cada CONV_N_MAX coeficientes a
+#: mais custam mais uma convolucao por bloco do sinal. Impar, fase linear.
+MAX_TAPS_BLOCOS: int = 8191
+
 #: Tabela de decisao do dsp_fir_filter.m: para cada janela, o ripple de
 #: banda passante e a atenuacao de stopband que ela consegue, e a constante
 #: k da relacao N = k / df_normalizado.
@@ -390,7 +395,7 @@ def _normalize_fp(kind: str, fp):
 
 
 def design_from_spec(kind: str, fp, df: float, dp_db: float, ds_db: float,
-                     fs: float):
+                     fs: float, max_taps: int = MAX_TAPS):
     """Projeta um FIR a partir da especificacao. Porte do dsp_fir_filter.m.
 
     Devolve (h, relatorio). O relatorio traz a janela escolhida, o numero
@@ -422,8 +427,8 @@ def design_from_spec(kind: str, fp, df: float, dp_db: float, ds_db: float,
     df_norm = df / fs
     sel = select_window(dp_db, ds_db, df_norm)
 
-    if sel["taps"] > MAX_TAPS:
-        df_min = min_transition_width(dp_db, ds_db, fs)
+    if sel["taps"] > max_taps:
+        df_min = min_transition_width(dp_db, ds_db, fs, max_taps)
         raise SpecError(
             "Esta especificacao exige %d taps, e o hardware aceita no "
             "maximo %d.\n"
@@ -431,7 +436,7 @@ def design_from_spec(kind: str, fp, df: float, dp_db: float, ds_db: float,
             "(voce pediu %g Hz).\n"
             "Alternativas: alargar df, reduzir a atenuacao exigida, "
             "ou aumentar fs."
-            % (sel["taps"], MAX_TAPS, WINDOW_LABEL_PT[sel["window"]],
+            % (sel["taps"], max_taps, WINDOW_LABEL_PT[sel["window"]],
                df_min, df))
 
     M, Nw = sel["M"], sel["N_window"]

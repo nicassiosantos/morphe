@@ -74,15 +74,16 @@ class Traco:
     (haste da linha de base até cada amostra, sem interpolar). Atualizar só
     troca os dados; trocar de linha para stem é refazer o gráfico."""
 
-    def __init__(self, ax, color: str, stem: bool):
+    def __init__(self, ax, color: str, stem: bool, label: Optional[str] = None):
         from matplotlib.collections import LineCollection
         self.stem = stem
         if stem:
             self._hastes = LineCollection([], colors=color, linewidths=0.8)
             ax.add_collection(self._hastes)
-            (self._linha,) = ax.plot([], [], "o", color=color, markersize=2.5)
+            (self._linha,) = ax.plot([], [], "o", color=color, markersize=2.5,
+                                     label=label)
         else:
-            (self._linha,) = ax.plot([], [], color=color, linewidth=0.8)
+            (self._linha,) = ax.plot([], [], color=color, linewidth=0.8, label=label)
 
     def set_data(self, x: np.ndarray, y: np.ndarray, base: float = 0.0):
         if self.stem:

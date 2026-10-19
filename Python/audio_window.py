@@ -14,7 +14,9 @@ pelo codec WM8731, com as funções de audio.py.
                FIR da placa, projetado no projetista IIR ou no FIR (que
                abrem já com a fs do codec), em blocos de 1024, e mostra os
                espectros da entrada e da saída com |H(f)|; as duas podem
-               ser tocadas e a saída salva.
+               ser tocadas e a saída salva, ou salvas num bundle .mrph
+               para o Comparador refazer a conta no NumPy. O FIR passa de
+               1024 coeficientes (até 8191): roda em blocos.
                Não é tempo real: grava, filtra, ouve.
 
 A taxa é fixa, 48 828,125 Hz (50 MHz / 1024), 16 bits, estéreo. O espectro
@@ -40,11 +42,12 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import audio
 import blocos
 import dsp_core as dsp
+import fir_design as fd
 import iir_design as iir
 import morphe_config as cfg
 import morphe_theme as theme
 import sinal_arquivo
-from analisador_window import JANELAS, janela as janela_de
+from analisador_window import JANELAS, Traco, janela as janela_de
 from fir_designer_window import FIRDesignerWindow
 from iir_designer_window import IIRDesignerWindow
 from plot_toolbar import PlotToolbar
@@ -103,6 +106,7 @@ FONTES_FILTRAR = ("Última captura", "Arquivo (o de Reproduzir)")
 # coeficientes) o comprimento so custa tempo: cada 1024 coeficientes a mais e
 # mais uma convolucao por bloco do sinal.
 FIR_COEF_MAX = 8192
+STEM_AMOSTRAS = 128          # o trecho no tempo da filtragem, em stem
 TELA_MS = 100
 
 
@@ -313,6 +317,10 @@ class AudioWindow(tk.Toplevel):
         self.btn_toca_sai = ttk.Button(linha_f, text="Tocar saída", style="Secondary.TButton",
                                        state="disabled", command=lambda: self._toca_filtragem("y"))
         self.btn_toca_sai.pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self.btn_comparar = ttk.Button(fl, text="Salvar para comparar (.mrph, .npz)…",
+                                       style="Secondary.TButton", state="disabled",
+                                       command=self._on_salva_comparar)
+        self.btn_comparar.pack(side="bottom", fill="x", pady=(4, 0))
         self.btn_salva_sai = ttk.Button(fl, text="Salvar a saída (.wav, .npy)…",
                                         style="Secondary.TButton", state="disabled",
                                         command=self._on_salva_filtragem)
@@ -352,6 +360,11 @@ class AudioWindow(tk.Toplevel):
         # mostra. Desmarcado, so de 0 a fs/2, onde esta a informacao.
         self.var_completo = tk.BooleanVar(value=False)
         ttk.Checkbutton(topo, text="0 a fs  (com a réplica)", variable=self.var_completo,
+                        command=self._troca_escala,
+                        style="Card.TCheckbutton").pack(side="left", padx=(14, 0))
+        # Stem: cada amostra como uma haste, sem ligar os pontos (no tempo)
+        self.var_stem = tk.BooleanVar(value=False)
+        ttk.Checkbutton(topo, text="Stem", variable=self.var_stem,
                         command=self._troca_escala,
                         style="Card.TCheckbutton").pack(side="left", padx=(14, 0))
         # A janela do espectro. Hann e Blackman-Harris separam tons vizinhos;
@@ -404,7 +417,8 @@ class AudioWindow(tk.Toplevel):
         for b in (self.btn_capturar, self.btn_tocar, self.btn_filtrar):
             b.configure(state=estado)
         if self._filtragem is not None:
-            for b in (self.btn_toca_ent, self.btn_toca_sai, self.btn_salva_sai):
+            for b in (self.btn_toca_ent, self.btn_toca_sai, self.btn_salva_sai,
+                      self.btn_comparar):
                 b.configure(state=estado)
 
     def _erro(self, err: Exception):
@@ -651,7 +665,8 @@ class AudioWindow(tk.Toplevel):
         if qual == "IIR":
             IIRDesignerWindow(self, on_apply=aplicar, fs=audio.FS)
         else:
-            FIRDesignerWindow(self, on_apply=aplicar, fs=audio.FS)
+            FIRDesignerWindow(self, on_apply=aplicar, fs=audio.FS,
+                              max_taps=fd.MAX_TAPS_BLOCOS)
 
     def _sinal_para_filtrar(self) -> tuple[np.ndarray, float, str]:
         if self.var_ffonte.get() == FONTES_FILTRAR[0]:
@@ -808,14 +823,22 @@ class AudioWindow(tk.Toplevel):
         for ax in (self.ax_t, self.ax_f):
             ax.clear()
         ax = self.ax_t
-        m = min(x.size, max(8, int(0.02 * fs)))
+        # 20 ms do meio; em stem, so STEM_AMOSTRAS (com ~1000 hastes elas
+        # viram uma mancha e nao se ve amostra nenhuma)
+        stem = self.var_stem.get()
+        m = min(x.size, STEM_AMOSTRAS if stem else max(8, int(0.02 * fs)))
         i0 = max(0, x.size // 2 - m // 2)
         t = (i0 + np.arange(m)) / fs * 1e3
-        ax.plot(t, x[i0:i0 + m], color=dsp.COLOR_X, linewidth=0.9, label="entrada")
-        ax.plot(t, y[i0:i0 + m], color=dsp.COLOR_Y, linewidth=0.9, label="saída (placa)")
+        Traco(ax, dsp.COLOR_X, stem, "entrada").set_data(t, x[i0:i0 + m])
+        Traco(ax, dsp.COLOR_Y, stem, "saída (placa)").set_data(t, y[i0:i0 + m])
+        ax.set_xlim(t[0], t[-1])
+        lim = 1.1 * max(float(np.max(np.abs(x[i0:i0 + m]))),
+                        float(np.max(np.abs(y[i0:i0 + m]))), 1e-4)
+        ax.set_ylim(-lim, lim)
         ax.set_xlabel("t (ms)")
         ax.set_ylabel("amplitude (fundo = 1)")
-        ax.set_title(f"{d['nome']}: 20 ms do meio, entrada e saída", fontsize=10)
+        trecho = f"{m} amostras" if stem else "20 ms"
+        ax.set_title(f"{d['nome']}: {trecho} do meio, entrada e saída", fontsize=10)
         ax.legend(fontsize=7, loc="upper right")
         theme.style_plot_axes(ax)
 
@@ -928,6 +951,69 @@ class AudioWindow(tk.Toplevel):
             return
         self.status.set(f"Saída filtrada salva em {caminho}")
 
+    def _on_salva_comparar(self):
+        """Entrada, filtro e saída da placa num arquivo para conferir contra o
+        NumPy. .mrph: o bundle da janela FIR ou IIR, que o Comparador abre e
+        refaz (FIR: convolução no NumPy; IIR: cascata em float64 com os
+        mesmos coeficientes Q15.16). .npz: os mesmos vetores, para o
+        np.load de um script."""
+        d = self._filtragem
+        if d is None:
+            return
+        caminho = filedialog.asksaveasfilename(
+            parent=self, title="Salvar para comparar com o NumPy",
+            defaultextension=".mrph",
+            filetypes=[("Bundle do Comparador (.mrph)", "*.mrph"),
+                       ("NumPy (.npz)", "*.npz")])
+        if not caminho:
+            return
+        f, fs = d["filtro"], d["fs"]
+        x = np.asarray(d["x"], dtype=np.float64)
+        y = np.asarray(d["y"], dtype=np.float64)
+        try:
+            if f["tipo"] == "iir":
+                coefs = np.asarray(iir.coeficientes_inteiros(f["sos"], cfg.IIR_FRAC_BITS, 32),
+                                   dtype=np.float64)
+                # x na grade Q15.16 (o que a placa recebeu), como a janela IIR
+                x = np.round(x * 65536.0) / 65536.0
+            if caminho.lower().endswith(".npz"):
+                extra = ({"sos": f["sos"], "coefs_q1516": coefs.astype(np.int64)}
+                         if f["tipo"] == "iir" else {"h": f["h"]})
+                np.savez(caminho, x=x, y_placa=y, fs=fs, tipo=f["tipo"],
+                         desc=d["desc"], **extra)
+            else:
+                if f["tipo"] == "iir":
+                    titulo = "Morphe IIR"
+                    h = coefs.reshape(-1)
+                    desc_h = ("IIR Q15.16: %d secoes x (b0 b1 b2 a1 a2) inteiros; %s"
+                              % (f["sos"].shape[0], d["desc"]))
+                    desc_y = ("y[n] = IIR{x}[n] — saída da FPGA, em blocos de %d com "
+                              "aquecimento (emendas abaixo de −90 dB)" % cfg.IIR_N_MAX)
+                else:
+                    titulo = "Morphe FIR"
+                    h = np.asarray(f["h"], dtype=np.float64)
+                    desc_h = f"h[n] (coeficientes FIR) — {d['desc']}"
+                    desc_y = ("y[n] = (x * h)[n] — saída da FPGA, por blocos (overlap-add), "
+                              "do tamanho da entrada")
+                secoes = [
+                    {"name": "x", "kind": "real", "type": "float32", "fs": fs,
+                     "data": x.astype(np.float32), "n": np.arange(x.size, dtype=np.int64),
+                     "description": f"x[n] — {d['nome']} (áudio do codec)"},
+                    {"name": "h", "kind": "real", "type": "float32", "fs": fs,
+                     "data": h.astype(np.float32), "n": np.arange(h.size, dtype=np.int64),
+                     "description": desc_h},
+                    {"name": "y", "kind": "real", "type": "float32", "fs": fs,
+                     "data": y.astype(np.float32), "n": np.arange(y.size, dtype=np.int64),
+                     "description": desc_y},
+                ]
+                dsp.save_mrph_bundle(caminho, title=titulo, sections=secoes)
+        except Exception as e:
+            messagebox.showerror("Salvar para comparar", str(e), parent=self)
+            return
+        onde = ("abra no Comparador (menu principal)" if not caminho.lower().endswith(".npz")
+                else "np.load(...) e compare")
+        self.status.set(f"Salvo para comparar: {os.path.basename(caminho)} — {onde}.")
+
     # ---- salvar -----------------------------------------------------------------------
     def _on_salvar(self):
         if self._captura is None:
@@ -952,16 +1038,16 @@ class AudioWindow(tk.Toplevel):
     # ---- tela ---------------------------------------------------------------------------
     def _prepara_eixos(self, n: int, titulo: str):
         chave = (n, titulo, self.var_janela.get(), self.var_db.get(),
-                 self.var_completo.get())
+                 self.var_completo.get(), self.var_stem.get())
         if self._eixos_prontos == chave:
             return
         self._eixos_prontos = chave
         for ax in (self.ax_t, self.ax_f):
             ax.clear()
         ax = self.ax_t
-        (self._l_esq,) = ax.plot([], [], color=dsp.COLOR_X, linewidth=0.9, label="esquerdo")
-        (self._l_dir,) = ax.plot([], [], color=dsp.COLOR_Y, linewidth=0.9, alpha=0.7,
-                                 label="direito")
+        stem = self.var_stem.get()
+        self._l_esq = Traco(ax, dsp.COLOR_X, stem, "esquerdo")
+        self._l_dir = Traco(ax, dsp.COLOR_Y, stem, "direito")
         ax.set_xlim(0, n / audio.FS * 1e3)
         ax.set_ylim(-1.05, 1.05)
         ax.set_xlabel("t (ms)")
