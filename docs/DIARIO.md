@@ -16,7 +16,28 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
-## 19/10/2026 (noite) — Estado do IIR entre blocos (escrito e simulado; falta a placa)
+## 19/10/2026 (noite) — Estado do IIR VALIDADO NA PLACA 1 (bitstream de teste 23.1)
+
+Placa 1 (`de1soclinux`, 172.16.230.24) ligada ao notebook: gravado o `.sof` da cópia
+compilada com o 23.1 (sem tether), servidor de 586ada9 enviado pela serial e
+compilado na placa (o anterior ficou em `~/morphe/bak1910`). Resultados:
+
+- `testa_blocos.py --placa`: **TUDO OK**. Item 8 (Butterworth ordem 4, 1 kHz, 5000
+  amostras): blocos pelo estado, **0 amostras diferentes** do filtro contínuo. Item 9
+  (Butterworth ordem 4, 200 Hz a 48,8 kHz, o que pedia 1811 de aquecimento e era
+  recusado): 20 000 amostras em 20 blocos, 0,52 s, **0 diferentes**.
+- Caso mais duro (11 seções, polos em 0,988; pediria 1544 de aquecimento): 10 240
+  amostras em 10 blocos, **0 diferentes**; o estado que a placa devolve é igual ao
+  do modelo; a chamada sem estado logo depois volta a partir do zero.
+- `testa_iir_hw.py`: os 4 casos de um bloco, bit a bit (sem regressão).
+- `testa_codec.py`: **TUDO OK**, inclusive o "ao vivo" de 15/10, que nunca tinha
+  rodado na placa: 146 448 amostras, 0 LSB contra o modelo, 3,00 s de áudio em 3,01 s.
+
+Falta o bitstream **oficial** (20.1, estação) e a proveniência. A placa 1 ficou com o
+`.sof` de teste 23.1, sem tether (a FFT para depois de ~1 h): restaurar com o
+`morphe-up.sh --deploy` na estação.
+
+## 19/10/2026 (noite) — Estado do IIR entre blocos (escrito e simulado)
 
 A pedido. Um sinal maior que 1024 amostras vai ao bloco IIR em blocos, e o bloco
 zerava o estado a cada execução: o cliente o **reconstruía** reprocessando amostras
