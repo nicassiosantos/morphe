@@ -731,8 +731,12 @@ class AudioWindow(tk.Toplevel):
         try:
             x, fs, nome = self._sinal_para_filtrar()
             f = self._filtro_escolhido(fs)
-            nota = ""
+            nota_aquec, erro_aquec = "", ""
             if f["tipo"] == "iir":
+                # O caminho normal e o estado: cada bloco parte de onde o
+                # anterior parou, sem aquecimento. O aquecimento so vale se
+                # o bitstream da placa nao devolver o estado (anterior a
+                # 19/10/2026): ja fica calculado para esse caso.
                 aquec = blocos.aquecimento_iir(f["sos"], cfg.IIR_FRAC_BITS)
                 limite = cfg.IIR_N_MAX - cfg.IIR_N_MAX // 8
                 if x.size > cfg.IIR_N_MAX and aquec > limite:
@@ -742,16 +746,18 @@ class AudioWindow(tk.Toplevel):
                     # segue com ele e diz quanto.
                     resto_db = 20 * np.log10(max(polo_max(f["sos"]) ** limite, 1e-300))
                     if resto_db > -90:
-                        raise ValueError(
-                            f"este filtro precisa de {aquec} amostras de aquecimento por "
-                            f"bloco, e o bloco da placa tem {cfg.IIR_N_MAX}: os polos estão "
-                            f"perto demais do círculo unitário para a fs de {fs:g} Hz (com "
-                            f"{limite} amostras, as emendas entre blocos ficariam a "
-                            f"{resto_db:.0f} dB). Suba a frequência de corte, baixe a ordem "
-                            f"ou o ripple, ou use um FIR.")
-                    aquec = limite
-                    nota = (f" Aquecimento reduzido a {limite} amostras por bloco: as emendas "
-                            f"ficam a {resto_db:.0f} dB.")
+                        erro_aquec = (
+                            f"o bitstream da placa não devolve o estado do IIR (é anterior a "
+                            f"19/10/2026), e sem o estado este filtro precisa de {aquec} "
+                            f"amostras de aquecimento por bloco; o bloco tem "
+                            f"{cfg.IIR_N_MAX} (com {limite}, as emendas ficariam a "
+                            f"{resto_db:.0f} dB). Grave o bitstream novo com o morphe-up, "
+                            f"ou suba a frequência de corte, baixe a ordem, ou use um FIR.")
+                        aquec = None
+                    else:
+                        aquec = limite
+                        nota_aquec = (f" Aquecimento reduzido a {limite} amostras por bloco: "
+                                      f"as emendas ficam a {resto_db:.0f} dB.")
             cli = self._cliente()
         except Exception as e:
             messagebox.showerror("Filtrar na placa", str(e), parent=self)
@@ -769,11 +775,20 @@ class AudioWindow(tk.Toplevel):
             try:
                 t0 = time.monotonic()
                 saturou = False
+                nota = ""
                 if f["tipo"] == "iir":
                     coefs = iir.coeficientes_inteiros(f["sos"], cfg.IIR_FRAC_BITS, 32)
+                    info = {}
                     yq, saturou = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aquec,
-                                                        cfg.IIR_N_MAX, progresso)
+                                                        cfg.IIR_N_MAX, progresso, info,
+                                                        erro_aquec)
                     y = np.asarray(yq, dtype=np.float64) / 65536.0
+                    if info["modo"] == "estado":
+                        nota = (f" {info['blocos']} blocos encadeados pelo estado do filtro "
+                                f"(sem aquecimento: igual ao sinal inteiro de uma vez).")
+                    elif info["modo"] == "aquecimento":
+                        nota = (f" Bitstream sem estado: {info['blocos']} blocos com "
+                                f"{info['aquecimento']} amostras de aquecimento.{nota_aquec}")
                 else:
                     # overlap-add no bloco FIR (conv1d); a saida causal tem o
                     # tamanho da entrada

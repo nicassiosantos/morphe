@@ -29,6 +29,8 @@
  *               coeficientes (int32 Q15.16), na ordem b0 b1 b2 a1 a2
  *               por secao -- a mesma da SRAM iir_coef e do
  *               iir_design.coeficientes_inteiros(). a0 = 1 implicito.
+ *               Com flags = MORPHE_IIR_FLAG_ESTADO, seguem ainda 4*n_h
+ *               palavras do estado inicial (ver a flag, abaixo).
  *   ADC      -> sem payload. n_x = numero de amostras, n_h = divisor
  *               (fs = 50 MHz / n_h), flags = palavra de configuracao do
  *               LTC2308 (6 bits: S/D O/S S1 S0 UNI SLP). A resposta traz
@@ -89,6 +91,18 @@
  *             (1 a 16); seguem 1 + 5*n_h int32: o aquecimento (amostras, ate
  *             896) e os coeficientes Q15.16. Resposta em blocos, como a
  *             captura, com cada palavra {saida filtrada, entrada}. */
+/* Flag do OP_IIR, no campo `flags` do cabecalho.
+ *   ESTADO  o payload traz, depois dos coeficientes, o estado inicial:
+ *           4*n_h int32 (x1 x2 y1 y2 por secao, Q15.16); so dtype int32.
+ *           A resposta traz n_out = n_x + 4*n_h: y e depois o estado final
+ *           (o estado depois das MORPHE_IIR_N_MAX amostras do bloco), e
+ *           extra bit 1 = 1. Com um bitstream que nao devolve o estado,
+ *           extra bit 1 = 0 e so y vem (n_out = n_x) -- valido so se o
+ *           estado inicial era zero; se nao era, a resposta e erro. */
+#define MORPHE_IIR_FLAG_ESTADO     1U
+#define MORPHE_IIR_EXTRA_SATUROU   1U
+#define MORPHE_IIR_EXTRA_ESTADO    2U
+
 #define MORPHE_AUDIO_CAPTURA   0U
 #define MORPHE_AUDIO_REPRODUZ  1U
 #define MORPHE_AUDIO_LOOPBACK  2U

@@ -62,6 +62,15 @@ OP_PING = 3   # descoberta de servico
 OP_FIR  = 4   # filtro FIR (instancia separada do conv1d, mesmo Verilog)
 OP_IFFT = 5   # transformada inversa: mesmo IP da FFT, bit inverse=1
 OP_IIR  = 6   # cascata de biquads Q15.16 (iir_cascade.v); n_h = no. de secoes
+
+# Estado entre execucoes do IIR (flags do cabecalho e bits do extra da
+# resposta; espelho do morphe_protocol.h). Com a flag, o pedido leva o estado
+# inicial -- 4 inteiros Q15.16 por secao: x1 x2 y1 y2 -- e a resposta traz,
+# depois de y, o estado final, se o bitstream o devolve (extra bit 1).
+IIR_FLAG_ESTADO   = 1
+IIR_EXTRA_SATUROU = 1
+IIR_EXTRA_ESTADO  = 2
+IIR_EST_POR_SECAO = 4
 OP_ADC  = 7   # captura do LTC2308 (adc_captura.v); n_h = divisor, flags = config
 OP_ADC_CONTINUO = 8   # a mesma, sem limite de tamanho: resposta em blocos
 OP_AUDIO = 9   # codec de audio (audio_buf.v); flags = suboperacao (audio.py)
@@ -148,7 +157,8 @@ def build_fir_request(x: np.ndarray, h: np.ndarray, dtype_code: int) -> bytes:
     return hdr + pack_samples(x, dtype_code) + pack_samples(h, dtype_code)
 
 
-def build_iir_request(x_q: np.ndarray, coefs_q, dtype_code: int = DTYPE_INT32) -> bytes:
+def build_iir_request(x_q: np.ndarray, coefs_q, dtype_code: int = DTYPE_INT32,
+                      estado=None) -> bytes:
     """Constroi request IIR.
 
     x_q      : amostras JA em inteiros Q15.16 (o que sai de
@@ -156,6 +166,12 @@ def build_iir_request(x_q: np.ndarray, coefs_q, dtype_code: int = DTYPE_INT32) -
     coefs_q  : lista de secoes, cada uma [b0, b1, b2, a1, a2] em inteiros
                Q15.16 -- exatamente o que iir_design.coeficientes_inteiros()
                devolve. a0 = 1 e implicito; o projetista normaliza.
+
+    estado   : None (estado zero, o de sempre) ou o estado inicial, forma
+               (S, 4): x1 x2 y1 y2 por secao, inteiros Q15.16 -- o estado
+               final de uma execucao anterior. Com ele (mesmo todo zero) o
+               pedido vai com a flag IIR_FLAG_ESTADO e o estado final volta
+               na resposta (decode_iir_response_estado). So int32.
 
     n_x vai no campo n_x do cabecalho; o NUMERO DE SECOES vai no campo
     n_h (nao e um comprimento de vetor). O payload e x seguido dos 5*S
@@ -165,13 +181,23 @@ def build_iir_request(x_q: np.ndarray, coefs_q, dtype_code: int = DTYPE_INT32) -
     if coefs.ndim != 2 or coefs.shape[1] != 5:
         raise ValueError("coefs_q deve ter forma (S, 5): b0 b1 b2 a1 a2 por secao")
     n_sec = int(coefs.shape[0])
+    flags = 0
+    extra = b""
+    if estado is not None:
+        est = np.asarray(estado, dtype=np.int64)
+        if est.shape != (n_sec, IIR_EST_POR_SECAO):
+            raise ValueError("estado deve ter forma (S, 4): x1 x2 y1 y2 por secao")
+        if dtype_code != DTYPE_INT32:
+            raise ValueError("o estado do IIR so vai em int32")
+        flags = IIR_FLAG_ESTADO
+        extra = pack_samples(est.reshape(-1), dtype_code)
     hdr = struct.pack(
         ">IHHHHII",
-        MAGIC_REQ, VERSION, OP_IIR, dtype_code, 0,
+        MAGIC_REQ, VERSION, OP_IIR, dtype_code, flags,
         len(x_q), n_sec,
     )
     return hdr + pack_samples(np.asarray(x_q), dtype_code) \
-               + pack_samples(coefs.reshape(-1), dtype_code)
+               + pack_samples(coefs.reshape(-1), dtype_code) + extra
 
 
 def build_adc_request(n: int, divisor: int, config: int) -> bytes:
@@ -433,9 +459,29 @@ def decode_iir_response(resp: Response) -> tuple[np.ndarray, bool]:
         raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
     if resp.opcode != OP_IIR:
         raise ValueError(f"esperado opcode IIR, veio {resp.opcode}")
+    y, saturou, _ = decode_iir_response_estado(resp, 0)
+    return y, saturou
+
+
+def decode_iir_response_estado(resp: Response, n_sec: int):
+    """Como decode_iir_response, mais o estado final: (y, saturou, estado).
+
+    estado e um array (n_sec, 4) -- x1 x2 y1 y2 por secao, inteiros Q15.16,
+    depois das 1024 amostras do bloco -- ou None se o bitstream (ou o
+    servidor) nao devolve o estado: entao a resposta e so y, valido porque
+    o pedido partiu do estado zero.
+    """
+    if not resp.ok:
+        raise RuntimeError(f"erro do servidor: {resp.payload.decode('utf-8', 'replace')}")
+    if resp.opcode != OP_IIR:
+        raise ValueError(f"esperado opcode IIR, veio {resp.opcode}")
     be = _np_dtype_be(resp.dtype_code)
-    arr = np.frombuffer(resp.payload, dtype=be, count=resp.n_out)
-    return arr.astype(np.int64), bool(resp.extra & 1)
+    arr = np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
+    saturou = bool(resp.extra & IIR_EXTRA_SATUROU)
+    if not resp.extra & IIR_EXTRA_ESTADO:
+        return arr, saturou, None
+    n_est = n_sec * IIR_EST_POR_SECAO
+    return arr[:arr.size - n_est], saturou, arr[arr.size - n_est:].reshape(n_sec, 4)
 
 
 def decode_adc_response(resp: Response) -> tuple[np.ndarray, int]:

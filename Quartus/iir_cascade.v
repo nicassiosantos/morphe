@@ -52,8 +52,30 @@
 // e o Quartus mede as duas metades separadamente. O resultado e bit a bit
 // o mesmo: mudou quando a conta acontece, nao a conta.
 //
-// Estado zerado a cada start: sem isso o resultado dependeria da rodada
-// anterior, e o mesmo sinal daria saidas diferentes.
+// ESTADO ENTRE EXECUCOES (19/10/2026)
+// -----------------------------------
+// O bloco processa N_SAMPLES por vez. Para um sinal maior, o cliente parte
+// em blocos -- e um IIR tem memoria: cada bloco precisa comecar do estado
+// em que o anterior terminou. Antes, o estado era zerado a cada start e o
+// cliente o RECONSTRUIA reprocessando amostras do bloco anterior
+// (aquecimento), o que nao cabe no bloco quando os polos estao perto do
+// circulo unitario. Agora o estado vai e volta pela SRAM dos coeficientes,
+// que tem 256 palavras e so usa 5 * MAX_SECOES:
+//
+//     EST_MODO     palavra de modo, escrita pelo HPS: bit 0 = 1 carrega o
+//                  estado inicial de EST_IN; 0 = estado zero (o de sempre)
+//     EST_MARCA    escrita pelo BLOCO ao fim: EST_MARCA_VALOR diz ao
+//                  servidor que este bitstream devolve o estado
+//     EST_IN ..    estado inicial, 4 palavras por secao: x1 x2 y1 y2
+//     EST_OUT ..   estado final, mesmo formato, escrito ao fim de TODA
+//                  execucao (o estado depois da ultima das N_SAMPLES)
+//
+// Carregar o estado final de um bloco como inicial do seguinte da a MESMA
+// saida, bit a bit, que processar os dois de uma vez: os registradores sao
+// a memoria inteira da Forma Direta I. Nada no Platform Designer mudou.
+//
+// Com o modo em 0 o estado e zerado a cada start, como antes: sem isso o
+// resultado dependeria da rodada anterior.
 // =============================================================================
 
 `timescale 1 ns / 1 ps
@@ -76,12 +98,13 @@ module iir_cascade #(
     // Quantas secoes usar nesta execucao (1..MAX_SECOES).
     input  wire [$clog2(MAX_SECOES+1)-1:0] n_secoes,
 
-    // --- SRAM dos coeficientes: 5 palavras por secao ---
+    // --- SRAM dos coeficientes: 5 palavras por secao, e o estado ---
     input  wire [DATA_WIDTH-1:0]         coef_sram_readdata,
     output wire [COEF_ADDR_N_BITS-1:0]   coef_sram_address,
     output wire                          coef_sram_chipselect,
     output wire                          coef_sram_clken,
     output wire                          coef_sram_write,
+    output wire [DATA_WIDTH-1:0]         coef_sram_wdata,
 
     // --- SRAM de entrada x[n] ---
     input  wire [DATA_WIDTH-1:0]         xn_sram_readdata,
@@ -110,15 +133,36 @@ module iir_cascade #(
     localparam [3:0] S_WAIT_WRITE = 4'd7;
     localparam [3:0] S_DONE       = 4'd8;
     localparam [3:0] S_SEL        = 4'd9;  // seleciona os operandos da secao s
+    localparam [3:0] S_MODO_RD    = 4'd10; // le a palavra de modo
+    localparam [3:0] S_MODO_WAIT  = 4'd11;
+    localparam [3:0] S_EST_RD     = 4'd12; // carrega uma palavra do estado inicial
+    localparam [3:0] S_EST_WAIT   = 4'd13;
+    localparam [3:0] S_EST_WR     = 4'd14; // grava uma palavra do estado final
+    localparam [3:0] S_EST_WR_WAIT = 4'd15;
+
+    // Mapa da SRAM dos coeficientes (ver o cabecalho). Pede
+    // COEF_ADDR_N_BITS >= 8 e MAX_SECOES <= 16.
+    localparam [COEF_ADDR_N_BITS-1:0] EST_MODO  = 120;
+    localparam [COEF_ADDR_N_BITS-1:0] EST_MARCA = 121;
+    localparam [COEF_ADDR_N_BITS-1:0] EST_IN    = 128;
+    localparam [COEF_ADDR_N_BITS-1:0] EST_OUT   = 192;
+    localparam [DATA_WIDTH-1:0]       EST_MARCA_VALOR = 32'h45535431;  // "EST1"
 
     reg [3:0] state;
     assign debug_state = state;
 
     localparam SEC_BITS = $clog2(MAX_SECOES + 1);
+    localparam EST_BITS = $clog2(4 * MAX_SECOES + 1);
 
     reg [ADDR_N_BITS-1:0]      n;      // amostra corrente
     reg [SEC_BITS-1:0]         s;      // secao corrente
     reg [COEF_ADDR_N_BITS-1:0] c_idx;  // palavra de coeficiente na carga
+    reg [EST_BITS-1:0]         e_idx;  // palavra do estado: secao = e_idx/4
+
+    // 4 palavras por secao em uso: x1 x2 y1 y2
+    wire [EST_BITS-1:0] n_est = {n_secoes, 2'b00};
+    wire [EST_BITS-3:0] e_sec = e_idx[EST_BITS-1:2];
+    wire [1:0]          e_qual = e_idx[1:0];
 
     reg start_d;
     wire start_pulse = start & ~start_d;
@@ -168,6 +212,12 @@ module iir_cascade #(
     reg  [DATA_WIDTH-1:0]        wr_data;
     wire                         wr_done;
 
+    // escrita na SRAM dos coeficientes: so o estado final e a marca
+    reg                          cw_start;
+    reg  [COEF_ADDR_N_BITS-1:0]  cw_addr;
+    reg  [DATA_WIDTH-1:0]        cw_data;
+    wire                         cw_done;
+
     // --- Caminho de dados, o MESMO do iir_sos ---
     wire signed [DATA_WIDTH-1:0] yn;
     wire                         estourou;
@@ -190,12 +240,13 @@ module iir_cascade #(
             state     <= S_IDLE;
             done      <= 1'b0;
             error_sat <= 1'b0;
-            n <= 0; s <= 0; c_idx <= 0;
+            n <= 0; s <= 0; c_idx <= 0; e_idx <= 0;
             amostra <= 0;
             op_x1 <= 0; op_x2 <= 0; op_y1 <= 0; op_y2 <= 0;
             op_b0 <= 0; op_b1 <= 0; op_b2 <= 0; op_a1 <= 0; op_a2 <= 0;
-            cf_start <= 1'b0; rd_start <= 1'b0; wr_start <= 1'b0;
+            cf_start <= 1'b0; rd_start <= 1'b0; wr_start <= 1'b0; cw_start <= 1'b0;
             cf_addr <= 0; rd_addr <= 0; wr_addr <= 0; wr_data <= 0;
+            cw_addr <= 0; cw_data <= 0;
             for (k = 0; k < MAX_SECOES; k = k + 1) begin
                 sx1[k] <= 0; sx2[k] <= 0; sy1[k] <= 0; sy2[k] <= 0;
             end
@@ -203,6 +254,7 @@ module iir_cascade #(
             cf_start <= 1'b0;
             rd_start <= 1'b0;
             wr_start <= 1'b0;
+            cw_start <= 1'b0;
 
             case (state)
                 S_IDLE: begin
@@ -236,10 +288,52 @@ module iir_cascade #(
                         endcase
                         if (c_idx == (n_secoes * 5) - 1) begin
                             c_idx <= 0;
-                            state <= S_READ;
+                            state <= S_MODO_RD;
                         end else begin
                             c_idx <= c_idx + 1'b1;
                             state <= S_COEF_RD;
+                        end
+                    end
+                end
+
+                // ---- modo: estado zero (o de sempre) ou carregado ----
+                S_MODO_RD: begin
+                    cf_addr  <= EST_MODO;
+                    cf_start <= 1'b1;
+                    state    <= S_MODO_WAIT;
+                end
+
+                S_MODO_WAIT: begin
+                    if (cf_done) begin
+                        e_idx <= 0;
+                        // if, e nao ?: -- uma SRAM nunca escrita le X na
+                        // simulacao, e o if trata X como falso (modo 0)
+                        if (cf_data[0]) state <= S_EST_RD;
+                        else            state <= S_READ;
+                    end
+                end
+
+                // ---- carga do estado inicial: 4 palavras por secao ----
+                S_EST_RD: begin
+                    cf_addr  <= EST_IN + e_idx;
+                    cf_start <= 1'b1;
+                    state    <= S_EST_WAIT;
+                end
+
+                S_EST_WAIT: begin
+                    if (cf_done) begin
+                        case (e_qual)
+                            2'd0: sx1[e_sec] <= cf_data;
+                            2'd1: sx2[e_sec] <= cf_data;
+                            2'd2: sy1[e_sec] <= cf_data;
+                            2'd3: sy2[e_sec] <= cf_data;
+                        endcase
+                        if (e_idx == n_est - 1) begin
+                            e_idx <= 0;
+                            state <= S_READ;
+                        end else begin
+                            e_idx <= e_idx + 1'b1;
+                            state <= S_EST_RD;
                         end
                     end
                 end
@@ -296,10 +390,42 @@ module iir_cascade #(
                 S_WAIT_WRITE: begin
                     if (wr_done) begin
                         if (n == N_SAMPLES - 1) begin
-                            state <= S_DONE;
+                            e_idx <= 0;
+                            state <= S_EST_WR;
                         end else begin
                             n     <= n + 1'b1;
                             state <= S_READ;
+                        end
+                    end
+                end
+
+                // ---- estado final, e por ultimo a marca ----
+                // O dado e escolhido aqui e o controlador o pega um ciclo
+                // depois (PREPARE_WRITE), ja estavel.
+                S_EST_WR: begin
+                    if (e_idx == n_est) begin
+                        cw_addr <= EST_MARCA;
+                        cw_data <= EST_MARCA_VALOR;
+                    end else begin
+                        cw_addr <= EST_OUT + e_idx;
+                        case (e_qual)
+                            2'd0: cw_data <= sx1[e_sec];
+                            2'd1: cw_data <= sx2[e_sec];
+                            2'd2: cw_data <= sy1[e_sec];
+                            2'd3: cw_data <= sy2[e_sec];
+                        endcase
+                    end
+                    cw_start <= 1'b1;
+                    state    <= S_EST_WR_WAIT;
+                end
+
+                S_EST_WR_WAIT: begin
+                    if (cw_done) begin
+                        if (e_idx == n_est) begin
+                            state <= S_DONE;
+                        end else begin
+                            e_idx <= e_idx + 1'b1;
+                            state <= S_EST_WR;
                         end
                     end
                 end
@@ -315,6 +441,12 @@ module iir_cascade #(
     end
 
     // --- Controladores de memoria, os mesmos do conv1d ---
+    // A SRAM dos coeficientes tem um leitor e um escritor na mesma porta.
+    // Nunca trabalham juntos (a FSM espera cada um terminar); o endereco
+    // e do escritor enquanto ele esta ativo.
+    wire [COEF_ADDR_N_BITS-1:0] cr_address, cw_address;
+    wire cr_cs, cr_clken, cr_we, cw_cs, cw_clken, cw_we;
+
     memory_read_controller #(
         .DATA_WIDTH         (DATA_WIDTH),
         .MEM_ADDRESS_N_BITS (COEF_ADDR_N_BITS)
@@ -323,13 +455,34 @@ module iir_cascade #(
         .start_read    (cf_start),
         .sram_readdata (coef_sram_readdata),
         .data_addr     (cf_addr),
-        .mem_write     (coef_sram_write),
+        .mem_write     (cr_we),
         .data_out      (cf_data),
-        .mem_address   (coef_sram_address),
+        .mem_address   (cr_address),
         .read_done     (cf_done),
-        .clken         (coef_sram_clken),
-        .chipselect    (coef_sram_chipselect)
+        .clken         (cr_clken),
+        .chipselect    (cr_cs)
     );
+
+    memory_write_controller #(
+        .DATA_WIDTH         (DATA_WIDTH),
+        .MEM_ADDRESS_N_BITS (COEF_ADDR_N_BITS)
+    ) u_wr_coef (
+        .clk (clk), .reset_n (reset_n),
+        .start_write  (cw_start),
+        .data_in_addr (cw_addr),
+        .data_in      (cw_data),
+        .write_done   (cw_done),
+        .mem_address  (cw_address),
+        .mem_wdata    (coef_sram_wdata),
+        .mem_write    (cw_we),
+        .clken        (cw_clken),
+        .chipselect   (cw_cs)
+    );
+
+    assign coef_sram_address    = (cw_cs | cw_we) ? cw_address : cr_address;
+    assign coef_sram_chipselect = cr_cs | cw_cs;
+    assign coef_sram_clken      = cr_clken | cw_clken;
+    assign coef_sram_write      = cr_we | cw_we;
 
     memory_read_controller #(
         .DATA_WIDTH         (DATA_WIDTH),

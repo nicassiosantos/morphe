@@ -21,8 +21,12 @@ Duas diferencas que vem do IIR ser realimentado:
 Saturacao chega no campo `extra` da resposta, nao como erro: o resultado
 e mostrado (grudado no limite onde estourou) com o aviso.
 
-Sinais com mais de IIR_N_MAX amostras vao por blocos com aquecimento
-(blocos.iir_por_blocos): cada bloco comeca antes do trecho que interessa, o
+Sinais com mais de IIR_N_MAX amostras vao por blocos (blocos.iir_por_blocos).
+Desde 19/10/2026 o bloco devolve o estado final e aceita o inicial: cada
+bloco parte de onde o anterior parou, sem aquecimento, e a saida e a do
+filtro rodando sem parar, bit a bit. Com um bitstream anterior, que nao
+devolve o estado, vale o esquema antigo, com aquecimento:
+cada bloco comeca antes do trecho que interessa, o
 bastante para o transitorio do estado zero morrer, e essas saidas sao
 descartadas. O modelo roda com os MESMOS blocos, entao a conferencia bit a
 bit continua valendo; a distancia entre os blocos e o filtro rodando sem
@@ -416,7 +420,10 @@ class IIRWindow(tk.Toplevel):
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_run_blocos(self, client):
-        """x acima de MAX_N: blocos com aquecimento, na placa e no modelo."""
+        """x acima de MAX_N: blocos encadeados pelo estado do filtro (o final
+        de um bloco e o inicial do seguinte), na placa e no modelo. Se o
+        bitstream nao devolve o estado (anterior a 19/10/2026), blocos com
+        aquecimento, como antes."""
         x = self.x_input[:self.x_n_useful]
         sos = self.sos
         try:
@@ -425,9 +432,15 @@ class IIRWindow(tk.Toplevel):
             messagebox.showerror("IIR por blocos", str(e))
             return
         coefs = iir.coeficientes_inteiros(sos, FRAC, TOTAL)
+        # o aquecimento so serve se a placa nao devolver o estado
+        erro_aquec = ""
+        if aquec > MAX_N - MAX_N // 8:
+            erro_aquec = ("o bitstream da placa não devolve o estado do IIR (é anterior a "
+                          "19/10/2026), e sem o estado este filtro precisa de %d amostras "
+                          "de aquecimento por bloco, mais do que cabe em %d. Grave o "
+                          "bitstream novo com o morphe-up." % (aquec, MAX_N))
         self.btn_run.configure(state="disabled")
-        self.status.set("N=%d: por blocos, aquecimento de %d amostras por bloco, "
-                        "enviando à FPGA..." % (x.size, aquec))
+        self.status.set("N=%d: por blocos de %d, enviando à FPGA..." % (x.size, MAX_N))
 
         def progresso(feitos, total):
             self.after(0, lambda: self.status.set(
@@ -438,19 +451,26 @@ class IIRWindow(tk.Toplevel):
 
         def worker():
             try:
+                modo = {}
                 y_q, saturou = blocos.iir_por_blocos(
-                    x, blocos.IirPlaca(client, coefs), aquec, MAX_N, progresso)
+                    x, blocos.IirPlaca(client, coefs), None if erro_aquec else aquec,
+                    MAX_N, progresso, modo, erro_aquec)
                 self.after(0, lambda: self.status.set(
                     "Conferindo contra o modelo em Python..."))
-                # Referencia bit a bit: o modelo com os MESMOS blocos.
-                y_ref, _ = blocos.iir_por_blocos(x, modelo, aquec, MAX_N)
                 # Quanto os blocos se afastam do filtro rodando sem parar.
                 y_cont = _q(iir.filtra_sos_fixo(x, sos, FRAC, TOTAL))
-                dist = int(np.max(np.abs(y_ref - y_cont)))
+                if modo["modo"] == "estado":
+                    # com o estado, a referencia bit a bit E o filtro contínuo
+                    y_ref = y_cont
+                    info = ("%d blocos encadeados pelo estado, sem aquecimento "
+                            "(= filtro contínuo)" % modo["blocos"])
+                else:
+                    # Referencia bit a bit: o modelo com os MESMOS blocos.
+                    y_ref, _ = blocos.iir_por_blocos(x, modelo, aquec, MAX_N)
+                    dist = int(np.max(np.abs(y_ref - y_cont)))
+                    info = ("bitstream sem estado: %d blocos, aquecimento %d; blocos × "
+                            "filtro contínuo: %d LSB" % (modo["blocos"], aquec, dist))
                 y_dbl = iir.filtra_sos_double(x, sos)
-                info = ("%d blocos, aquecimento %d; blocos × filtro contínuo: "
-                        "%d LSB" % (1 + int(np.ceil((x.size - MAX_N) / (MAX_N - aquec))),
-                                    aquec, dist))
                 self.after(0, lambda: self._on_run_done(y_q, saturou, y_ref, y_dbl, info))
             except Exception as e:
                 self.after(0, lambda err=e: self._on_run_error(err))

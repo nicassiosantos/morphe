@@ -151,6 +151,46 @@ def sem_placa() -> None:
         y1, blocos.q1516_iir(iir.filtra_sos_fixo(curto, sos, 16, 32))),
         "sinal ate 1024 amostras: uma execucao so, igual a de sempre")
 
+    print("\n[2d] IIR por blocos encadeados pelo estado (modelo do iir_cascade)")
+    # o filtro que o aquecimento nao comporta: polos em 0,99 a 48,8 kHz
+    sos = iir.distribui_ganho(signal.butter(4, 200, fs=48828.125, output="sos"))
+    coefs = iir.coeficientes_inteiros(sos, 16, 32)
+    longo = 0.4 * np.sin(2 * np.pi * 150 * np.arange(5000) / 48828.125)
+    cont = np.asarray(iir.filtra_inteiros_estado(
+        blocos.q1516_iir(longo).tolist(), coefs, 16, 32)[0])
+    info = {}
+    ye, _ = blocos.iir_por_blocos(longo, blocos.IirModelo(coefs), None, info=info)
+    confere(info["modo"] == "estado" and np.array_equal(ye, cont),
+            f"Butterworth 4a ordem, 200 Hz a 48,8 kHz (aquecimento "
+            f"{blocos.aquecimento_iir(sos)}: nao cabe): {info['blocos']} blocos pelo "
+            f"estado = filtro continuo, bit a bit")
+
+    class SemEstado:            # placa com bitstream anterior a 19/10/2026
+        def __init__(self, c):
+            self.m = blocos.IirModelo(c)
+
+        def __call__(self, seg):
+            return self.m(seg)
+
+        def com_estado(self, seg, est=None):
+            yb, sat, _ = self.m.com_estado(seg)
+            return yb, sat, None
+
+    try:
+        blocos.iir_por_blocos(longo, SemEstado(coefs), None, erro_aquecimento="sem estado")
+        confere(False, "placa sem estado e filtro duro deveriam dar erro")
+    except ValueError as e:
+        confere(str(e) == "sem estado", "placa sem estado + filtro duro: erro claro")
+    sos = signal.butter(4, 3000, fs=48828.125, output="sos")
+    coefs = iir.coeficientes_inteiros(sos, 16, 32)
+    aq = blocos.aquecimento_iir(sos)
+    info = {}
+    ya, _ = blocos.iir_por_blocos(longo, SemEstado(coefs), aq, info=info)
+    yr, _ = blocos.iir_por_blocos(longo, lambda sg: blocos.IirModelo(coefs)(sg), aq)
+    confere(info["modo"] == "aquecimento" and np.array_equal(ya, yr),
+            f"placa sem estado + filtro facil: volta ao aquecimento ({aq}), igual ao "
+            f"esquema antigo")
+
     print("\n[3] leitura de arquivo")
     with tempfile.TemporaryDirectory() as d:
         v = np.array([0.5, -1.25, 3.0, 0.0, 2.5])
@@ -271,13 +311,40 @@ def com_placa(ip: str, porta: int) -> None:
     aq = blocos.aquecimento_iir(sos)
     modelo = lambda seg_: (blocos.q1516_iir(iir.filtra_sos_fixo(seg_, sos, 16, 32)), False)
     t0 = time.monotonic()
-    y_hw, sat = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aq)
+    info = {}
+    y_hw, sat = blocos.iir_por_blocos(x, blocos.IirPlaca(cli, coefs), aq, info=info)
     seg = time.monotonic() - t0
-    y_mod, _ = blocos.iir_por_blocos(x, modelo, aq)
+    if info["modo"] == "estado":
+        # a placa devolve o estado: a referencia e o filtro continuo
+        y_mod = blocos.q1516_iir(iir.filtra_sos_fixo(x, sos, 16, 32))
+        como = "blocos pelo estado; placa x filtro continuo"
+    else:
+        y_mod, _ = blocos.iir_por_blocos(x, modelo, aq)
+        como = f"bitstream SEM estado, aquecimento {aq}; placa x modelo nos mesmos blocos"
     dif = int(np.count_nonzero(y_hw != y_mod))
     confere(dif == 0 and not sat,
-            f"Butterworth 4a ordem em 1 kHz, 5000 amostras: aquecimento {aq}, "
-            f"{seg:.2f} s; placa x modelo nos mesmos blocos: {dif} amostras diferentes")
+            f"Butterworth 4a ordem em 1 kHz, 5000 amostras, {seg:.2f} s; {como}: "
+            f"{dif} amostras diferentes")
+
+    print(f"\n[9] IIR pelo estado, com um filtro que o aquecimento nao comporta")
+    sos = iir.distribui_ganho(signal.butter(4, 200, fs=48828.125, output="sos"))
+    coefs = iir.coeficientes_inteiros(sos, 16, 32)
+    longo = 0.4 * np.sin(2 * np.pi * 150 * np.arange(20000) / 48828.125)
+    info = {}
+    try:
+        t0 = time.monotonic()
+        y_hw, sat = blocos.iir_por_blocos(longo, blocos.IirPlaca(cli, coefs), None, info=info,
+                                          erro_aquecimento="o bitstream nao devolve o estado")
+        seg = time.monotonic() - t0
+        cont = np.asarray(iir.filtra_inteiros_estado(
+            blocos.q1516_iir(longo).tolist(), coefs, 16, 32)[0])
+        dif = int(np.count_nonzero(y_hw != cont))
+        confere(dif == 0, f"Butterworth 4a ordem, 200 Hz a 48,8 kHz (aquecimento "
+                          f"{blocos.aquecimento_iir(sos)}), 20000 amostras em "
+                          f"{info['blocos']} blocos, {seg:.2f} s: {dif} diferentes do "
+                          f"filtro continuo")
+    except ValueError as e:
+        confere(False, f"{e} -- grave o bitstream de 19/10/2026 em diante")
 
 
 def main() -> int:

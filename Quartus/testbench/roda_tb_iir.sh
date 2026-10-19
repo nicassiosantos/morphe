@@ -9,6 +9,8 @@
 #   normal      uma secao, sinal dentro da faixa      -> error_sat = 0
 #   saturacao   uma secao, batendo na ressonancia     -> error_sat = 1
 #   cascata     11 secoes (Butterworth de ordem 22)   -> o caso mais duro
+#   estado      a mesma cascata em 3 blocos, o estado final de cada um
+#               voltando como inicial do seguinte -> igual ao sinal inteiro
 #
 # Em todos, a saida do RTL e comparada BIT A BIT com o modelo em Python
 # (Python/iir_design.py, filtra_sos_fixo). Num filtro realimentado,
@@ -41,7 +43,7 @@ for f in memory_read_controller.v memory_write_controller.v; do
     sed "s/'b_/'b/g" "$RTL/$f" > "$SIM/$f"
 done
 cp "$RTL/iir_sos.v" "$RTL/iir_cascade.v" "$RTL/iir_biquad_mac.v" \
-   "$AQUI/tb_iir_sos.v" "$AQUI/tb_iir_cascade.v" "$SIM/"
+   "$AQUI/tb_iir_sos.v" "$AQUI/tb_iir_cascade.v" "$AQUI/tb_iir_estado.v" "$SIM/"
 
 MEM="$SIM/memory_read_controller.v $SIM/memory_write_controller.v"
 
@@ -51,8 +53,11 @@ iverilog -g2012 -o "$SIM/tb_sos.vvp" \
 iverilog -g2012 -o "$SIM/tb_casc.vvp" \
     "$SIM/tb_iir_cascade.v" "$SIM/iir_cascade.v" "$SIM/iir_biquad_mac.v" $MEM
 
+iverilog -g2012 -o "$SIM/tb_est.vvp" \
+    "$SIM/tb_iir_estado.v" "$SIM/iir_cascade.v" "$SIM/iir_biquad_mac.v" $MEM
+
 falhou=0
-for caso in normal saturacao cascata; do
+for caso in normal saturacao cascata estado; do
     echo
     echo "###########################################################"
     echo "# CASO: $caso"
@@ -61,6 +66,8 @@ for caso in normal saturacao cascata; do
 
     if [ "$caso" = "cascata" ]; then
         VVP="tb_casc.vvp"
+    elif [ "$caso" = "estado" ]; then
+        VVP="tb_est.vvp"
     else
         VVP="tb_sos.vvp"
     fi
@@ -71,7 +78,7 @@ done
 
 echo
 if [ "$falhou" -eq 0 ]; then
-    echo "TUDO OK: o RTL reproduz o modelo em Python bit a bit nos 3 casos."
+    echo "TUDO OK: o RTL reproduz o modelo em Python bit a bit nos 4 casos."
 else
     echo "FALHOU: ver a saida acima."
 fi

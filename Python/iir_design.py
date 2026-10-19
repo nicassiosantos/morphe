@@ -692,18 +692,39 @@ def filtra_sos_fixo(x: np.ndarray, sos: np.ndarray, frac_bits: int,
     """
     escala = 1 << frac_bits
     limite = 1 << (total_bits - 1)
-    meio = 1 << (frac_bits - 1)
 
     def sat(v: int) -> int:
         return max(min(v, limite - 1), -limite)
 
     coefs = coeficientes_inteiros(sos, frac_bits, total_bits)
+    xq = [sat(int(np.floor(float(v) * escala + 0.5)))
+          for v in np.asarray(x, dtype=np.float64)]
+    y, _ = filtra_inteiros_estado(xq, coefs, frac_bits, total_bits)
+    return np.array(y, dtype=np.float64) / escala
 
-    y = [sat(int(np.floor(float(v) * escala + 0.5)))
-         for v in np.asarray(x, dtype=np.float64)]
 
-    for b0, b1, b2, a1, a2 in coefs:
-        x1 = x2 = y1 = y2 = 0
+def filtra_inteiros_estado(xq, coefs, frac_bits: int, total_bits: int = 32,
+                           estado=None) -> tuple[list, list]:
+    """A conta do filtra_sos_fixo, em inteiros Q15.16, com o ESTADO entrando
+    e saindo: (y, estado_final).
+
+    estado: uma lista [x1, x2, y1, y2] por secao (x[n-1], x[n-2], y[n-1],
+    y[n-2] daquela secao), a ordem que o iir_cascade.v le e grava na SRAM.
+    None = estado zero. Filtrar dois trechos seguidos passando o estado
+    final do primeiro como inicial do segundo da o mesmo bit que filtrar
+    tudo de uma vez -- e o que deixa o bloco da placa encadear blocos sem
+    aquecimento.
+    """
+    limite = 1 << (total_bits - 1)
+    meio = 1 << (frac_bits - 1)
+
+    def sat(v: int) -> int:
+        return max(min(v, limite - 1), -limite)
+
+    y = [int(v) for v in xq]
+    final = []
+    for k, (b0, b1, b2, a1, a2) in enumerate(coefs):
+        x1, x2, y1, y2 = (int(v) for v in estado[k]) if estado is not None else (0, 0, 0, 0)
         saida = []
         for xn in y:
             acc = b0 * xn + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
@@ -712,8 +733,8 @@ def filtra_sos_fixo(x: np.ndarray, sos: np.ndarray, frac_bits: int,
             y2, y1 = y1, yn
             saida.append(yn)
         y = saida
-
-    return np.array(y, dtype=np.float64) / escala
+        final.append([x1, x2, y1, y2])
+    return y, final
 
 
 def filtra_sos_double(x: np.ndarray, sos: np.ndarray) -> np.ndarray:

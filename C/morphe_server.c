@@ -171,7 +171,7 @@ static int32_t  *g_fir_yn     = NULL;
 
 static int32_t  *g_iir_xn     = NULL;
 static int32_t  *g_iir_yn     = NULL;
-static int32_t  *g_iir_coef   = NULL;
+static volatile int32_t *g_iir_coef = NULL;   /* o bloco escreve o estado e a marca */
 
 #if MORPHE_TEM_ADC
 static volatile uint32_t *g_adc_buf = NULL;   /* escrito pelo FPGA durante a captura */
@@ -954,14 +954,23 @@ static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
  *     resultado continua valido como resultado saturado. O aviso vai no
  *     campo `extra` do cabecalho (1 = saturou), com status OK. O FIR
  *     devolve INTERNAL_ERROR nessa situacao e o cliente perde o vetor;
- *     aqui o vetor e justamente o que se quer ver. */
+ *     aqui o vetor e justamente o que se quer ver;
+ *   - com flags = MORPHE_IIR_FLAG_ESTADO o bloco parte do estado que o
+ *     cliente mandou (o final do bloco anterior) e o estado final volta
+ *     depois de y: um sinal longo em blocos sai igual, bit a bit, ao
+ *     sinal inteiro de uma vez, sem aquecimento. O bloco so devolve o
+ *     estado se o bitstream for o de 19/10/2026 em diante: a marca que ele
+ *     escreve na SRAM diz isso. */
 static void log_tempos(const char *op, const struct timespec *t0,
                        const struct timespec *t_entrada,
                        const struct timespec *t_fpga,
                        const struct timespec *t_fim);
 
-static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
-    LOG("IIR request: dtype=%u, n_x=%u, n_secoes=%u", dtype, n_x, n_sec);
+static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec,
+                      uint16_t flags) {
+    const int com_estado = (flags & MORPHE_IIR_FLAG_ESTADO) != 0;
+    LOG("IIR request: dtype=%u, n_x=%u, n_secoes=%u%s", dtype, n_x, n_sec,
+        com_estado ? ", com estado" : "");
 
     if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_IIR, "IIR");
 
@@ -977,15 +986,25 @@ static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
     }
 
     uint32_t n_coef = n_sec * MORPHE_IIR_COEF_POR_SECAO;
-    size_t payload_bytes = (size_t)(n_x + n_coef) * 4;
+    uint32_t n_est = com_estado ? n_sec * MORPHE_IIR_EST_POR_SECAO : 0;
+    size_t payload_bytes = (size_t)(n_x + n_coef + n_est) * 4;
     static uint8_t rx_buf[RX_BUF_MAX];
     if (payload_bytes > sizeof rx_buf) return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, "IIR: payload excedido");
     if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
+    /* O estado e inteiro Q15.16 exato: em float32 perderia bits. */
+    if (com_estado && dtype != MORPHE_DTYPE_INT32)
+        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_DTYPE, "IIR: estado so com int32");
 
     static int32_t x_buf[MORPHE_IIR_N_MAX];
     static int32_t c_buf[MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO];
+    static int32_t e_buf[MORPHE_IIR_SECOES_MAX * MORPHE_IIR_EST_POR_SECAO];
     decode_samples_to_i32(rx_buf,           n_x,    dtype, x_buf);
     decode_samples_to_i32(rx_buf + n_x * 4, n_coef, dtype, c_buf);
+    int estado_zero = 1;
+    if (com_estado) {
+        decode_samples_to_i32(rx_buf + (n_x + n_coef) * 4, n_est, dtype, e_buf);
+        for (uint32_t i = 0; i < n_est; i++) if (e_buf[i] != 0) estado_zero = 0;
+    }
 
     struct timespec t0, t_entrada, t_fpga, t_fim;
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -995,6 +1014,12 @@ static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
      * sobrasse na SRAM entraria na conta e sairia como cauda. */
     for (uint32_t i = 0; i < MORPHE_IIR_N_MAX; i++) g_iir_xn[i] = (i < n_x) ? x_buf[i] : 0;
     for (uint32_t i = 0; i < n_coef; i++) g_iir_coef[i] = c_buf[i];
+    for (uint32_t i = 0; i < n_est; i++) g_iir_coef[MORPHE_IIR_EST_IN + i] = e_buf[i];
+    /* O modo vale para esta execucao: o que sobrou de uma anterior com
+     * estado nao pode valer para a seguinte. A marca e apagada para que
+     * so o bloco a escreva. */
+    g_iir_coef[MORPHE_IIR_EST_MODO]  = com_estado ? 1 : 0;
+    g_iir_coef[MORPHE_IIR_EST_MARCA] = 0;
 
     *g_pio_iir_nsecoes = n_sec;
     clock_gettime(CLOCK_MONOTONIC, &t_entrada);
@@ -1011,9 +1036,22 @@ static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
     clock_gettime(CLOCK_MONOTONIC, &t_fpga);
 
     uint32_t saturou = (*g_pio_iir_error) & 0x1U;
+    const int devolve = com_estado &&
+        (uint32_t) g_iir_coef[MORPHE_IIR_EST_MARCA] == MORPHE_IIR_EST_MARCA_VALOR;
+    if (com_estado && !devolve && !estado_zero) {
+        /* bitstream antigo: ignorou o estado inicial, e y esta errado */
+        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_INTERNAL_ERROR,
+                          "IIR: o bitstream da placa nao carrega o estado (anterior a "
+                          "19/10/2026); grave o novo com o morphe-up");
+    }
 
-    static int32_t y_buf[MORPHE_IIR_N_MAX];
+    static int32_t y_buf[MORPHE_IIR_N_MAX + MORPHE_IIR_SECOES_MAX * MORPHE_IIR_EST_POR_SECAO];
     for (uint32_t i = 0; i < n_x; i++) y_buf[i] = g_iir_yn[i];
+    uint32_t n_out = n_x;
+    if (devolve) {
+        for (uint32_t i = 0; i < n_est; i++) y_buf[n_x + i] = g_iir_coef[MORPHE_IIR_EST_OUT + i];
+        n_out += n_est;
+    }
 
     /* O bundle guarda os coeficientes no lugar de h: e o que o comparador
      * precisa para refazer a conta no modelo em Python. */
@@ -1021,20 +1059,23 @@ static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec) {
 
     static uint8_t tx_buf[TX_BUF_MAX];
     uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_IIR, dtype, MORPHE_STATUS_OK, n_x);
-    u32_to_be(hdr + 16, saturou);   /* extra: 1 = alguma amostra saturou */
+    build_resp_header(hdr, MORPHE_OP_IIR, dtype, MORPHE_STATUS_OK, n_out);
+    /* extra: bit 0 = alguma amostra saturou; bit 1 = o estado final vem
+     * depois de y */
+    u32_to_be(hdr + 16, saturou | (devolve ? MORPHE_IIR_EXTRA_ESTADO : 0));
 
     if (dtype == MORPHE_DTYPE_INT32) {
-        for (uint32_t i = 0; i < n_x; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
+        for (uint32_t i = 0; i < n_out; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
     } else {
-        for (uint32_t i = 0; i < n_x; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
+        for (uint32_t i = 0; i < n_out; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
     }
 
     if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
-    if (send_all(sock, tx_buf, (size_t) n_x * 4) < 0) return -1;
+    if (send_all(sock, tx_buf, (size_t) n_out * 4) < 0) return -1;
     clock_gettime(CLOCK_MONOTONIC, &t_fim);
 
-    LOG("  -> IIR OK: n_out=%u, secoes=%u%s", n_x, n_sec, saturou ? ", SATUROU" : "");
+    LOG("  -> IIR OK: n_out=%u, secoes=%u%s%s", n_x, n_sec, saturou ? ", SATUROU" : "",
+        devolve ? ", estado devolvido" : (com_estado ? ", SEM estado (bitstream antigo)" : ""));
     log_tempos("IIR", &t0, &t_entrada, &t_fpga, &t_fim);
     return 0;
 }
@@ -1600,6 +1641,7 @@ static int audio_ao_vivo(int sock, uint32_t n_total, uint32_t n_sec) {
     LOG("AUDIO ao vivo: %u secoes, aquecimento %u, %u amostras novas por bloco (%.1f ms)",
         n_sec, aquec, util, util * 1000.0 / MORPHE_AUDIO_FS);
     for (uint32_t i = 0; i < n_coef; i++) g_iir_coef[i] = (int32_t) u32_from_be(rx + 4 + i * 4);
+    g_iir_coef[MORPHE_IIR_EST_MODO] = 0;   /* janela deslizante: estado zero */
     *g_pio_iir_nsecoes = n_sec;
 
     audio_inicia(MORPHE_AUDIO_OP_CAPTURA, 1, 0);
@@ -1977,7 +2019,7 @@ static void serve_connection(int sock, const struct sockaddr_in *peer) {
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
         case MORPHE_OP_IFFT: handle_ifft(sock, dtype, n_x); break;
         case MORPHE_OP_FIR:  handle_fir(sock, dtype, n_x, n_h); break;
-        case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h); break;
+        case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC:  handle_adc(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC_CONTINUO: handle_adc_continuo(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_AUDIO: handle_audio(sock, dtype, flags, n_x, n_h); break;

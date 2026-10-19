@@ -51,7 +51,8 @@ Todos os campos são inteiros sem sinal em ordem de rede
     \texttt{int32} já em ponto fixo; o \texttt{float32} existe na convolução e
     no FIR por compatibilidade com o projeto original.
   \item[\texttt{flags}] 0, exceto no ADC, em que carrega a palavra de
-    configuração do conversor.
+    configuração do conversor; no IIR, 1 pede para o bloco partir de um
+    estado dado e devolver o estado final (seção~\ref{sec:iir-estado}).
   \item[\texttt{n\_x}, \texttt{n\_h}] os tamanhos. O significado muda com a
     operação: no IIR, \texttt{n\_h} é o número de seções; no ADC, o divisor do
     relógio que dá a taxa de amostragem.
@@ -60,8 +61,9 @@ Todos os campos são inteiros sem sinal em ordem de rede
     uma mensagem de texto de \texttt{n\_out} bytes.
   \item[\texttt{n\_out}] quantos valores (ou bytes de mensagem) vêm no
     \emph{payload} da resposta.
-  \item[\texttt{extra}] uma palavra livre para a operação: 1 no IIR se alguma
-    amostra saturou; o divisor usado no ADC; 0 nas outras.
+  \item[\texttt{extra}] uma palavra livre para a operação: no IIR, bit 0 = alguma
+    amostra saturou e bit 1 = o estado final vem depois de \(y\); o divisor usado
+    no ADC; 0 nas outras.
 \end{description}
 
 \section{As operações}
@@ -96,8 +98,10 @@ Todos os campos são inteiros sem sinal em ordem de rede
     \addlinespace
     6 & \texttt{IIR} & \(n_x \le 1024\) amostras em Q15.16, depois
       \(5 \cdot n_h\) coeficientes Q15.16 na ordem
-      \(b_0, b_1, b_2, a_1, a_2\) de cada seção; \(1 \le n_h \le 16\)
-      & \(n_x\) amostras Q15.16; \texttt{extra} = 1 se saturou \\
+      \(b_0, b_1, b_2, a_1, a_2\) de cada seção; \(1 \le n_h \le 16\);
+      com \texttt{flags} = 1, mais \(4 \cdot n_h\) palavras do estado inicial
+      & \(n_x\) amostras Q15.16 (com \texttt{flags} = 1, mais o estado final);
+        \texttt{extra}: bit 0 = saturou, bit 1 = estado \\
     \addlinespace
     7 & \texttt{ADC} & nada; \(n_x\) = amostras (até 32\,768), \(n_h\) =
       divisor, \texttt{flags} = configuração
@@ -183,6 +187,28 @@ na rede e para conferir que uma placa está preparada
 \texttt{adc\_n\_max} diz se o ADC pode ser usado naquela placa agora (0 quando
 não pode). O tempo que a resposta leva também é usado, para escolher a placa
 menos ocupada (capítulo~\ref{cap:placas}).
+
+\section{O estado do IIR entre execuções}
+\label{sec:iir-estado}
+
+O bloco IIR processa 1024 amostras por execução, e um IIR tem memória: para
+filtrar um sinal maior em blocos, cada bloco precisa partir do estado em que o
+anterior terminou. Na Forma Direta I esse estado são quatro números por seção,
+\(x[n-1]\), \(x[n-2]\), \(y[n-1]\) e \(y[n-2]\). Com \texttt{flags} = 1, o
+pedido traz, depois dos coeficientes, o estado inicial (\(4 \cdot n_h\) palavras
+Q15.16, nessa ordem, seção por seção), e a resposta traz, depois de \(y\), o
+estado final, o de depois das 1024 amostras do bloco. Passar o estado final de
+um bloco como inicial do seguinte dá a mesma saída, bit a bit, que filtrar o
+sinal inteiro de uma vez, sem nenhuma amostra de aquecimento.
+
+O estado viaja pela SRAM dos coeficientes, que tem 256 palavras e só usa 80:
+a palavra 120 é o modo (1 = carregar o estado inicial), a 121 é uma marca que
+o bloco escreve ao terminar, as 128 a 191 são o estado inicial e as 192 a 255,
+o final. Um bitstream anterior a 19/10/2026 não escreve a marca; o servidor
+percebe, responde só com \(y\) e deixa o bit 1 do \texttt{extra} em zero. Se o
+estado inicial pedido não era zero, a resposta é um erro, porque esse
+bitstream o teria ignorado. O estado vai sempre em \texttt{int32}: em
+\texttt{float32} perderia bits.
 
 \section{A captura contínua do ADC}
 \label{sec:adc-continuo}

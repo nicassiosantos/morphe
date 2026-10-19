@@ -44,7 +44,8 @@ from morphe_protocol import (DTYPE_CODES, TcpClient, build_conv_request,
                              build_fft_request, build_fir_request,
                              build_ifft_request, build_iir_request,
                              decode_fft_response, decode_fir_response,
-                             decode_ifft_response, decode_iir_response)
+                             decode_ifft_response, decode_iir_response,
+                             decode_iir_response_estado)
 
 Progresso = Optional[Callable[[int, int], None]]
 
@@ -141,10 +142,13 @@ class IfftPlaca:
 
 
 class IirPlaca:
-    """Uma execucao do bloco IIR da placa: ate IIR_N_MAX amostras, estado
-    inicial zero. Recebe x em float, devolve (y em inteiros Q15.16, saturou)
-    -- os inteiros, porque e neles que a placa e conferida bit a bit contra
-    o modelo."""
+    """Uma execucao do bloco IIR da placa: ate IIR_N_MAX amostras. Recebe x
+    em float, devolve (y em inteiros Q15.16, saturou) -- os inteiros, porque
+    e neles que a placa e conferida bit a bit contra o modelo.
+
+    Chamada direta: estado inicial zero. com_estado: parte do estado dado
+    (None = zero) e devolve tambem o estado final, ou None se o bitstream
+    da placa nao o devolve (anterior a 19/10/2026)."""
 
     def __init__(self, client: TcpClient, coefs_q):
         self.client = client
@@ -153,6 +157,42 @@ class IirPlaca:
     def __call__(self, x: np.ndarray) -> tuple[np.ndarray, bool]:
         req = build_iir_request(q1516_iir(x), self.coefs_q, DTYPE_CODES["int32"])
         return decode_iir_response(self.client.request(req))
+
+    def com_estado(self, x: np.ndarray, estado=None):
+        n_sec = len(self.coefs_q)
+        if estado is None:
+            estado = np.zeros((n_sec, 4), dtype=np.int64)
+        req = build_iir_request(q1516_iir(x), self.coefs_q, DTYPE_CODES["int32"], estado)
+        return decode_iir_response_estado(self.client.request(req), n_sec)
+
+
+class IirModelo:
+    """O bloco IIR em software, com a mesma interface do IirPlaca: o modelo
+    bit a bit do iir_cascade.v (iir_design.filtra_inteiros_estado), sempre
+    com N_MAX amostras por execucao, como o hardware -- o que nao vem e
+    zero, e o estado final e o de depois delas. Serve de referencia e de
+    placa falsa nos testes."""
+
+    def __init__(self, coefs_q, n_max: int = IIR_N_MAX, frac_bits: int = 16):
+        self.coefs_q = [list(map(int, c)) for c in coefs_q]
+        self.n_max = n_max
+        self.frac_bits = frac_bits
+
+    def com_estado(self, x: np.ndarray, estado=None):
+        from iir_design import filtra_inteiros_estado
+        xq = np.zeros(self.n_max, dtype=np.int64)
+        v = q1516_iir(x)
+        xq[:v.size] = v
+        y, final = filtra_inteiros_estado(xq.tolist(), self.coefs_q, self.frac_bits, 32,
+                                          None if estado is None else np.asarray(estado).tolist())
+        lim = (1 << 31) - 1
+        y = np.asarray(y[:v.size], dtype=np.int64)
+        saturou = bool(np.any(np.abs(y) >= lim))
+        return y, saturou, np.asarray(final, dtype=np.int64)
+
+    def __call__(self, x: np.ndarray) -> tuple[np.ndarray, bool]:
+        y, saturou, _ = self.com_estado(x)
+        return y, saturou
 
 
 def q1516_iir(v: np.ndarray) -> np.ndarray:
@@ -332,21 +372,64 @@ def aquecimento_iir(sos: np.ndarray, frac_bits: int = 16) -> int:
 
 def iir_por_blocos(x: np.ndarray,
                    iir_bloco: Callable[[np.ndarray], tuple[np.ndarray, bool]],
-                   aquecimento: int,
+                   aquecimento: Optional[int],
                    n_max: int = IIR_N_MAX,
-                   progresso: Progresso = None) -> tuple[np.ndarray, bool]:
+                   progresso: Progresso = None,
+                   info: Optional[dict] = None,
+                   erro_aquecimento: str = "") -> tuple[np.ndarray, bool]:
     """Filtra `x` em blocos de ate `n_max`. Devolve (y em inteiros, saturou).
 
-    O primeiro bloco vai sem aquecimento (o estado zero e a verdade no
-    inicio do sinal) e guarda as `n_max` saidas; os seguintes comecam
-    `aquecimento` amostras antes e guardam `n_max - aquecimento`. Com x ate
-    `n_max`, e uma execucao so, identica a de sempre."""
+    Se o bloco sabe passar o estado (tem com_estado, como IirPlaca e
+    IirModelo, e a placa o devolve), cada bloco parte do estado final do
+    anterior: blocos de `n_max` inteiros, sem aquecimento, e y sai igual,
+    bit a bit, ao sinal inteiro filtrado de uma vez.
+
+    Senao (bitstream anterior a 19/10/2026, ou um callable simples), o
+    estado e RECONSTRUIDO: o primeiro bloco vai sem aquecimento (o estado
+    zero e a verdade no inicio do sinal) e guarda as `n_max` saidas; os
+    seguintes comecam `aquecimento` amostras antes e guardam `n_max -
+    aquecimento`. aquecimento None = este caminho nao serve (o filtro
+    precisa de mais do que cabe): erro com `erro_aquecimento`.
+
+    Com x ate `n_max`, e uma execucao so, identica a de sempre. `info`, se
+    dado, recebe "modo" ("um bloco", "estado" ou "aquecimento") e "blocos".
+    """
     x = np.asarray(x, dtype=np.float64).ravel()
+    info = {} if info is None else info
     if x.size <= n_max:
         y, sat = iir_bloco(x)
         if progresso is not None:
             progresso(1, 1)
+        info.update(modo="um bloco", blocos=1)
         return np.asarray(y, dtype=np.int64), bool(sat)
+
+    y = np.empty(x.size, dtype=np.int64)
+    if hasattr(iir_bloco, "com_estado"):
+        total = math.ceil(x.size / n_max)
+        yb, saturou, estado = iir_bloco.com_estado(x[:n_max], None)
+        y[:n_max] = yb
+        if progresso is not None:
+            progresso(1, total)
+        if estado is not None:
+            for k, s in enumerate(range(n_max, x.size, n_max), start=2):
+                yb, sat, estado = iir_bloco.com_estado(x[s:s + n_max], estado)
+                if estado is None:
+                    raise RuntimeError("a placa parou de devolver o estado no meio do sinal")
+                y[s:s + yb.size] = yb
+                saturou |= bool(sat)
+                if progresso is not None:
+                    progresso(k, total)
+            info.update(modo="estado", blocos=total)
+            return y, saturou
+        # a placa nao devolve o estado: o 1o bloco vale (partiu do zero), e
+        # o resto segue com o aquecimento
+    else:
+        yb, saturou = None, False
+
+    if aquecimento is None:
+        raise ValueError(erro_aquecimento or
+                         "o bitstream da placa nao devolve o estado do IIR, e este filtro "
+                         "precisa de mais aquecimento do que cabe num bloco")
     util = n_max - aquecimento
     if util < n_max // 8:
         raise ValueError(
@@ -354,9 +437,9 @@ def iir_por_blocos(x: np.ndarray,
             f"tem {n_max}: sobraria pouco ou nada por bloco. Os polos estao perto "
             f"demais do circulo unitario para processar este sinal por blocos.")
     total = 1 + math.ceil((x.size - n_max) / util)
-    y = np.empty(x.size, dtype=np.int64)
-    yb, saturou = iir_bloco(x[:n_max])
-    y[:n_max] = yb
+    if yb is None:
+        yb, saturou = iir_bloco(x[:n_max])
+        y[:n_max] = yb
     s = n_max
     feitos = 1
     if progresso is not None:
@@ -372,6 +455,7 @@ def iir_por_blocos(x: np.ndarray,
         feitos += 1
         if progresso is not None:
             progresso(feitos, total)
+    info.update(modo="aquecimento", blocos=total, aquecimento=aquecimento)
     return y, saturou
 
 

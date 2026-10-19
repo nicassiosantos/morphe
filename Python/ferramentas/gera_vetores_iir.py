@@ -21,6 +21,10 @@ Tres casos:
                 exerceria nem a indexacao das secoes nem a carga dos
                 coeficientes.
 
+    estado      a cascata do caso anterior em 3 blocos (tb_iir_estado.v): o
+                estado final de cada bloco volta como inicial do seguinte,
+                e a saida tem de ser a do sinal inteiro de uma vez
+
 O caso de saturacao existe porque saturar e um CAMINHO, nao um acidente:
 num laco realimentado o wrap-around vira oscilacao sustentada, e o unico
 jeito de saber que a saturacao funciona e provocar.
@@ -55,12 +59,14 @@ def hexa(v: int, bits: int = 32) -> str:
 def main() -> int:
     caso = "normal"
     args = [a for a in sys.argv[1:]]
-    if args and args[0] in ("normal", "saturacao", "cascata"):
+    if args and args[0] in ("normal", "saturacao", "cascata", "estado"):
         caso = args.pop(0)
     destino = args[0] if args else \
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "..", "..", "Quartus")
     destino = os.path.abspath(destino)
+    if caso == "estado":
+        return gera_estado(destino)
 
     if caso == "cascata":
         # O pior caso do estudo: 11 secoes, polos em 0,988, dead band de
@@ -147,6 +153,61 @@ def main() -> int:
           % ("SIM" if pico >= limite else "nao"))
     print()
     print("Rode o Quartus/testbench/roda_tb_iir.sh.")
+    return 0
+
+
+N_BLOCOS_ESTADO = 3
+
+
+def gera_estado(destino: str) -> int:
+    """Caso "estado", para o tb_iir_estado.v: o sinal tem N_BLOCOS_ESTADO
+    blocos de N_AMOSTRAS e a saida esperada e a do sinal INTEIRO de uma vez.
+    O testbench roda um bloco por vez, devolvendo o estado final de cada um
+    como inicial do seguinte; tem de dar o mesmo bit. O filtro e o mais
+    duro do estudo (polos em 0,988): o transitorio de estado zero dele dura
+    ~1800 amostras, mais que os 3 blocos -- sem o estado, as emendas
+    apareceriam.
+
+    Grava tambem o estado esperado ao fim do 1o bloco (vetores_est.hex),
+    para conferir o que o bloco escreve na SRAM."""
+    proj = iir.design_iir("butterworth", 200.0, 300.0, 0.1, 60.0, 8000.0)
+    proj.sos = iir.distribui_ganho(proj.sos)
+    coefs = iir.coeficientes_inteiros(proj.sos, FRAC_BITS, TOTAL_BITS)
+    print(proj.descricao())
+    print("cascata: %d secoes, %d blocos de %d"
+          % (len(coefs), N_BLOCOS_ESTADO, N_AMOSTRAS))
+
+    total = N_BLOCOS_ESTADO * N_AMOSTRAS
+    rng = np.random.default_rng(20261019)
+    n = np.arange(total)
+    x = 0.5 * np.sin(2 * np.pi * 3 * n / N_AMOSTRAS) + 0.2 * rng.normal(size=total)
+    x[N_AMOSTRAS - 8:N_AMOSTRAS + 8] = 0.9     # um degrau em cima da emenda
+    escala = 1 << FRAC_BITS
+    xq = [int(np.floor(v * escala + 0.5)) for v in np.clip(x, -0.99, 0.99)]
+
+    y, _ = iir.filtra_inteiros_estado(xq, coefs, FRAC_BITS, TOTAL_BITS)
+    _, est1 = iir.filtra_inteiros_estado(xq[:N_AMOSTRAS], coefs, FRAC_BITS, TOTAL_BITS)
+    # sem estado: cada bloco do zero -- so para dizer quanto erraria
+    y0 = []
+    for b in range(N_BLOCOS_ESTADO):
+        yb, _ = iir.filtra_inteiros_estado(xq[b * N_AMOSTRAS:(b + 1) * N_AMOSTRAS],
+                                           coefs, FRAC_BITS, TOTAL_BITS)
+        y0 += yb
+    print("sem o estado, o pior erro nas emendas seria %d LSB"
+          % max(abs(a - b) for a, b in zip(y, y0)))
+
+    arquivos = {
+        "vetores_coef.hex": [hexa(c) for linha in coefs for c in linha],
+        "vetores_nsec.hex": [hexa(len(coefs))],
+        "vetores_x.hex":    [hexa(v) for v in xq],
+        "vetores_y.hex":    [hexa(v) for v in y],
+        "vetores_est.hex":  [hexa(v) for sec in est1 for v in sec],
+    }
+    for nome, linhas in arquivos.items():
+        caminho = os.path.join(destino, nome)
+        with open(caminho, "w", encoding="ascii") as f:
+            f.write("\n".join(linhas) + "\n")
+        print("gravado: %s  (%d linhas)" % (caminho, len(linhas)))
     return 0
 
 

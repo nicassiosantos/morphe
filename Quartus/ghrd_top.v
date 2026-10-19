@@ -863,6 +863,7 @@ iir_cascade #(
     .coef_sram_chipselect (iir_coef_chipselect),
     .coef_sram_clken      (iir_coef_clken),
     .coef_sram_write      (iir_coef_write),
+    .coef_sram_wdata      (iir_coef_writedata),  // estado final e marca
 
     // SRAM de x[n]
     .xn_sram_readdata     (iir_xn_readdata),

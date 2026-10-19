@@ -79,6 +79,17 @@
 /* Amostras E coeficientes em Q15.16, o mesmo formato da conv1d. */
 #define MORPHE_IIR_FRAC_BITS    16
 
+/* Estado entre execucoes, na SRAM iir_coef (palavras; ver iir_cascade.v):
+ * modo (bit 0 = carregar o estado inicial), marca que o bloco escreve ao
+ * fim (so os bitstreams que devolvem o estado), estado inicial e final,
+ * 4 palavras por secao: x1 x2 y1 y2. */
+#define MORPHE_IIR_EST_MODO     120
+#define MORPHE_IIR_EST_MARCA    121
+#define MORPHE_IIR_EST_IN       128
+#define MORPHE_IIR_EST_OUT      192
+#define MORPHE_IIR_EST_MARCA_VALOR 0x45535431  /* "EST1" */
+#define MORPHE_IIR_EST_POR_SECAO 4
+
 /* ---- ADC (LTC2308, captura a fs fixa pelo adc_captura.v) --------------- */
 
 /* Amostras por captura: a RAM adc_buf tem 2^15 palavras de 32 bits

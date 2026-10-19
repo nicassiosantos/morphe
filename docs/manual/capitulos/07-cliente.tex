@@ -55,7 +55,7 @@ A janela principal é um menu de botões, um por ferramenta:
     \emph{Loopback} devolve o som pela saída da placa, ao computador ou aos
     dois. \emph{Filtrar na placa} passa a última captura (ou um arquivo) por
     um filtro da FPGA, vindo do projetista IIR (no bloco IIR, em blocos de
-    1024 com aquecimento) ou do projetista FIR (no bloco FIR, por
+    1024 encadeados pelo estado do filtro) ou do projetista FIR (no bloco FIR, por
     \emph{overlap-add}). Aberto desta janela, o projetista já vem com a
     \(f_s\) do codec, 48\,828,125\,Hz; um filtro projetado para outra \(f_s\)
     é recusado. O FIR pode ter mais de 1024 coeficientes, até 8191: o
@@ -407,11 +407,22 @@ A escolha foi deliberada: um espectrograma (FFTs de quadros sobrepostos) também
 processaria sinais longos, mas mudaria o significado da janela da FFT, que é
 mostrar \emph{a} transformada do sinal.
 
-\subsection{IIR: blocos com aquecimento}
+\subsection{IIR: blocos encadeados pelo estado}
 
 O IIR não se decompõe assim. A saída em \(n\) depende de toda a entrada
-anterior, e o bloco da placa sempre começa com o estado zerado. A solução é a
-usual: cada bloco começa \(A\) amostras \emph{antes} do trecho que interessa, e
+anterior, e essa memória inteira cabe no \emph{estado} do filtro: quatro
+números por seção. Desde 19/10/2026 o bloco da placa devolve o estado final de
+cada execução e aceita o inicial (seção~\ref{sec:iir-estado}); o cliente passa
+o final de um bloco como inicial do seguinte. Os blocos têm as 1024 amostras
+inteiras, não há aquecimento, e a saída é a do filtro rodando sem parar, bit a
+bit --- qualquer que seja a posição dos polos. O modelo em ponto fixo faz o
+mesmo, e o alarme bit a bit da janela compara a placa com o filtro contínuo.
+
+\subsection{IIR: blocos com aquecimento (bitstream sem estado)}
+
+Com um bitstream anterior, que zera o estado a cada execução, o cliente
+percebe na primeira resposta e volta ao esquema antigo: o estado é
+\emph{reconstruído}. Cada bloco começa \(A\) amostras \emph{antes} do trecho que interessa, e
 as primeiras \(A\) saídas são descartadas (Figura~\ref{fig:iir-blocos}). Se o
 aquecimento for longo o bastante para o transitório do estado zero morrer, o
 trecho guardado coincide com o do filtro rodando sem parar.
@@ -433,7 +444,9 @@ decai como \(|p|^n\), e o critério é ele cair abaixo de meio passo do Q15.16,
 com a folga de 50\,\% e o termo por seção cobrindo os polos repetidos. Um filtro
 com polos muito perto do círculo unitário pode precisar de um aquecimento maior
 que o próprio bloco; nesse caso o cliente recusa com uma mensagem que explica
-por quê.
+por quê e pede o bitstream novo. Era a limitação que o estado removeu: a
+\(f_s = 48{,}8\)\,kHz do codec, um Butterworth de ordem 4 com corte em 200\,Hz
+pede 1811 amostras de aquecimento, e pelo estado roda sem nenhuma.
 
 Para o alarme bit a bit da janela continuar valendo, o modelo em ponto fixo
 roda com \emph{os mesmos blocos}: placa e modelo batem exatamente. A

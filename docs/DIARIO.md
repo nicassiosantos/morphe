@@ -16,6 +16,40 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 19/10/2026 (noite) — Estado do IIR entre blocos (escrito e simulado; falta a placa)
+
+A pedido. Um sinal maior que 1024 amostras vai ao bloco IIR em blocos, e o bloco
+zerava o estado a cada execução: o cliente o **reconstruía** reprocessando amostras
+do bloco anterior (aquecimento). Com polos perto do círculo unitário o aquecimento
+não cabe no bloco — a 48,8 kHz, um Butterworth de ordem 4 com corte em 200 Hz pede
+1811 amostras — e o cliente recusava. Das três saídas discutidas (passar o estado;
+somar a resposta de entrada zero; dizimar), foi escolhida a de **passar o estado**:
+exata e sem aquecimento para qualquer polo.
+
+- `iir_cascade.v`: lê uma palavra de modo na SRAM dos coeficientes; no modo 1
+  carrega o estado inicial (x1 x2 y1 y2 por seção); ao fim de toda execução grava o
+  estado final e uma marca ("EST1"). Usa as palavras 120–255, livres (a SRAM tem 256
+  e os coeficientes ocupam 80): **sem mudar o Platform Designer**. `ghrd_top.v` liga a
+  escrita da porta (`iir_coef_writedata`, que estava solta).
+- Servidor: `flags` = 1 no `OP_IIR` leva o estado inicial e devolve o final depois
+  de y (`extra` bit 1). Bitstream antigo: a marca não aparece e o servidor avisa.
+- Cliente: `blocos.iir_por_blocos` encadeia pelo estado (blocos de 1024 inteiros);
+  com bitstream antigo volta sozinho ao aquecimento. Janelas Áudio e IIR usam isso.
+
+**Simulado** (`roda_tb_iir.sh`, caso novo `estado`): a cascata de 11 seções (polos
+em 0,988) em 3 blocos encadeados dá **bit a bit** a saída do sinal inteiro de uma vez
+— sem o estado, as emendas errariam 35 807 LSB; o estado gravado confere com o
+modelo; o modo 0 zera de novo. Uma cópia com o modo desligado reprova, como deve.
+Os 3 casos antigos continuam passando. Cliente (`testa_blocos.py`, sem placa): o
+Butterworth de 200 Hz em 5 blocos pelo estado = filtro contínuo, 0 LSB. Servidor
+compila para ARM sem aviso.
+
+**Compilado em cópia com o Quartus 23.1** do notebook (só verificação): clock de
+50 MHz com folga de +3,855 ns (Fmax ≈ 62 MHz; o oficial atual tem +3,716), +74
+registradores, memória e DSP iguais (55 %, 30/87). **Falta**: compilar o oficial
+com a 20.1 na estação, gravar, `testa_blocos.py --placa` (itens 8 e 9) e a
+proveniência.
+
 ## 19/10/2026 (tarde) — Stem, FIR acima de 1024 coeficientes e salvar para comparar
 
 A pedido, na janela Áudio:
