@@ -107,11 +107,13 @@ Os aceleradores escritos no estágio têm testbench em Icarus Verilog, que roda
 no Linux e no Windows sem Quartus.
 
 \begin{description}
-  \item[\arq{Quartus/testbench/roda_tb_iir.sh}] simula uma seção (\arq{tb_iir_sos.v}) e a
-    cascata (\arq{tb_iir_cascade.v}) contra vetores gerados pelo
-    \arq{Python/ferramentas/gera_vetores_iir.py}, a partir do modelo em ponto
-    fixo do \arq{iir_design.py}. O critério é igualdade \textbf{bit a bit} em
-    todas as amostras.
+  \item[\arq{Quartus/testbench/roda_tb_iir.sh}] simula, contra vetores do
+    \arq{gera_vetores_iir.py} (em \arq{Python/ferramentas}), tirados do modelo
+    em ponto fixo do \arq{iir_design.py}, uma seção, a cascata e o estado entre
+    execuções: três blocos encadeados pelo estado têm de dar a saída do sinal
+    inteiro de uma vez. Os testbenches são \arq{tb_iir_sos.v},
+    \arq{tb_iir_cascade.v} e \arq{tb_iir_estado.v}. O critério é igualdade
+    \textbf{bit a bit} em todas as amostras.
   \item[\arq{Quartus/testbench/roda_tb_adc.sh}] simula o \arq{adc_captura.v} contra um
     modelo do LTC2308 que confere os tempos da folha de dados: captura única a
     várias taxas, divisor abaixo do mínimo, memória cheia, captura contínua com a

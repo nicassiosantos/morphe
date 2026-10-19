@@ -16,6 +16,29 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 19/10/2026 (noite, fim) — Truncar × arredondar no conv1d: comparação medida
+
+O RTL **antigo** do `conv1d.v` (antes de `d52e8ff`, 15/10) e o **novo** simulados no
+Icarus com os mesmos sinais; cada um bate **bit a bit** com o seu modelo (truncado:
+cada produto Q32.32 cortado para `[47:16]` antes de somar, em 32 bits; arredondado:
+soma em 64 bits e `floor(soma/2¹⁶ + ½)` uma vez, na saída). Erro contra a conta exata:
+
+| caso | versão | erro máx | erro médio | SNR |
+|---|---|---|---|---|
+| A: x e h aleatórios em ±2, 1024 × 1024 | truncado | 531 LSB | −256 LSB | 76,5 dB |
+| | arredondado | 0,50 LSB | −0,01 LSB | 136,8 dB |
+| B: FIR passa-baixas de 101 coef. (2 kHz, fs do codec), sinal em 0,5 | truncado | 58 LSB | −46 LSB | 53,4 dB |
+| | arredondado | 0,50 LSB | −0,02 LSB | 97,9 dB |
+| C: o mesmo FIR, sinal a −40 dBFS (0,01) | truncado | 60 LSB | −46 LSB | 19,4 dB |
+| | arredondado | 0,50 LSB | 0,00 LSB | 63,8 dB |
+
+O erro do truncamento era quase todo um **desvio fixo para baixo** (piso em cada
+produto: −0,5 LSB em média por termo, somados), ≈ 0,0007 no FIR de 101 coeficientes —
+um DC falso de cerca de −63 dBFS, que pesa mais quanto mais fraco o sinal (caso C).
+Arredondado, o erro é o mínimo do formato, meio LSB, qualquer que seja o número de
+termos. **Na placa 1** (que já arredonda), os casos A e B pela operação FIR: 0
+amostras diferentes do modelo arredondado, erro máximo 0,50 LSB contra o exato.
+
 ## 19/10/2026 (noite) — Estado do IIR VALIDADO NA PLACA 1 (bitstream de teste 23.1)
 
 Placa 1 (`de1soclinux`, 172.16.230.24) ligada ao notebook: gravado o `.sof` da cópia
