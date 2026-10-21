@@ -11,8 +11,8 @@ O que confere, em ordem:
      esperando na fila (era isso que o cliente nao sabia distinguir);
   3. terminada a captura, a placa volta a "livre" e conta a operacao.
 
-Se a placa nao tiver o ADC, o passo 2 usa convolucoes seguidas no lugar
-da captura (mais curtas, mas o suficiente para ver "ocupada").
+Sem o ADC disponivel (FPGA sem o bitstream deste servidor), o teste para no
+passo 2 e diz por que.
 """
 from __future__ import annotations
 
@@ -21,12 +21,9 @@ import sys
 import threading
 import time
 
-import numpy as np
-
 import _caminho  # noqa: F401
 import aquisicao as aq
-from morphe_protocol import (DTYPE_CODES, TcpClient, build_conv_request,
-                             build_ping_request, consultar_estado,
+from morphe_protocol import (TcpClient, build_ping_request, consultar_estado,
                              decode_ping_response)
 
 falhas: list[str] = []
@@ -71,29 +68,21 @@ def main() -> int:
 
     # 2. ocupada
     info = decode_ping_response(TcpClient(ip, porta, timeout=5).request(build_ping_request()))
-    tem_adc = int(info.get("adc_n_max", "0")) > 0
     cliente = TcpClient(ip, porta, timeout=10)
     parar = threading.Event()
-    if tem_adc:
-        esperado = "captura contínua do ADC"
-        trabalho = threading.Thread(target=lambda: aq.capturar_continuo(
-            cliente, 0, 20000, aq.MODO_SIMPLES, 0, parar=parar,
-            guardar=False, acumular=False), daemon=True)
-    else:
-        esperado = "convolução"
-        x = np.zeros(1024, dtype=np.int32)
-        req = build_conv_request(x, x, DTYPE_CODES["int32"])
-
-        def convolucoes():
-            while not parar.is_set():
-                cliente.request(req)
-        trabalho = threading.Thread(target=convolucoes, daemon=True)
+    if int(info.get("adc_n_max", "0")) == 0:
+        confere(False, "o servidor informou adc_n_max=0: rode o morphe-up.sh nesta placa")
+        return 1
+    esperado = "captura contínua do ADC"
+    trabalho = threading.Thread(target=lambda: aq.capturar_continuo(
+        cliente, 0, 20000, aq.MODO_SIMPLES, 0, parar=parar,
+        guardar=False, acumular=False), daemon=True)
     trabalho.start()
     time.sleep(1.5)
     e = consultar_estado(ip, porta)
     confere(e is not None and e.ocupada and e.operacao == esperado,
             f"durante: {e.descricao() if e else 'sem resposta'}")
-    if e is not None and tem_adc:
+    if e is not None:
         confere(1.0 <= e.ha_s <= 3.0, f"tempo andando: há {e.ha_s:.1f} s")
     if e is not None:
         meu_ip = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -102,14 +91,13 @@ def main() -> int:
                 f"cliente = {e.info.get('cliente')} (este computador)")
         meu_ip.close()
         confere(e.rtt_s < 0.2, f"resposta imediata mesmo ocupada ({e.rtt_s * 1000:.1f} ms)")
-    if tem_adc:
-        t0 = time.monotonic()
-        try:
-            TcpClient(ip, porta, timeout=1.0).request(build_ping_request())
-            confere(False, "o PING deveria esperar na fila durante a captura")
-        except Exception:
-            confere(True, f"o PING espera na fila ({time.monotonic() - t0:.1f} s sem "
-                          "resposta), a porta de estado não")
+    t0 = time.monotonic()
+    try:
+        TcpClient(ip, porta, timeout=1.0).request(build_ping_request())
+        confere(False, "o PING deveria esperar na fila durante a captura")
+    except Exception:
+        confere(True, f"o PING espera na fila ({time.monotonic() - t0:.1f} s sem "
+                      "resposta), a porta de estado não")
     time.sleep(1.5)
     parar.set()
     trabalho.join(timeout=10)

@@ -1,26 +1,24 @@
 # Precisão numérica do Morphe — fatos medidos
 
-Consequências numéricas das operações neste hardware. Só o que foi medido
-ou lido no código, com a fonte ao lado. Versão curta e direta; uma versão
-detalhada virá depois.
+Consequências numéricas da FFT e do ADC neste hardware. Só o que foi medido ou lido
+no código, com a fonte ao lado.
 
-Última medição: 10/09/2026, DE1-SoC, bitstream `soc_system_time_limited.sof`.
+Medições da FFT: 10/09/2026, DE1-SoC. Medições do ADC: 24/09 e 07/10/2026.
 
 ---
 
-## 1. Existem DOIS formatos de ponto fixo, em caminhos diferentes
+## 1. O formato da FFT: Q15.8
 
 | caminho | formato | passo | faixa | onde |
 |---|---|---|---|---|
-| FFT e IFFT | **Q15.8** (24 bits) | 2⁻⁸ = 1/256 | ±32768 | `morphe_config.h:51` |
-| conv1d e FIR | **Q15.16** (32 bits) | 2⁻¹⁶ ≈ 1,5e-5 | ±32768 | `morphe_config.h:63` |
+| FFT | **Q15.8** (24 bits) | 2⁻⁸ = 1/256 | ±32768 | `C/morphe_config.h`, `MORPHE_FFT_FRAC_BITS` |
+| ADC | código de 12 bits | 1 mV | 0 a 4,095 V (simples), ±2,048 V (diferencial) | `C/morphe_config.h`, seção do ADC |
 
-Não confundir. A FFT usa Q15.8 porque a SRAM entrega `sink_real[23:0]` ao
-IP da Altera: 24 bits, sobram 8 fracionários depois do sinal e dos 15
-inteiros. O conv1d é multiplicador próprio e usa 32 bits.
+A FFT usa Q15.8 porque a SRAM entrega `sink_real[23:0]` ao IP da Altera: 24 bits,
+sobram 8 fracionários depois do sinal e dos 15 inteiros.
 
-Codificação: `q = round(v · 2^frac)`, saturando na faixa.
-Python: `dsp_core.fft_q1508_encode` e `dsp_core.float_to_q1516`.
+Codificação: `q = round(v · 2^8)`, saturando na faixa. Python:
+`dsp_core.fft_q1508_encode`.
 
 ---
 
@@ -28,27 +26,27 @@ Python: `dsp_core.fft_q1508_encode` e `dsp_core.float_to_q1516`.
 
 Erro de arredondamento uniforme em [-Δ/2, +Δ/2], variância Δ²/12.
 
-Multiplicar o sinal por `s` antes de codificar e dividir por `s` depois
-faz o passo efetivo virar Δ/s:
+Multiplicar o sinal por `s` antes de codificar e dividir por `s` depois faz o passo
+efetivo virar Δ/s:
 
     ganho = 20·log10(s)        dobrar s = 6,02 dB = 1 bit
 
-Exato, não aproximado: DFT e IDFT são lineares, então `IDFT(s·X)/s` é o
-mesmo valor matemático com menos erro de quantização.
+Exato, não aproximado: a DFT é linear, então `DFT(s·x)/s` é o mesmo valor matemático
+com menos erro de quantização.
 
 O ganho disponível é o que sobra de faixa não usada:
 
     ganho_max = 6,02 · log2( 32768 / max|entrada| )
 
-**Consequência:** mandar um sinal de amplitude 3 numa faixa que vai a
-32768 joga fora ~13 bits.
+**Consequência:** mandar um sinal de amplitude 3 numa faixa que vai a 32768 joga fora
+~13 bits.
 
 ---
 
-## 3. Medido na placa: varredura de escala na FFT direta
+## 3. Medido na placa: varredura de escala na FFT
 
-Mesmo sinal (pico 3,3), amplitudes diferentes, escala desfeita na volta,
-comparado com `np.fft.fft`:
+Mesmo sinal (pico 3,3), amplitudes diferentes, escala desfeita na volta, comparado
+com `np.fft.fft`:
 
 | escala | pico de x | SNR | ganho |
 |---:|---:|---:|---:|
@@ -60,140 +58,97 @@ comparado com `np.fft.fft`:
 | 1024 | 3377,3 | 91,66 dB | +41,24 |
 | 4096 | 13509,1 | 91,55 dB | +41,13 |
 
-De 1 para 64 são 6 bits: teoria 36,12 dB, medido 36,22 dB. A fórmula
-fecha com o hardware.
+De 1 para 64 são 6 bits: teoria 36,12 dB, medido 36,22 dB. A fórmula fecha com o
+hardware.
 
-**Teto medido: ~92 dB.** Acima de escala 256 não ganha mais nada. Ali o
-limite deixa de ser o Q15.8 da entrada e passa a ser a aritmética interna
-do IP (twiddles de 18 bits, saída de 24 com expoente compartilhado).
-
-**Consequência:** normalizar a entrada da FFT rende ~41 dB neste caso,
-não os 80 dB que a conta dos 13 bits sugeriria. O teto do IP corta antes.
+**Teto medido: ~92 dB.** Acima de escala 256 não ganha mais nada. Ali o limite deixa
+de ser o Q15.8 da entrada e passa a ser a aritmética interna do IP (twiddles de 18
+bits, saída de 24 com expoente compartilhado).
 
 ---
 
 ## 4. A normalização é opcional, e o padrão é ligada
 
-Desde 10/09/2026 as duas operações normalizam por padrão, e a caixa
-"Normalizar entrada" nas telas da FFT e da IFFT desliga. Medido na placa,
-mesmo sinal (pico 3,3) e mesmo espectro:
+A janela da FFT normaliza por padrão; a caixa "Normalizar entrada" desliga. Medido na
+placa, mesmo sinal (pico 3,3): **50,42 dB** sem normalizar, **91,53 dB** normalizada
+(escala 9737).
 
-| operação | sem normalizar | normalizada | escala usada |
-|---|---:|---:|---:|
-| FFT direta | 50,42 dB | **91,53 dB** | 9737 |
-| IFFT | 91,17 dB | **92,69 dB** | 25,09 |
-
-A FFT ganha 41,1 dB porque mandava `x[n]` de amplitude 3 numa faixa que
-vai a 32768. A IFFT ganha pouco **neste** espectro porque o pico dele já
-era 1280; com espectro pequeno a diferença é de ordens de grandeza (erro
-2,7e-03 sem, 5,9e-08 com).
-
-API: `build_fft_request(x, normalizar=True)` e
-`build_ifft_request(X, normalizar=True)` devolvem `(payload, escala)`; o
-`decode_*_response(resp, escala)` desfaz. Desligar reproduz exatamente o
-comportamento anterior, **inclusive a saturação** acima de 32768.
-
-A IFFT normaliza porque o espectro é o caso pior:
-
-    |X[k]| ≤ Σ|x[n]| ≤ N · max|x|        N=1024 -> +60,2 dB
-
-O mesmo sinal que cabe folgado no tempo pode ser 1024 vezes maior na
-frequência. E ao mesmo tempo os bins pequenos caem abaixo de Δ/2 = 1/512
-e viram **exatamente zero**. Satura em cima, some embaixo.
-
-Sem normalizar, um espectro 1e-4 vezes menor volta com erro 2,7e-03; com
-ela, 5,9e-08.
-
-Quando o espectro já é grande a normalização rende pouco: com pico 1280,
-só +1,5 dB. Ela é decisiva para espectros pequenos.
+API: `build_fft_request(x, normalizar=True)` devolve `(payload, escala)`; o
+`decode_fft_response(resp, escala)` desfaz. Desligar manda o sinal como está,
+**inclusive com a saturação** acima de 32768.
 
 ---
 
 ## 5. Como o IP normaliza por dentro (Block Floating Point)
 
-O IP da FFT é *Buffered Burst*, *Quad Output*, N=1024, entrada de 24 bits,
-twiddles de 18 (`Quartus/fft_core/fft_core.xml`).
+O IP da FFT é *Buffered Burst*, *Quad Output*, N=1024, entrada de 24 bits, twiddles de
+18 (`Quartus/fft_core/fft_core.xml`).
 
-A cada estágio radix-4 (5 estágios, 1024 = 4⁵) ele detecta crescimento,
-desloca as 1024 amostras **juntas** e acumula um expoente:
+A cada estágio radix-4 (5 estágios, 1024 = 4⁵) ele detecta crescimento, desloca as
+1024 amostras **juntas** e acumula um expoente:
 
     y_real = y_raw · 2^(-exp)      um único exp para o bloco inteiro
 
 Caminho do expoente:
 
-    fft_wrapper.v:178   captura source_exp (6 bits) no source_sop
+    fft_wrapper.v       captura source_exp (6 bits) no source_sop
                         -> PIO fft_bfp_exponent
     morphe_server.c     bfp_scale   = ldexpf(1.0f, -bfp_exp)
                         total_scale = bfp_scale / 256
 
 **Duas consequências:**
 
-1. O BFP **não** recupera o que morreu na entrada. O que ficou abaixo de
-   1/512 já era zero antes de o IP existir. Por isso escalar a entrada
-   ainda rende 6 dB por bit.
-2. O expoente é **compartilhado** pelo bloco. Bins muito abaixo do pico
-   carregam menos bits efetivos, porque o deslocamento foi ditado pelo
-   maior. É isso, com os twiddles de 18 bits, que põe o teto em ~92 dB.
+1. O BFP **não** recupera o que morreu na entrada. O que ficou abaixo de 1/512 já era
+   zero antes de o IP existir. Por isso escalar a entrada ainda rende 6 dB por bit.
+2. O expoente é **compartilhado** pelo bloco. Bins muito abaixo do pico carregam menos
+   bits efetivos, porque o deslocamento foi ditado pelo maior. É isso, com os twiddles
+   de 18 bits, que põe o teto em ~92 dB.
 
-Normalização do cliente e BFP do IP resolvem problemas diferentes: a
-primeira posiciona o sinal **antes** de virar 24 bits; o segundo evita
-overflow **durante** a transformada. Nenhum substitui o outro.
-
----
-
-## 6. A IFFT não aplica o 1/N
-
-O IP entrega a inversa **não normalizada**: a saída é N vezes a IDFT
-matemática. O cliente aplica o fator.
-
-    IFFT_HW_GAIN = 1.0 / FFT_N      morphe_config.py
-
-Medido: mandando x[n] real com `inverse=1`, o que volta tem a MESMA
-magnitude da DFT (|Y|/|DFT(x)| = 1,00031). Como para x real vale
-IDFT(x) = conj(DFT(x))/N, a ausência do fator N é a prova.
-
-Confirmado por um terceiro caminho: o `idft.m` do Prof. Sanca (DSPFinal)
-usa a convenção com 1/N, igual ao NumPy, e bate com a FPGA a 2,5e-05.
+Normalização do cliente e BFP do IP resolvem problemas diferentes: a primeira
+posiciona o sinal **antes** de virar 24 bits; o segundo evita overflow **durante** a
+transformada. Nenhum substitui o outro.
 
 ---
 
-## 7. Erros medidos, para referência rápida
+## 6. FFT longa (quatro passos)
+
+Um sinal de mais de 1024 amostras vira uma DFT de 1024·M pontos: M FFTs de 1024 na
+placa, cada uma normalizada por conta própria, ligadas no PC em float64
+(`Python/blocos.py`). A precisão é a das FFTs da placa; a montagem no PC não soma erro
+visível. Medido: FFT de 8192 pontos de uma varredura, acima de 50 dB contra `np.fft`
+(`ferramentas/testa_blocos.py --placa`).
+
+---
+
+## 7. O ADC
 
 | medida | valor | condição |
 |---|---|---|
-| ida e volta FFT→IFFT | **6,1e-05** | as duas normalizadas |
-| ida e volta FFT→IFFT | 9,5e-04 | nenhuma normalizada (antes de 10/09) |
-| FFT isolada x NumPy | 91,5 dB / 50,4 dB | com / sem normalizar |
-| IFFT isolada x NumPy | 92,7 dB / 91,2 dB | com / sem, espectro de pico 1280 |
-| `idft.m` x `np.fft.ifft` | 7,9e-14 | ambos em double |
-| vazamento imaginário, IFFT de espectro hermitiano | 0 exato | vs 2,5e-13 do idft.m |
-| coeficientes FIR, float x Q15.16 | ≤ 7,6e-06 | metade do passo 1,5e-5 |
+| CH0 no terra | 0,0000 V (desvio 0,03 mV) | 24/09/2026 |
+| CH0 no 3,3 V da placa | 3,3300 V (desvio 2,6 mV) | 24/09/2026 |
+| senoide de 1 kHz, contínua 10 s a 200 kHz | SINAD 56,1 dB, **ENOB 9,03** | 07/10/2026, inclui o gerador |
 
-**Consequência:** o erro do ida e volta nunca vai a zero, mesmo com tudo
-normalizado — o piso passa a ser o teto de ~92 dB do IP, e não mais o
-Q15.8 da entrada. Não adianta procurar bug ali.
+12 bits ideais dariam ~74 dB. A diferença é ruído do conversor, da placa e do gerador.
+Para medir só o ADC, a senoide tem que vir de uma fonte mais limpa que 9 bits.
+
+**Consequência:** um sinal do ADC passa pela FFT da placa sem perder nada que o ADC
+tenha medido — o piso da FFT (~92 dB) fica muito abaixo do piso do ADC (~56 dB).
 
 ---
 
 ## 8. Regras práticas
 
-1. Antes de codificar em Q15.8, olhar `max|entrada| / 32768`. Se for
-   muito menor que 1, há bits sendo jogados fora.
-2. Normalizar sempre que a operação seguinte for linear — a escala se
-   desfaz exatamente. Guardar a escala e desfazê-la na volta.
-3. Não esperar mais que ~92 dB de SNR de nada que passe pelo IP da FFT.
-4. Um espectro **não** pode ser preenchido com zeros como um sinal no
-   tempo: isso mudaria o sinal que ele representa. Por isso a IFFT recusa
-   N ≠ 1024 em vez de fazer padding.
-5. Erro grande e sistemático = escala errada. Erro pequeno e espalhado =
-   quantização, e é o piso esperado.
+1. Antes de codificar em Q15.8, olhar `max|entrada| / 32768`. Se for muito menor que
+   1, há bits sendo jogados fora — deixe a normalização ligada.
+2. Não esperar mais que ~92 dB de SNR de nada que passe pelo IP da FFT.
+3. Erro grande e sistemático = escala errada. Erro pequeno e espalhado = quantização,
+   e é o piso esperado.
+4. Para medir o ADC, use janela Blackman-Harris: com Hann, o vazamento mascara o
+   conversor em ~53 dB.
 
 ---
 
 ## Onde reproduzir
 
-    Python/ferramentas/testa_bit_inverse.py <ip>    bit inverse + convenção 1/N
-    Python/ferramentas/testa_ifft_roundtrip.py <ip>    ida e volta, 3 verificações
-
-Ver também `RESSALVAS.md` item 17 (histórico da IFFT) e item 13 (tempo de
-resposta como indicador de saúde do core).
+    Python/ferramentas/testa_blocos.py --placa <ip>     FFT longa contra np.fft
+    Python/ferramentas/testa_adc.py <ip> senoide        SINAD e ENOB do ADC

@@ -29,8 +29,8 @@ report_clock_fmax_summary -file $saida
 report_timing -setup -npaths 1 -detail summary -file $saida -append
 
 # Os piores caminhos do relogio principal, com no de origem e de destino.
-# E aqui que se descobre se o gargalo e o divisor do iir_cascade, o
-# acumulador do iir_biquad_mac, ou outra coisa.
+# E aqui que se descobre se o gargalo e o fft_wrapper, o adc_captura,
+# ou outra coisa.
 if {[catch {
     report_timing -setup -npaths 15 -detail path_only \
                   -to_clock clock_50_1 -file $saida -append

@@ -108,21 +108,21 @@ class DiscoveryWindow(tk.Toplevel):
         self.btn_use.pack(side="right")
 
         # ---- Resultados (Treeview) -------------------------------------
-        cols = ("ip", "hostname", "version", "fft_n", "conv_n", "uptime", "fpga")
+        cols = ("ip", "hostname", "version", "fft_n", "adc_n", "uptime", "fpga")
         self.tree = ttk.Treeview(self, columns=cols, show="headings",
                                  height=10)
         self.tree.heading("ip",       text="IP")
         self.tree.heading("hostname", text="Hostname")
         self.tree.heading("version",  text="Ver.")
         self.tree.heading("fft_n",    text="FFT N")
-        self.tree.heading("conv_n",   text="Conv N max")
+        self.tree.heading("adc_n",    text="ADC N max")
         self.tree.heading("uptime",   text="Uptime (s)")
         self.tree.heading("fpga",     text="FPGA")
         self.tree.column("ip",       width=130, anchor="w")
         self.tree.column("hostname", width=200, anchor="w")
         self.tree.column("version",  width=60,  anchor="center")
         self.tree.column("fft_n",    width=80,  anchor="center")
-        self.tree.column("conv_n",   width=100, anchor="center")
+        self.tree.column("adc_n",    width=100, anchor="center")
         self.tree.column("uptime",   width=100, anchor="center")
         self.tree.column("fpga",     width=90,  anchor="center")
         self.tree.pack(fill="both", expand=True, padx=10, pady=(8, 4))
@@ -254,7 +254,7 @@ class DiscoveryWindow(tk.Toplevel):
             srv.hostname,
             srv.version,
             srv.fft_n,
-            srv.conv_n_max,
+            srv.adc_n_max,
             srv.info.get("uptime_s", "?"),
             "preparada" if srv.preparada else "de fábrica",
         ))

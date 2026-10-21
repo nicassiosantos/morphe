@@ -9,7 +9,7 @@
 # placas.conf versionado, entao nao ha lista para escrever a mao.
 #
 # Faz, na ordem, e pula o que ja estiver feito:
-#   1. /opt/morphe: clona na branch principal, ou atualiza com git pull (sem
+#   1. /opt/morphe: clona na branch desta versao, ou atualiza com git pull (sem
 #      mexer em arquivo modificado a mao);
 #   2. dono e permissoes: o dono e quem rodou o sudo (para atualizar sem sudo
 #      depois); todas as contas leem; .morphe-estado aberto para escrita;
@@ -33,7 +33,7 @@ set -euo pipefail
 # MORPHE_DEST, MORPHE_ATALHO e MORPHE_SEM_APT existem so para testar o script
 # fora de um computador do laboratorio; nao use.
 DEST="${MORPHE_DEST:-/opt/morphe}"
-RAMO="estagio/v1.1-1024pontos"
+RAMO="estagio/adc-fft"
 GITHUB="https://github.com/nicassiosantos/morphe.git"
 ALUNO="alunopds"
 ORIGEM=""

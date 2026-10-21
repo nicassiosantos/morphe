@@ -12,7 +12,7 @@
 //
 // Dois modos, escolhidos pelo `continuo` no start:
 //
-//   captura unica (continuo = 0; mesmo aperto de mao do iir_cascade)
+//   captura unica (continuo = 0)
 //     1. o HPS escreve `divisor` (fs = 50 MHz / divisor), `n_amostras` e
 //        `config_adc` (palavra de 6 bits do LTC2308) nos PIOs;
 //     2. borda de subida em `start` dispara a captura;

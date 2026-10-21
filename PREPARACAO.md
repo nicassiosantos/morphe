@@ -1,11 +1,6 @@
-# Preparação automática da placa — versão 1.2
+# Preparação da placa
 
-Antes, colocar a plataforma em operação eram **9 passos** na estação, seis deles
-comandos de terminal, dois exigindo SSH na placa, e cinco pontos de conhecimento
-tácito que faziam qualquer um deles falhar em silêncio. A contagem está em
-`docs/LINHA-DE-BASE-PASSOS.md`.
-
-Agora:
+Colocar a plataforma em operação são dois comandos:
 
 ```
 ./morphe-up.sh
@@ -15,8 +10,7 @@ Agora:
 cd Python && ./.venv/bin/python morphe_app.py
 ```
 
-O cliente abre já conectado à placa. **São 3 passos** — este, o de cima, e executar
-a operação.
+O cliente abre já conectado à placa.
 
 ## O que o `morphe-up.sh` faz
 
@@ -40,15 +34,11 @@ Na ordem, e parando com mensagem clara no primeiro problema:
 5. **Envia e compila o servidor**, se o binário não estiver lá ou com `--deploy`.
    Os seis arquivos incluem o `morphe_config.h`, que o `deploy.sh` esquecia.
 6. **Reinicia o servidor — sempre depois da FPGA.** Um servidor que subiu antes da
-   programação passa nos testes 1 e 2 do ping e dá `FPGA_TIMEOUT` nos testes 3 e 4;
+   programação passa nos testes 1 e 2 do ping e falha nos testes 3 e 4;
    é o sintoma mais confuso da plataforma, e agora é impossível por construção.
-7. **Configura o codec de áudio** (desde 15/10/2026): envia e compila o `C/codec.c`
-   na placa quando ele muda e o configura com a entrada no **microfone (MIC-in)** e
-   volume de −20 dB na LINE-out. `--codec linha` usa a LINE-in, `--codec nao` não
-   mexe no codec, `--codec-volume -10` muda o volume. Se o codec falhar, só avisa:
-   o resto não depende dele.
-8. **Verifica com o `morphe_ping`** antes de devolver o controle, e traduz a falha:
-   quais testes falharam significam rede, FPGA ou `hps_0.h` desatualizado.
+7. **Verifica com o `morphe_ping`** antes de devolver o controle (TCP, protocolo,
+   captura do ADC e FFT de impulso), e traduz a falha: quais testes falharam
+   significam rede, FPGA ou `hps_0.h` desatualizado.
 
 Outros modos:
 
@@ -99,16 +89,15 @@ ssh root@<ip> 'cd morphe/autostart && sh instala-autostart.sh'
 O instalador detecta systemd ou init.d sozinho, porque a imagem gravada no cartão
 varia de placa para placa. Depois disso a placa sobe o servidor sozinha — e a
 descoberta pela rede passa a achar a placa **sem ninguém precisar saber o IP**, que é
-o ponto da versão 1.2.
+o ponto desta preparação.
 
 ## Bundles de depuração na placa
 
-O servidor grava um `.mrph` a cada operação, no diretório dele na placa. Não
-havia limite: numa turma de PDS isso enche o cartão SD em silêncio — e cartão
-cheio não falha na hora, falha na próxima gravação, longe da causa.
+O servidor grava um `.mrph` a cada FFT, no diretório dele na placa. Sem limite,
+numa turma de PDS isso encheria o cartão SD em silêncio — e cartão cheio não falha
+na hora, falha na próxima gravação, longe da causa.
 
-Agora ele mantém **100 por tipo de operação** (conv1d, fir, fft, ifft) e apaga
-os mais antigos. Para mudar, ou desligar de vez:
+Por isso ele mantém **os 100 mais recentes** e apaga os mais antigos. Para mudar, ou desligar de vez:
 
 ```
 ssh root@<ip> 'cd morphe && MORPHE_DUMP_MAX=0 nohup ./morphe_server 5000 &'
@@ -123,7 +112,7 @@ O painel de conexão agora procura a placa ao abrir, sem clique: primeiro a que 
 `morphe-up.sh` acabou de preparar (as duas pontas leem o mesmo
 `.morphe-estado/placa`), depois a LAN. Não acha nada em ~6 s e desiste **em silêncio**,
 com uma mensagem no próprio painel — sem pop-up, porque quem vai usar o gerador de
-sinais, a comparação ou o projeto de FIR não precisa de placa nenhuma.
+sinais ou a comparação não precisa de placa nenhuma.
 
 ## Instalação para uso em turma
 
@@ -140,8 +129,7 @@ Medido em 16/09/2026, da conta `alunopds`: a home do coordenador é `0750`, ent�
 **nada dentro dela é legível pelo aluno** — nem o clone, nem o `.morphe-estado/placa`,
 nem o cliente. Em compensação, o resto estava verde: `ping` na placa responde, e o
 `python3` **do sistema** já tem `tkinter`, `numpy`, `matplotlib` e `scipy` — ou seja, o
-aluno não precisa de venv nenhum. (O `.venv` do coordenador, esse sim, não tem scipy, e
-a aproximação elíptica não roda nele.)
+aluno não precisa de venv nenhum.
 
 A divisão do trabalho decorria disso: programar a FPGA exige Quartus, logo seria sempre
 do coordenador. **Em 17/09/2026 isso deixou de ser verdade**, e de propósito — ver
@@ -221,10 +209,9 @@ O `quartus_pgm` que fica aberto depois de programar é o tether da licença de a
 Duas coisas sobre ele foram **medidas em 17/09/2026** e contrariam o que se supunha:
 
 - **Ele segura o bitstream INTEIRO, não só a FFT.** Sem tether, passada ~1 h, a lógica
-  na FPGA para: a convolução passa a dar **timeout** (o servidor continua no ar,
+  na FPGA para: as operações passam a dar **timeout** (o servidor continua no ar,
   esperando um `done` que não vem) e a FFT volta errada. O `.sof` chama-se
-  `soc_system_time_limited` por isso. A versão anterior deste documento dizia que
-  "convolução e FIR não são afetados"; era engano.
+  `soc_system_time_limited` por isso.
 - **Ele sobrevive ao logout, desde que a estação tenha `linger`.** O que o matava não
   era fraqueza do `setsid`, era o `logind` destruindo o escopo do usuário ao encerrar a
   sessão. Uma linha, uma vez por estação:
@@ -294,7 +281,7 @@ Quartus **20.1** em `/opt`, da regra udev do cabo e do PATH para todas as contas
 instalador, para que a versão seja a mesma em todo o laboratório. Numa conta com sudo:
 
 ```bash
-git clone -b estagio/v1.1-1024pontos https://github.com/nicassiosantos/morphe.git
+git clone -b estagio/adc-fft https://github.com/nicassiosantos/morphe.git
 ```
 
 ```bash
@@ -315,8 +302,7 @@ até a placa, dependências do Python no interpretador do sistema, e que o tethe
 vivo e visível depois da troca de usuário.
 
 Verificado em 17/09/2026, da conta `alunopds`: o **fluxo completo do aluno** a partir de
-`/opt/morphe` — app abrindo já conectado, convolução, FFT, IFFT, filtro IIR, projeto de
-um **elíptico** (que exercita o scipy do sistema) e bundle salvo na home dele; o tether
+`/opt/morphe` — app abrindo já conectado, FFT e bundle salvo na home dele; o tether
 sobrevivendo ao **logout** com `linger`; e a **preparação da placa pelo próprio aluno**
 depois de um desligamento da estação.
 
@@ -394,13 +380,11 @@ Axes3D` na abertura do app é o mesmo problema em forma benigna, e some com a li
 
 ## Estado desta versão
 
-**Validada em hardware em 14/09/2026**, na estação LABPS-47723 contra a placa
-172.16.230.24: um `./morphe-up.sh` sem argumento nenhum achou a placa, programou a FPGA,
-enviou e reiniciou o servidor, e fechou com `morphe_ping` 4/4 — conv1d com erro 0,00 em
-214,1 ms e FFT de 1024 pontos com espectro plano em 21,2 ms. O cliente abriu já
-conectado, sem endereço digitado. **A rotina diária caiu de 9 passos para 3**, e destes
-três um é a operação em si — a preparação saiu de 8 passos para 1. A contagem anterior
-está em `docs/LINHA-DE-BASE-PASSOS.md`.
+A rotina acima foi validada em hardware na versão completa do Morphe (14/09/2026 em
+diante): um `./morphe-up.sh` sem argumento nenhum acha a placa, programa a FPGA, envia
+e reinicia o servidor e fecha com o `morphe_ping` 4/4, com a FFT de 1024 pontos
+devolvendo espectro plano em ~21 ms. O cliente abre já conectado, sem endereço digitado.
 
-Continua pendente: instalar o `C/autostart/` em alguma placa — está escrito e nunca foi
-executado —, e os dois itens de turma listados na seção acima.
+Nesta branch o terceiro teste do `morphe_ping` é a captura do ADC. O
+bitstream só com ADC e FFT ainda tem de ser compilado na estação: ver
+`docs/COMPILAR.md`.

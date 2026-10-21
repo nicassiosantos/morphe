@@ -2,7 +2,7 @@
  * morphe_server.c — servidor TCP no HPS da DE1-SoC.
  *
  * Recebe requests do host (Python) via protocolo Morphe, executa a operação
- * na FPGA (conv1d ou FFT) acessando SRAMs/PIOs mapeados em /dev/mem, e
+ * na FPGA (captura do ADC ou FFT) acessando SRAMs/PIOs mapeados em /dev/mem, e
  * devolve o resultado pelo mesmo socket.
  *
  * Compilar: make
@@ -69,24 +69,6 @@
         _MORPHE_END(FFT_YN_RE_BASE,   FFT_YN_RE_SPAN), \
         _MORPHE_END(FFT_YN_IMAG_BASE, FFT_YN_IMAG_SPAN))
 
-#define _MORPHE_END_CONV \
-    _MORPHE_MAX3( \
-        _MORPHE_END(CONV1D_XN_BASE, CONV1D_XN_SPAN), \
-        _MORPHE_END(CONV1D_HN_BASE, CONV1D_HN_SPAN), \
-        _MORPHE_END(CONV1D_YN_BASE, CONV1D_YN_SPAN))
-
-#define _MORPHE_END_FIR \
-    _MORPHE_MAX3( \
-        _MORPHE_END(FIR_XN_BASE, FIR_XN_SPAN), \
-        _MORPHE_END(FIR_HN_BASE, FIR_HN_SPAN), \
-        _MORPHE_END(FIR_YN_BASE, FIR_YN_SPAN))
-
-#define _MORPHE_END_IIR \
-    _MORPHE_MAX3( \
-        _MORPHE_END(IIR_XN_BASE,   IIR_XN_SPAN), \
-        _MORPHE_END(IIR_YN_BASE,   IIR_YN_SPAN), \
-        _MORPHE_END(IIR_COEF_BASE, IIR_COEF_SPAN))
-
 /* O ADC so entra no servidor quando o hps_0.h foi GERADO de um .sopcinfo que o
  * tem (a RAM adc_buf e os cinco PIOs) e traz o timestamp do sysid. Nunca
  * escrever esses simbolos a mao: um cabecalho que descreve hardware que nao
@@ -105,27 +87,12 @@
 #endif
 
 #define MORPHE_ONCHIP_MMAP_SPAN \
-    _MORPHE_ROUND_UP( \
-        _MORPHE_MAX2(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
-                     _MORPHE_END_ADC), \
-        _MORPHE_PAGE_SIZE)
-
-/* Saida maxima do FIR: derivada do span real de fir_yn no hps_0.h. */
-#define MORPHE_FIR_Y_MAX  ((int)(FIR_YN_SPAN / sizeof(int32_t)))
+    _MORPHE_ROUND_UP(_MORPHE_MAX2(_MORPHE_END_FFT, _MORPHE_END_ADC), _MORPHE_PAGE_SIZE)
 
 _Static_assert(FFT_XN_RE_SPAN   >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
 _Static_assert(FFT_XN_IMAG_SPAN >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
 _Static_assert(FFT_YN_RE_SPAN   >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
 _Static_assert(FFT_YN_IMAG_SPAN >= MORPHE_FFT_N * (int)sizeof(int32_t), "Erro");
-_Static_assert(CONV1D_XN_SPAN   >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(CONV1D_HN_SPAN   >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(CONV1D_YN_SPAN   >= MORPHE_CONV_Y_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(FIR_XN_SPAN      >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(FIR_HN_SPAN      >= MORPHE_CONV_N_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(FIR_YN_SPAN      >= MORPHE_CONV_Y_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(IIR_XN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(IIR_YN_SPAN      >= MORPHE_IIR_N_MAX * (int)sizeof(int32_t), "Erro");
-_Static_assert(IIR_COEF_SPAN    >= MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO * (int)sizeof(int32_t), "Erro");
 #if MORPHE_TEM_ADC
 _Static_assert(ADC_BUF_SPAN     >= MORPHE_ADC_N_MAX * (int)sizeof(int32_t), "Erro");
 #endif
@@ -135,12 +102,12 @@ _Static_assert(MORPHE_ONCHIP_MMAP_SPAN <= FPGA_ONCHIP_SPAN + 1, "Erro");
 #define RX_BUF_MAX 16384
 #define TX_BUF_MAX 32768
 
-/* O espectro complexo da IFFT (2 int32 por bin) e o maior payload de
- * entrada do servidor: 8 KiB para N=1024. */
-_Static_assert(MORPHE_FFT_N * 8 <= RX_BUF_MAX,
-               "RX_BUF_MAX nao comporta o espectro complexo da IFFT");
+/* A saida complexa da FFT (2 int32 por bin) e o maior payload do servidor:
+ * 8 KiB para N=1024. */
+_Static_assert(MORPHE_FFT_N * 4 <= RX_BUF_MAX,
+               "RX_BUF_MAX nao comporta a entrada da FFT");
 _Static_assert(MORPHE_FFT_N * 8 <= TX_BUF_MAX,
-               "TX_BUF_MAX nao comporta a saida complexa da FFT/IFFT");
+               "TX_BUF_MAX nao comporta a saida complexa da FFT");
 
 /* =======================================================================
  * Globais — ponteiros mapeados e fd de /dev/mem
@@ -161,18 +128,6 @@ static int32_t  *g_fft_xn_imag = NULL;
 static int32_t  *g_fft_yn_re   = NULL;
 static int32_t  *g_fft_yn_imag = NULL;
 
-static int32_t  *g_conv_xn    = NULL;
-static int32_t  *g_conv_hn    = NULL;
-static int32_t  *g_conv_yn    = NULL;
-
-static int32_t  *g_fir_xn     = NULL;
-static int32_t  *g_fir_hn     = NULL;
-static int32_t  *g_fir_yn     = NULL;
-
-static int32_t  *g_iir_xn     = NULL;
-static int32_t  *g_iir_yn     = NULL;
-static volatile int32_t *g_iir_coef = NULL;   /* o bloco escreve o estado e a marca */
-
 #if MORPHE_TEM_ADC
 static volatile uint32_t *g_adc_buf = NULL;   /* escrito pelo FPGA durante a captura */
 static volatile uint32_t *g_sysid   = NULL;   /* [0] = id, [1] = timestamp do bitstream */
@@ -182,18 +137,6 @@ static volatile uint32_t *g_pio_fft_start    = NULL;
 static volatile uint32_t *g_pio_fft_inverse  = NULL;
 static volatile uint32_t *g_pio_fft_done     = NULL;
 static volatile uint32_t *g_pio_fft_bfp_exp  = NULL;
-
-static volatile uint32_t *g_pio_conv_start   = NULL;
-static volatile uint32_t *g_pio_conv_done    = NULL;
-
-static volatile uint32_t *g_pio_fir_start    = NULL;
-static volatile uint32_t *g_pio_fir_done     = NULL;
-static volatile uint32_t *g_pio_fir_error    = NULL;
-
-static volatile uint32_t *g_pio_iir_start    = NULL;
-static volatile uint32_t *g_pio_iir_done     = NULL;
-static volatile uint32_t *g_pio_iir_error    = NULL;
-static volatile uint32_t *g_pio_iir_nsecoes  = NULL;
 
 #if MORPHE_TEM_ADC
 static volatile uint32_t *g_pio_adc_start     = NULL;
@@ -215,7 +158,7 @@ static char             g_hostname[128] = "morphe-server";
  * para entrada real e o conjugado da DFT (a menos da escala). Se a parte
  * imaginaria trocar de sinal em bloco, o bit funciona.
  *
- * Vale 0 na operacao normal. Nao afeta o OP_IFFT, que sempre usa 1. */
+ * Vale 0 na operacao normal. */
 static int g_fft_force_inverse = 0;
 
 #define LOG(fmt, ...) do { \
@@ -247,11 +190,7 @@ static struct { uint32_t ip; time_t quando; } g_est_recentes[MORPHE_ESTADO_RECEN
 
 static const char *nome_op(uint16_t op) {
     switch (op) {
-        case MORPHE_OP_CONV: return "convolucao";
         case MORPHE_OP_FFT:  return "fft";
-        case MORPHE_OP_FIR:  return "fir";
-        case MORPHE_OP_IFFT: return "ifft";
-        case MORPHE_OP_IIR:  return "iir";
         case MORPHE_OP_ADC:  return "adc";
         case MORPHE_OP_ADC_CONTINUO: return "adc_continuo";
         default:             return "desconhecida";
@@ -393,13 +332,6 @@ static void u32_to_be(uint8_t *p, uint32_t v) {
 static int32_t i32_from_be(const uint8_t *p) { return (int32_t) u32_from_be(p); }
 static void i32_to_be(uint8_t *p, int32_t v) { u32_to_be(p, (uint32_t) v); }
 
-static float f32_from_be(const uint8_t *p) {
-    uint32_t host_bits = u32_from_be(p);
-    float f;
-    memcpy(&f, &host_bits, 4);
-    return f;
-}
-
 static void f32_to_be(uint8_t *p, float f) {
     uint32_t bits;
     memcpy(&bits, &f, 4);
@@ -427,18 +359,6 @@ static int fpga_init(void) {
     g_fft_yn_re   = (int32_t *)((char *)g_fpga_virt + FFT_YN_RE_BASE);
     g_fft_yn_imag = (int32_t *)((char *)g_fpga_virt + FFT_YN_IMAG_BASE);
 
-    g_conv_xn = (int32_t *)((char *)g_fpga_virt + CONV1D_XN_BASE);
-    g_conv_hn = (int32_t *)((char *)g_fpga_virt + CONV1D_HN_BASE);
-    g_conv_yn = (int32_t *)((char *)g_fpga_virt + CONV1D_YN_BASE);
-
-    g_fir_xn = (int32_t *)((char *)g_fpga_virt + FIR_XN_BASE);
-    g_fir_hn = (int32_t *)((char *)g_fpga_virt + FIR_HN_BASE);
-    g_fir_yn = (int32_t *)((char *)g_fpga_virt + FIR_YN_BASE);
-
-    g_iir_xn   = (int32_t *)((char *)g_fpga_virt + IIR_XN_BASE);
-    g_iir_yn   = (int32_t *)((char *)g_fpga_virt + IIR_YN_BASE);
-    g_iir_coef = (int32_t *)((char *)g_fpga_virt + IIR_COEF_BASE);
-
 #if MORPHE_TEM_ADC
     g_adc_buf  = (volatile uint32_t *)((char *)g_fpga_virt + ADC_BUF_BASE);
 
@@ -455,18 +375,6 @@ static int fpga_init(void) {
     g_pio_fft_inverse = (volatile uint32_t *)((char *)g_lw_virt + FFT_INVERSE_BASE);
     g_pio_fft_done    = (volatile uint32_t *)((char *)g_lw_virt + FFT_WRAPPER_DONE_BASE);
     g_pio_fft_bfp_exp = (volatile uint32_t *)((char *)g_lw_virt + FFT_BFP_EXPONENT_BASE);
-
-    g_pio_conv_start = (volatile uint32_t *)((char *)g_lw_virt + CONV1D_START_BASE);
-    g_pio_conv_done  = (volatile uint32_t *)((char *)g_lw_virt + CONV1D_DONE_BASE);
-
-    g_pio_fir_start  = (volatile uint32_t *)((char *)g_lw_virt + FIR_START_BASE);
-    g_pio_fir_done   = (volatile uint32_t *)((char *)g_lw_virt + FIR_DONE_BASE);
-    g_pio_fir_error  = (volatile uint32_t *)((char *)g_lw_virt + FIR_ERROR_BASE);
-
-    g_pio_iir_start   = (volatile uint32_t *)((char *)g_lw_virt + IIR_START_BASE);
-    g_pio_iir_done    = (volatile uint32_t *)((char *)g_lw_virt + IIR_DONE_BASE);
-    g_pio_iir_error   = (volatile uint32_t *)((char *)g_lw_virt + IIR_ERROR_BASE);
-    g_pio_iir_nsecoes = (volatile uint32_t *)((char *)g_lw_virt + IIR_NSECOES_BASE);
 
 #if MORPHE_TEM_ADC
     g_pio_adc_start     = (volatile uint32_t *)((char *)g_lw_virt + ADC_START_BASE);
@@ -497,9 +405,6 @@ static int fpga_preparada(void) {
     if (stat(MORPHE_MARCA_FPGA, &st) != 0) return 0;
     if (!g_pios_zerados) {
         *g_pio_fft_start  = 0;
-        *g_pio_conv_start = 0;
-        *g_pio_fir_start  = 0;
-        *g_pio_iir_start  = 0;
 #if MORPHE_TEM_ADC
         /* so se o bitstream carregado tem o ADC: o PIO pode nao existir */
         if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_adc_start = 0;
@@ -602,21 +507,6 @@ static int32_t saturate_q1508(int32_t v) {
     return v;
 }
 
-static int32_t saturate_int32_from_float(float f) {
-    if (isnan(f)) return 0;
-    if (f >= 2147483647.0f)  return INT32_MAX;
-    if (f <= -2147483648.0f) return INT32_MIN;
-    return (int32_t) lrintf(f);
-}
-
-static void decode_samples_to_i32(const uint8_t *buf, uint32_t n, uint16_t dtype, int32_t *out) {
-    if (dtype == MORPHE_DTYPE_INT32) {
-        for (uint32_t i = 0; i < n; i++) out[i] = i32_from_be(buf + i * 4);
-    } else {
-        for (uint32_t i = 0; i < n; i++) out[i] = saturate_int32_from_float(f32_from_be(buf + i * 4));
-    }
-}
-
 static void decode_samples_to_q1508(const uint8_t *buf, uint32_t n, int32_t *out) {
     for (uint32_t i = 0; i < n; i++) out[i] = saturate_q1508(i32_from_be(buf + i * 4));
 }
@@ -657,75 +547,6 @@ static void rotate_dumps(const char *prefix, int manter) {
 
     for (int i = 0; i < n; i++) free(lista[i]);
     free(lista);
-}
-
-static void save_debug_bundle_conv(const char *prefix, uint16_t dtype,
-                                   uint32_t n_x, const int32_t *x,
-                                   uint32_t n_h, const int32_t *h,
-                                   uint32_t n_y, const int32_t *y) {
-#if ENABLE_DEBUG_FILES
-    if (g_dump_max <= 0) return;
-    rotate_dumps(prefix, g_dump_max);
-
-    time_t now = time(NULL);
-    struct tm *t = localtime(&now);
-    char filename[128];
-    strftime(filename, sizeof(filename), "%Y%m%d_%H%M%S", t);
-    
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s_%s.mrph", prefix, filename);
-    
-    FILE *f = fopen(filepath, "w");
-    if (!f) {
-        LOG("Erro ao criar arquivo de debug %s", filepath);
-        return;
-    }
-    
-    char timestamp[64];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", t);
-    const char *type_str = (dtype == MORPHE_DTYPE_INT32) ? "int32" : "float32";
-    
-    fprintf(f, "# MORPHE BUNDLE FILE\n");
-    fprintf(f, "# saved: %s\n", timestamp);
-    fprintf(f, "# title: %s server debug dump\n", prefix);
-    fprintf(f, "# sections: 3\n");
-    fprintf(f, "# section_names: x, h, y\n\n");
-    
-    /* Section x */
-    fprintf(f, "## section: x\n");
-    fprintf(f, "# type: %s\n", type_str);
-    fprintf(f, "# length: %u\n", n_x);
-    fprintf(f, "# columns: n value\n");
-    for (uint32_t i = 0; i < n_x; i++) {
-        if (dtype == MORPHE_DTYPE_FLOAT32) fprintf(f, "%u\t%.8e\n", i, (float)x[i]);
-        else fprintf(f, "%u\t%d\n", i, x[i]);
-    }
-    fprintf(f, "\n");
-    
-    /* Section h */
-    fprintf(f, "## section: h\n");
-    fprintf(f, "# type: %s\n", type_str);
-    fprintf(f, "# length: %u\n", n_h);
-    fprintf(f, "# columns: n value\n");
-    for (uint32_t i = 0; i < n_h; i++) {
-        if (dtype == MORPHE_DTYPE_FLOAT32) fprintf(f, "%u\t%.8e\n", i, (float)h[i]);
-        else fprintf(f, "%u\t%d\n", i, h[i]);
-    }
-    fprintf(f, "\n");
-    
-    /* Section y */
-    fprintf(f, "## section: y\n");
-    fprintf(f, "# type: %s\n", type_str);
-    fprintf(f, "# length: %u\n", n_y);
-    fprintf(f, "# columns: n value\n");
-    for (uint32_t i = 0; i < n_y; i++) {
-        if (dtype == MORPHE_DTYPE_FLOAT32) fprintf(f, "%u\t%.8e\n", i, (float)y[i]);
-        else fprintf(f, "%u\t%d\n", i, y[i]);
-    }
-    
-    fclose(f);
-    LOG("  -> Debug bundle salvo em: %s", filepath);
-#endif
 }
 
 static void save_debug_bundle_fft(const char *prefix, uint32_t n_x,
@@ -805,281 +626,6 @@ static void save_debug_bundle_fft(const char *prefix, uint32_t n_x,
 }
 
 
-/* =======================================================================
- * Handlers Originais com Logging Injetado
- * ======================================================================= */
-
-static int handle_conv(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
-    LOG("CONV request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
-
-    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_CONV, "CONV");
-
-    if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_N_MAX || n_h > MORPHE_CONV_N_MAX) {
-        char msg[96];
-        snprintf(msg, sizeof msg, "CONV: n_x e n_h devem estar em [1, %d]", MORPHE_CONV_N_MAX);
-        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, msg);
-    }
-
-    uint32_t n_out = n_x + n_h - 1;
-    if (n_out > MORPHE_CONV_Y_MAX) {
-        char msg[96];
-        snprintf(msg, sizeof msg, "CONV: saída excede %d amostras", MORPHE_CONV_Y_MAX);
-        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, msg);
-    }
-
-    size_t payload_bytes = (size_t)(n_x + n_h) * 4;
-    static uint8_t rx_buf[RX_BUF_MAX];
-    if (payload_bytes > sizeof rx_buf) return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_BAD_SIZE, "CONV: payload excede buffer");
-    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
-
-    static int32_t x_buf[MORPHE_CONV_N_MAX];
-    static int32_t h_buf[MORPHE_CONV_N_MAX];
-    decode_samples_to_i32(rx_buf,           n_x, dtype, x_buf);
-    decode_samples_to_i32(rx_buf + n_x * 4, n_h, dtype, h_buf);
-
-    for (uint32_t i = 0; i < MORPHE_CONV_N_MAX; i++) g_conv_xn[i] = (i < n_x) ? x_buf[i] : 0;
-    for (uint32_t i = 0; i < MORPHE_CONV_N_MAX; i++) g_conv_hn[i] = (i < n_h) ? h_buf[i] : 0;
-
-    *g_pio_conv_start = 0;
-    usleep(1);
-    *g_pio_conv_start = 1;
-
-    if (wait_done(g_pio_conv_done, FPGA_DONE_TIMEOUT_MS) < 0) {
-        *g_pio_conv_start = 0;
-        return send_error(sock, MORPHE_OP_CONV, MORPHE_STATUS_FPGA_TIMEOUT, "CONV: timeout");
-    }
-    *g_pio_conv_start = 0;
-
-    static int32_t y_buf[MORPHE_CONV_Y_MAX];
-    for (uint32_t i = 0; i < n_out; i++) y_buf[i] = g_conv_yn[i];
-
-    /* Salva bundle de debug antes de enviar */
-    save_debug_bundle_conv("conv1d", dtype, n_x, x_buf, n_h, h_buf, n_out, y_buf);
-
-    static uint8_t tx_buf[TX_BUF_MAX];
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_CONV, dtype, MORPHE_STATUS_OK, n_out);
-
-    if (dtype == MORPHE_DTYPE_INT32) {
-        for (uint32_t i = 0; i < n_out; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
-    } else {
-        for (uint32_t i = 0; i < n_out; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
-    }
-
-    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
-    if (send_all(sock, tx_buf, (size_t) n_out * 4) < 0) return -1;
-
-    LOG("  -> CONV OK: n_out=%u", n_out);
-    return 0;
-}
-
-static int handle_fir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_h) {
-    LOG("FIR request: dtype=%u, n_x=%u, n_h=%u", dtype, n_x, n_h);
-
-    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_FIR, "FIR");
-
-    if (n_x == 0 || n_h == 0 || n_x > MORPHE_CONV_N_MAX || n_h > MORPHE_CONV_N_MAX) {
-        char msg[96];
-        snprintf(msg, sizeof msg, "FIR: limites [1, %d]", MORPHE_CONV_N_MAX);
-        return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, msg);
-    }
-
-    uint32_t n_out = n_x + n_h - 1;
-    if (n_out > (uint32_t) MORPHE_FIR_Y_MAX) {
-        char msg[96];
-        snprintf(msg, sizeof msg, "FIR: saída acima da memória fir_yn (%d amostras)", MORPHE_FIR_Y_MAX);
-        return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, msg);
-    }
-
-    size_t payload_bytes = (size_t)(n_x + n_h) * 4;
-    static uint8_t rx_buf[RX_BUF_MAX];
-    if (payload_bytes > sizeof rx_buf) return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_BAD_SIZE, "FIR: payload excedido");
-    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
-
-    static int32_t x_buf[MORPHE_CONV_N_MAX];
-    static int32_t h_buf[MORPHE_CONV_N_MAX];
-    decode_samples_to_i32(rx_buf,           n_x, dtype, x_buf);
-    decode_samples_to_i32(rx_buf + n_x * 4, n_h, dtype, h_buf);
-
-    for (uint32_t i = 0; i < MORPHE_CONV_N_MAX; i++) g_fir_xn[i] = (i < n_x) ? x_buf[i] : 0;
-    for (uint32_t i = 0; i < MORPHE_CONV_N_MAX; i++) g_fir_hn[i] = (i < n_h) ? h_buf[i] : 0;
-
-    *g_pio_fir_start = 0;
-    usleep(1);
-    *g_pio_fir_start = 1;
-
-    if (wait_done(g_pio_fir_done, FPGA_DONE_TIMEOUT_MS) < 0) {
-        *g_pio_fir_start = 0;
-        return send_error(sock, MORPHE_OP_FIR, MORPHE_STATUS_FPGA_TIMEOUT, "FIR: timeout");
-    }
-    *g_pio_fir_start = 0;
-
-    int fir_error = (int) (*g_pio_fir_error & 0x1U);
-
-    static int32_t y_buf[MORPHE_CONV_Y_MAX];
-    for (uint32_t i = 0; i < n_out; i++) y_buf[i] = g_fir_yn[i];
-
-    /* Salva bundle de debug */
-    save_debug_bundle_conv("fir", dtype, n_x, x_buf, n_h, h_buf, n_out, y_buf);
-
-    static uint8_t tx_buf[TX_BUF_MAX];
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    uint16_t status = fir_error ? MORPHE_STATUS_INTERNAL_ERROR : MORPHE_STATUS_OK;
-    build_resp_header(hdr, MORPHE_OP_FIR, dtype, status, n_out);
-
-    if (dtype == MORPHE_DTYPE_INT32) {
-        for (uint32_t i = 0; i < n_out; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
-    } else {
-        for (uint32_t i = 0; i < n_out; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
-    }
-
-    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
-    if (send_all(sock, tx_buf, (size_t) n_out * 4) < 0) return -1;
-    
-    LOG("  -> FIR OK: n_out=%u", n_out);
-    return 0;
-}
-
-/* IIR: cascata de n_h secoes de 2a ordem sobre n_x amostras, no
- * iir_cascade.v. Payload: x (n_x palavras) e depois os coeficientes
- * (5 por secao: b0 b1 b2 a1 a2), tudo int32 Q15.16.
- *
- * Diferencas para o FIR, que e o vizinho mais proximo:
- *   - o hardware processa SEMPRE MORPHE_IIR_N_MAX amostras; o que o
- *     cliente nao mandou vai como zero e so as n_x primeiras voltam;
- *   - n_h nao e um comprimento de vetor, e o numero de secoes, e vai
- *     para o PIO iir_nsecoes ANTES do start (o bloco le o PIO durante a
- *     carga dos coeficientes e a cada amostra);
- *   - saturacao NAO e erro: o bloco satura em vez de dar wrap, e o
- *     resultado continua valido como resultado saturado. O aviso vai no
- *     campo `extra` do cabecalho (1 = saturou), com status OK. O FIR
- *     devolve INTERNAL_ERROR nessa situacao e o cliente perde o vetor;
- *     aqui o vetor e justamente o que se quer ver;
- *   - com flags = MORPHE_IIR_FLAG_ESTADO o bloco parte do estado que o
- *     cliente mandou (o final do bloco anterior) e o estado final volta
- *     depois de y: um sinal longo em blocos sai igual, bit a bit, ao
- *     sinal inteiro de uma vez, sem aquecimento. O bloco so devolve o
- *     estado se o bitstream for o de 19/10/2026 em diante: a marca que ele
- *     escreve na SRAM diz isso. */
-static void log_tempos(const char *op, const struct timespec *t0,
-                       const struct timespec *t_entrada,
-                       const struct timespec *t_fpga,
-                       const struct timespec *t_fim);
-
-static int handle_iir(int sock, uint16_t dtype, uint32_t n_x, uint32_t n_sec,
-                      uint16_t flags) {
-    const int com_estado = (flags & MORPHE_IIR_FLAG_ESTADO) != 0;
-    LOG("IIR request: dtype=%u, n_x=%u, n_secoes=%u%s", dtype, n_x, n_sec,
-        com_estado ? ", com estado" : "");
-
-    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_IIR, "IIR");
-
-    if (n_x == 0 || n_x > MORPHE_IIR_N_MAX) {
-        char msg[96];
-        snprintf(msg, sizeof msg, "IIR: n_x fora de [1, %d]", MORPHE_IIR_N_MAX);
-        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, msg);
-    }
-    if (n_sec == 0 || n_sec > MORPHE_IIR_SECOES_MAX) {
-        char msg[96];
-        snprintf(msg, sizeof msg, "IIR: secoes fora de [1, %d]", MORPHE_IIR_SECOES_MAX);
-        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, msg);
-    }
-
-    uint32_t n_coef = n_sec * MORPHE_IIR_COEF_POR_SECAO;
-    uint32_t n_est = com_estado ? n_sec * MORPHE_IIR_EST_POR_SECAO : 0;
-    size_t payload_bytes = (size_t)(n_x + n_coef + n_est) * 4;
-    static uint8_t rx_buf[RX_BUF_MAX];
-    if (payload_bytes > sizeof rx_buf) return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_SIZE, "IIR: payload excedido");
-    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
-    /* O estado e inteiro Q15.16 exato: em float32 perderia bits. */
-    if (com_estado && dtype != MORPHE_DTYPE_INT32)
-        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_BAD_DTYPE, "IIR: estado so com int32");
-
-    static int32_t x_buf[MORPHE_IIR_N_MAX];
-    static int32_t c_buf[MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO];
-    static int32_t e_buf[MORPHE_IIR_SECOES_MAX * MORPHE_IIR_EST_POR_SECAO];
-    decode_samples_to_i32(rx_buf,           n_x,    dtype, x_buf);
-    decode_samples_to_i32(rx_buf + n_x * 4, n_coef, dtype, c_buf);
-    int estado_zero = 1;
-    if (com_estado) {
-        decode_samples_to_i32(rx_buf + (n_x + n_coef) * 4, n_est, dtype, e_buf);
-        for (uint32_t i = 0; i < n_est; i++) if (e_buf[i] != 0) estado_zero = 0;
-    }
-
-    struct timespec t0, t_entrada, t_fpga, t_fim;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-
-    /* Zero alem de n_x: o bloco roda as MORPHE_IIR_N_MAX de qualquer jeito
-     * e o estado das secoes e zerado a cada start, entao o lixo que
-     * sobrasse na SRAM entraria na conta e sairia como cauda. */
-    for (uint32_t i = 0; i < MORPHE_IIR_N_MAX; i++) g_iir_xn[i] = (i < n_x) ? x_buf[i] : 0;
-    for (uint32_t i = 0; i < n_coef; i++) g_iir_coef[i] = c_buf[i];
-    for (uint32_t i = 0; i < n_est; i++) g_iir_coef[MORPHE_IIR_EST_IN + i] = e_buf[i];
-    /* O modo vale para esta execucao: o que sobrou de uma anterior com
-     * estado nao pode valer para a seguinte. A marca e apagada para que
-     * so o bloco a escreva. */
-    g_iir_coef[MORPHE_IIR_EST_MODO]  = com_estado ? 1 : 0;
-    g_iir_coef[MORPHE_IIR_EST_MARCA] = 0;
-
-    *g_pio_iir_nsecoes = n_sec;
-    clock_gettime(CLOCK_MONOTONIC, &t_entrada);
-
-    *g_pio_iir_start = 0;
-    usleep(1);
-    *g_pio_iir_start = 1;
-
-    if (wait_done(g_pio_iir_done, FPGA_DONE_TIMEOUT_MS) < 0) {
-        *g_pio_iir_start = 0;
-        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_FPGA_TIMEOUT, "IIR: timeout");
-    }
-    *g_pio_iir_start = 0;
-    clock_gettime(CLOCK_MONOTONIC, &t_fpga);
-
-    uint32_t saturou = (*g_pio_iir_error) & 0x1U;
-    const int devolve = com_estado &&
-        (uint32_t) g_iir_coef[MORPHE_IIR_EST_MARCA] == MORPHE_IIR_EST_MARCA_VALOR;
-    if (com_estado && !devolve && !estado_zero) {
-        /* bitstream antigo: ignorou o estado inicial, e y esta errado */
-        return send_error(sock, MORPHE_OP_IIR, MORPHE_STATUS_INTERNAL_ERROR,
-                          "IIR: o bitstream da placa nao carrega o estado (anterior a "
-                          "19/10/2026); grave o novo com o morphe-up");
-    }
-
-    static int32_t y_buf[MORPHE_IIR_N_MAX + MORPHE_IIR_SECOES_MAX * MORPHE_IIR_EST_POR_SECAO];
-    for (uint32_t i = 0; i < n_x; i++) y_buf[i] = g_iir_yn[i];
-    uint32_t n_out = n_x;
-    if (devolve) {
-        for (uint32_t i = 0; i < n_est; i++) y_buf[n_x + i] = g_iir_coef[MORPHE_IIR_EST_OUT + i];
-        n_out += n_est;
-    }
-
-    /* O bundle guarda os coeficientes no lugar de h: e o que o comparador
-     * precisa para refazer a conta no modelo em Python. */
-    save_debug_bundle_conv("iir", dtype, n_x, x_buf, n_coef, c_buf, n_x, y_buf);
-
-    static uint8_t tx_buf[TX_BUF_MAX];
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_IIR, dtype, MORPHE_STATUS_OK, n_out);
-    /* extra: bit 0 = alguma amostra saturou; bit 1 = o estado final vem
-     * depois de y */
-    u32_to_be(hdr + 16, saturou | (devolve ? MORPHE_IIR_EXTRA_ESTADO : 0));
-
-    if (dtype == MORPHE_DTYPE_INT32) {
-        for (uint32_t i = 0; i < n_out; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
-    } else {
-        for (uint32_t i = 0; i < n_out; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
-    }
-
-    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
-    if (send_all(sock, tx_buf, (size_t) n_out * 4) < 0) return -1;
-    clock_gettime(CLOCK_MONOTONIC, &t_fim);
-
-    LOG("  -> IIR OK: n_out=%u, secoes=%u%s%s", n_x, n_sec, saturou ? ", SATUROU" : "",
-        devolve ? ", estado devolvido" : (com_estado ? ", SEM estado (bitstream antigo)" : ""));
-    log_tempos("IIR", &t0, &t_entrada, &t_fpga, &t_fim);
-    return 0;
-}
-
 /* Cronometra as tres fases de um request e imprime.
  *
  * O `fpga` e o numero que interessa: o item 13 do RESSALVAS usa o tempo de
@@ -1131,12 +677,6 @@ static int handle_adc(int sock, uint16_t dtype, uint32_t n, uint32_t divisor, ui
 static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n, uint32_t divisor, uint16_t cfg) {
     (void) dtype; (void) n; (void) divisor; (void) cfg;
     return recusar_sem_adc(sock, MORPHE_OP_ADC_CONTINUO);
-}
-static int audio_loop_pausa(void) { return 0; }
-static void audio_loop_retoma(int estava) { (void) estava; }
-static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, uint32_t n_h) {
-    (void) dtype; (void) sub; (void) n_x; (void) n_h;
-    return recusar_sem_adc(sock, MORPHE_OP_AUDIO);
 }
 #else
 /* O que as duas operacoes do ADC conferem antes de tocar na FPGA. Devolve 1
@@ -1367,424 +907,11 @@ static int handle_adc_continuo(int sock, uint16_t dtype, uint32_t n_total, uint3
     return 0;
 }
 
-/* ---- Audio do codec (OP_AUDIO): captura, reproducao e loopback -------------
- *
- * O audio usa a RAM adc_buf e os PIOs do ADC (audio_buf.v): o bit 31 do
- * adc_divisor liga o modo audio, adc_config[1:0] e a operacao e adc_config[6]
- * o modo continuo. Uma palavra por quadro estereo, {dir[31:16], esq[15:0]},
- * a fs = 50 MHz / 1024 = 48 828,125 Hz. O codec precisa estar configurado
- * (./codec digital, C/codec.c); sem ele nao ha relogio de audio e nenhum
- * quadro anda -- e o que o servidor detecta e explica.
- *
- * O loopback (entrada -> saida, sem RAM) fica ligado entre as conexoes. Como
- * ele ocupa a RAM e os PIOs, qualquer operacao do ADC ou do audio o pausa e
- * o religa no fim (serve_connection). */
-static int g_audio_loop = 0;     /* o cliente pediu o loopback ligado */
-
-static void audio_para(void) {
-    *g_pio_adc_start = 0;
-    usleep(100);                  /* > 2 quadros: o audio_buf volta ao repouso */
-    *g_pio_adc_divisor = 0;       /* RAM e PIOs de volta ao adc_captura */
-    *g_pio_adc_config  = 0;
-}
-
-static void audio_inicia(uint32_t op, int continuo, uint32_t n) {
-    *g_pio_adc_start     = 0;
-    usleep(100);
-    *g_pio_adc_divisor   = MORPHE_AUDIO_MODO;
-    *g_pio_adc_namostras = n;
-    *g_pio_adc_config    = op | (continuo ? MORPHE_ADC_CFG_CONTINUO : 0U);
-    usleep(1);
-    *g_pio_adc_start     = 1;
-}
-
-/* Pausa o loopback ligado antes de uma operacao que precisa da RAM. Devolve
- * se havia algo a religar. */
-static int audio_loop_pausa(void) {
-    if (!g_audio_loop) return 0;
-    audio_para();
-    return 1;
-}
-
-static void audio_loop_retoma(int estava) {
-    if (estava && g_audio_loop) audio_inicia(MORPHE_AUDIO_OP_LOOP, 1, 0);
-}
-
-/* Espera o contador do audio_buf sair de `de` por ate `ms`. Sem codec
- * configurado (ou com um bitstream sem o audio_buf) ele nunca anda. */
-static int audio_anda(uint32_t de, int ms) {
-    for (int t = 0; t < ms; t++) {
-        if (*g_pio_adc_contador != de) return 1;
-        usleep(1000);
-    }
-    return 0;
-}
-
-static const char *MSG_SEM_AUDIO =
-    "AUDIO: nenhum quadro de audio em 300 ms -- configure o codec na placa "
-    "(./codec digital) e confira se o bitstream tem o audio_buf";
-
-static int audio_recusa(int sock, uint16_t dtype) {
-    if (!fpga_preparada()) { recusar_sem_fpga(sock, MORPHE_OP_AUDIO, "AUDIO"); return 1; }
-    if (g_sysid[1] != SYSID_QSYS_TIMESTAMP) {
-        send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_NAO_PREPARADA,
-                   "AUDIO: o bitstream na FPGA nao e o deste servidor");
-        return 1;
-    }
-    if (dtype != MORPHE_DTYPE_INT32) {
-        send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_DTYPE,
-                   "AUDIO: as amostras vao em int32 ({dir, esq}, 16 bits cada)");
-        return 1;
-    }
-    return 0;
-}
-
-/* Captura: o hardware grava sem parar na RAM (circular) e este laco manda os
- * quadros novos em blocos, no mesmo formato do ADC_CONTINUO: cabecalho e
- * depois [k, estado] + k palavras, ate um bloco com k = 0. n_total = 0 segue
- * ate o cliente mandar um byte ou fechar. Com `loop`, a entrada tambem sai
- * pela LINE-out durante a captura. */
-static int audio_captura(int sock, uint32_t n_total, int loop) {
-    LOG("AUDIO captura: n=%u%s%s", n_total, n_total ? "" : " (ate o cliente parar)",
-        loop ? ", com loopback" : "");
-    audio_inicia(loop ? MORPHE_AUDIO_OP_CAP_LOOP : MORPHE_AUDIO_OP_CAPTURA, 1, 0);
-    if (!audio_anda(0, 300)) {
-        audio_para();
-        LOG("  -> %s", MSG_SEM_AUDIO);
-        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
-    }
-
-    struct timeval espera = { .tv_sec = 5, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &espera, sizeof espera);
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
-    u32_to_be(hdr + 16, MORPHE_AUDIO_DIVISOR);    /* fs = 50 MHz / extra */
-    if (send_all(sock, hdr, sizeof hdr) < 0) { audio_para(); return -1; }
-
-    const uint32_t n_buf = MORPHE_ADC_N_MAX;
-    static uint8_t tx_buf[8 + MORPHE_ADC_BLOCO_MAX * 4];
-    uint32_t lidos = 0;
-    uint64_t enviados = 0;
-    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
-    int cliente_foi = 0;
-    struct timespec t0, t_ultimo, agora;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-    t_ultimo = t0;
-
-    for (;;) {
-        char c;
-        ssize_t r = recv(sock, &c, 1, MSG_DONTWAIT);
-        if (r == 1) { LOG("  -> o cliente pediu para parar"); break; }
-        if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
-            cliente_foi = 1; LOG("  -> o cliente fechou a conexao"); break;
-        }
-        if (n_total && enviados >= n_total) break;
-
-        uint32_t cont = *g_pio_adc_contador;
-        uint32_t disp = cont - lidos;
-        if (disp > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
-        if (disp == 0) {
-            clock_gettime(CLOCK_MONOTONIC, &agora);
-            if (ts_diff_us(&t_ultimo, &agora) > 1000000L) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
-            usleep(5000);
-            continue;
-        }
-        uint32_t k = disp < MORPHE_ADC_BLOCO_MAX ? disp : MORPHE_ADC_BLOCO_MAX;
-        if (n_total && (uint64_t) k > n_total - enviados) k = (uint32_t) (n_total - enviados);
-        for (uint32_t i = 0; i < k; i++)
-            u32_to_be(tx_buf + 8 + i * 4, g_adc_buf[(lidos + i) & (n_buf - 1)]);
-        if (*g_pio_adc_contador - lidos > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
-
-        u32_to_be(tx_buf + 0, k);
-        u32_to_be(tx_buf + 4, MORPHE_ADC_BLOCO_SEGUE);
-        if (send_all(sock, tx_buf, 8 + (size_t) k * 4) < 0) {
-            cliente_foi = 1; LOG("  -> envio falhou: cliente fora"); break;
-        }
-        lidos += k;
-        enviados += k;
-        clock_gettime(CLOCK_MONOTONIC, &t_ultimo);
-    }
-    audio_para();
-
-    if (!cliente_foi) {
-        u32_to_be(tx_buf + 0, 0);
-        u32_to_be(tx_buf + 4, estado);
-        send_all(sock, tx_buf, 8);
-    }
-    struct timeval sem_limite = { .tv_sec = 0, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sem_limite, sizeof sem_limite);
-    clock_gettime(CLOCK_MONOTONIC, &agora);
-    static const char *nomes[] = { "segue", "fim", "PERDEU AMOSTRAS", "TIMEOUT" };
-    LOG("  -> AUDIO captura: %llu quadros em %.2f s, termino: %s",
-        (unsigned long long) enviados, (double) ts_diff_us(&t0, &agora) / 1e6,
-        estado < 4 ? nomes[estado] : "?");
-    return 0;
-}
-
-/* Le k palavras do cliente direto para a RAM, a partir do quadro `de`
- * (endereco circular). */
-static int audio_recebe(int sock, uint32_t de, uint32_t k) {
-    static uint8_t buf[4096 * 4];
-    while (k) {
-        uint32_t m = k < 4096 ? k : 4096;
-        if (recv_exact(sock, buf, (size_t) m * 4) < 0) return -1;
-        for (uint32_t i = 0; i < m; i++)
-            g_adc_buf[(de + i) & (MORPHE_ADC_N_MAX - 1)] = u32_from_be(buf + i * 4);
-        de += m;
-        k  -= m;
-    }
-    return 0;
-}
-
-/* Reproducao: n quadros, que chegam do cliente logo depois do cabecalho.
- * Ate 32768 cabem na RAM: carrega tudo e toca de uma vez. Acima disso a RAM
- * vira circular e o servidor reabastece atras do contador enquanto toca --
- * a duracao so e limitada pela rede (195 kB/s a 48,8 kHz). Se a rede
- * atrasar e o hardware passar do que ja chegou, o fim avisa (extra = 2). */
-static int audio_reproduz(int sock, uint32_t n) {
-    LOG("AUDIO reproduz: n=%u (%.2f s)", n, (double) n / MORPHE_AUDIO_FS);
-    if (n == 0) return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
-                                  "AUDIO: nada para tocar (n = 0)");
-    const uint32_t n_buf = MORPHE_ADC_N_MAX;
-    const uint32_t folga = 1024;           /* nao escrever colado no que toca */
-    uint32_t primeiro = n < n_buf ? n : n_buf - folga;
-    if (audio_recebe(sock, 0, primeiro) < 0) return -1;
-
-    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
-    struct timespec t0, agora;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-
-    if (n <= primeiro) {
-        audio_inicia(MORPHE_AUDIO_OP_REPRODUZ, 0, n);
-        if (!audio_anda(0, 300)) {
-            audio_para();
-            return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
-        }
-        int ms = (int) ((uint64_t) n * 1000U / (uint32_t) MORPHE_AUDIO_FS) + 2000;
-        if (wait_done(g_pio_adc_done, ms) < 0) estado = MORPHE_ADC_BLOCO_TIMEOUT;
-    } else {
-        audio_inicia(MORPHE_AUDIO_OP_REPRODUZ, 1, 0);
-        if (!audio_anda(0, 300)) {
-            audio_para();
-            drain_pending(sock);
-            return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
-        }
-        uint32_t escritos = primeiro;
-        uint32_t ultimo = 0;
-        struct timespec t_mov = t0;
-        /* depois dos n quadros, zeros: o que tocar ate o start baixar e silencio */
-        for (;;) {
-            uint32_t cont = *g_pio_adc_contador;
-            clock_gettime(CLOCK_MONOTONIC, &agora);
-            if (cont != ultimo) { ultimo = cont; t_mov = agora; }
-            else if (ts_diff_us(&t_mov, &agora) > 1000000L) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
-            if (cont >= n) break;
-            if (cont > escritos && escritos < n) estado = MORPHE_ADC_BLOCO_PERDEU;
-            uint32_t livre = cont + n_buf - folga - escritos;
-            if ((int32_t) livre <= 0) { usleep(2000); continue; }
-            if (escritos < n) {
-                uint32_t k = n - escritos;
-                if (k > livre) k = livre;
-                if (k > 4096) k = 4096;
-                if (audio_recebe(sock, escritos, k) < 0) { audio_para(); return -1; }
-                escritos += k;
-            } else {
-                uint32_t k = livre > 4096 ? 4096 : livre;
-                for (uint32_t i = 0; i < k; i++)
-                    g_adc_buf[(escritos + i) & (n_buf - 1)] = 0;
-                escritos += k;
-            }
-        }
-    }
-    audio_para();
-
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, n);
-    u32_to_be(hdr + 16, estado);
-    clock_gettime(CLOCK_MONOTONIC, &agora);
-    LOG("  -> AUDIO reproduz: %u quadros em %.2f s%s", n,
-        (double) ts_diff_us(&t0, &agora) / 1e6,
-        estado == MORPHE_ADC_BLOCO_PERDEU ? " (a rede atrasou: houve falha no som)" :
-        estado == MORPHE_ADC_BLOCO_TIMEOUT ? " (TIMEOUT)" : "");
-    return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
-}
-
-/* Ao vivo: o codec grava sem parar na RAM do audio e, a cada `util` amostras
- * novas, as ultimas 1024 (o aquecimento + as novas) vao para o bloco IIR da
- * placa -- outra memoria, outro circuito, que trabalha em paralelo com a
- * captura. Das 1024 saidas valem as `util` ultimas: o IIR zera o estado a
- * cada execucao, e o aquecimento e o trecho que ele precisa para esquecer o
- * zero. O IIR leva ~1 ms para 1024 amostras; o audio leva 21 ms para encher
- * o bloco: o laco acompanha o tempo real com folga.
- *
- * O laco roda AQUI, e nao no cliente, porque o servidor atende uma conexao
- * por vez: com a captura aberta, o cliente nao conseguiria pedir o IIR.
- * A saida vai para o cliente (que a mostra e toca no computador): a RAM do
- * audio grava OU toca, e tocar pela LINE-out ao mesmo tempo exigiria mudar
- * a FPGA -- e a ideia guardada em docs/IDEIA-FILTRO-TEMPO-REAL.md. */
-static int audio_ao_vivo(int sock, uint32_t n_total, uint32_t n_sec) {
-    if (n_sec == 0 || n_sec > MORPHE_IIR_SECOES_MAX) {
-        drain_pending(sock);
-        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
-                          "AUDIO ao vivo: secoes fora de [1, 16]");
-    }
-    const uint32_t N = MORPHE_IIR_N_MAX;
-    uint32_t n_coef = n_sec * MORPHE_IIR_COEF_POR_SECAO;
-    static uint8_t rx[4 * (1 + MORPHE_IIR_SECOES_MAX * MORPHE_IIR_COEF_POR_SECAO)];
-    if (recv_exact(sock, rx, (size_t) (1 + n_coef) * 4) < 0) return -1;
-    uint32_t aquec = u32_from_be(rx);
-    if (aquec > N - N / 8) {
-        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
-                          "AUDIO ao vivo: aquecimento acima de 896 amostras");
-    }
-    const uint32_t util = N - aquec;
-    LOG("AUDIO ao vivo: %u secoes, aquecimento %u, %u amostras novas por bloco (%.1f ms)",
-        n_sec, aquec, util, util * 1000.0 / MORPHE_AUDIO_FS);
-    for (uint32_t i = 0; i < n_coef; i++) g_iir_coef[i] = (int32_t) u32_from_be(rx + 4 + i * 4);
-    g_iir_coef[MORPHE_IIR_EST_MODO] = 0;   /* janela deslizante: estado zero */
-    *g_pio_iir_nsecoes = n_sec;
-
-    audio_inicia(MORPHE_AUDIO_OP_CAPTURA, 1, 0);
-    if (!audio_anda(0, 300)) {
-        audio_para();
-        LOG("  -> %s", MSG_SEM_AUDIO);
-        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_FPGA_TIMEOUT, MSG_SEM_AUDIO);
-    }
-    struct timeval espera = { .tv_sec = 5, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &espera, sizeof espera);
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
-    u32_to_be(hdr + 16, MORPHE_AUDIO_DIVISOR);
-    if (send_all(sock, hdr, sizeof hdr) < 0) { audio_para(); return -1; }
-
-    const uint32_t n_buf = MORPHE_ADC_N_MAX;
-    static int32_t janela[MORPHE_IIR_N_MAX];     /* Q15.16: as ultimas N entradas */
-    static int16_t janela16[MORPHE_IIR_N_MAX];   /* as mesmas, int16, para o cliente */
-    static uint8_t tx[8 + MORPHE_IIR_N_MAX * 4];
-    memset(janela, 0, sizeof janela);            /* antes do som: silencio, estado zero */
-    memset(janela16, 0, sizeof janela16);
-    uint32_t lidos = 0;
-    uint64_t enviados = 0;
-    uint32_t estado = MORPHE_ADC_BLOCO_FIM;
-    int cliente_foi = 0;
-    long iir_us_max = 0;
-    uint32_t blocos_feitos = 0;
-    struct timespec t0, t_ultimo, agora, a, b;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-    t_ultimo = t0;
-
-    for (;;) {
-        char c;
-        ssize_t r = recv(sock, &c, 1, MSG_DONTWAIT);
-        if (r == 1) { LOG("  -> o cliente pediu para parar"); break; }
-        if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
-            cliente_foi = 1; LOG("  -> o cliente fechou a conexao"); break;
-        }
-        if (n_total && enviados >= n_total) break;
-
-        uint32_t disp = *g_pio_adc_contador - lidos;
-        if (disp > n_buf) { estado = MORPHE_ADC_BLOCO_PERDEU; break; }
-        if (disp < util) {
-            clock_gettime(CLOCK_MONOTONIC, &agora);
-            if (ts_diff_us(&t_ultimo, &agora) > 1000000L) { estado = MORPHE_ADC_BLOCO_TIMEOUT; break; }
-            usleep(2000);
-            continue;
-        }
-        /* desliza a janela: sai o mais antigo, entram `util` amostras novas
-         * (o canal esquerdo; com o microfone os dois sao iguais) */
-        memmove(janela, janela + util, (size_t) aquec * sizeof janela[0]);
-        memmove(janela16, janela16 + util, (size_t) aquec * sizeof janela16[0]);
-        for (uint32_t i = 0; i < util; i++) {
-            int16_t s = (int16_t) (g_adc_buf[(lidos + i) & (n_buf - 1)] & 0xFFFFU);
-            janela16[aquec + i] = s;
-            janela[aquec + i] = (int32_t) s * 2;          /* int16 -> Q15.16 */
-        }
-        lidos += util;
-
-        clock_gettime(CLOCK_MONOTONIC, &a);
-        for (uint32_t i = 0; i < N; i++) g_iir_xn[i] = janela[i];
-        *g_pio_iir_start = 0;
-        usleep(1);
-        *g_pio_iir_start = 1;
-        if (wait_done(g_pio_iir_done, FPGA_DONE_TIMEOUT_MS) < 0) {
-            *g_pio_iir_start = 0;
-            estado = MORPHE_ADC_BLOCO_TIMEOUT;
-            LOG("  -> o IIR nao terminou");
-            break;
-        }
-        *g_pio_iir_start = 0;
-        for (uint32_t i = 0; i < util; i++) {
-            int32_t y = g_iir_yn[aquec + i];
-            int64_t y16 = ((int64_t) y + 1) >> 1;                 /* Q15.16 -> int16 */
-            if (y16 > 32767) y16 = 32767;
-            if (y16 < -32768) y16 = -32768;
-            uint32_t w = ((uint32_t) (uint16_t) (int16_t) y16 << 16) | (uint16_t) janela16[aquec + i];
-            u32_to_be(tx + 8 + i * 4, w);
-        }
-        clock_gettime(CLOCK_MONOTONIC, &b);
-        long us = ts_diff_us(&a, &b);
-        if (us > iir_us_max) iir_us_max = us;
-        blocos_feitos++;
-
-        uint32_t k = util;
-        if (n_total && (uint64_t) k > n_total - enviados) k = (uint32_t) (n_total - enviados);
-        u32_to_be(tx + 0, k);
-        /* estado nos 8 bits baixos; nos 24 altos, os microssegundos que este
-         * bloco gastou na placa (copia + IIR): o cliente soma isso ao atraso */
-        u32_to_be(tx + 4, MORPHE_ADC_BLOCO_SEGUE | ((uint32_t) (us > 0xFFFFFF ? 0xFFFFFF : us) << 8));
-        if (send_all(sock, tx, 8 + (size_t) k * 4) < 0) {
-            cliente_foi = 1; LOG("  -> envio falhou: cliente fora"); break;
-        }
-        enviados += k;
-        clock_gettime(CLOCK_MONOTONIC, &t_ultimo);
-    }
-    audio_para();
-
-    if (!cliente_foi) {
-        u32_to_be(tx + 0, 0);
-        u32_to_be(tx + 4, estado);
-        send_all(sock, tx, 8);
-    }
-    struct timeval sem_limite = { .tv_sec = 0, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &sem_limite, sizeof sem_limite);
-    clock_gettime(CLOCK_MONOTONIC, &agora);
-    static const char *nomes[] = { "segue", "fim", "PERDEU AMOSTRAS", "TIMEOUT" };
-    LOG("  -> AUDIO ao vivo: %llu quadros em %.2f s, %u blocos, IIR+copia ate %ld us por bloco, "
-        "termino: %s", (unsigned long long) enviados, (double) ts_diff_us(&t0, &agora) / 1e6,
-        blocos_feitos, iir_us_max, estado < 4 ? nomes[estado] : "?");
-    return 0;
-}
-
-static int handle_audio(int sock, uint16_t dtype, uint16_t sub, uint32_t n_x, uint32_t n_h) {
-    if (audio_recusa(sock, dtype)) return 0;
-    switch (sub) {
-    case MORPHE_AUDIO_CAPTURA:
-        return audio_captura(sock, n_x, (int) (n_h & 1U));
-    case MORPHE_AUDIO_REPRODUZ:
-        return audio_reproduz(sock, n_x);
-    case MORPHE_AUDIO_LOOPBACK: {
-        g_audio_loop = (n_h & 1U) ? 1 : 0;
-        LOG("AUDIO loopback %s", g_audio_loop ? "LIGADO" : "desligado");
-        if (g_audio_loop) audio_inicia(MORPHE_AUDIO_OP_LOOP, 1, 0);
-        else              audio_para();
-        uint8_t hdr[MORPHE_HEADER_SIZE];
-        build_resp_header(hdr, MORPHE_OP_AUDIO, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, 0);
-        u32_to_be(hdr + 16, (uint32_t) g_audio_loop);
-        return send_all(sock, hdr, sizeof hdr) < 0 ? -1 : 0;
-    }
-    case MORPHE_AUDIO_AO_VIVO:
-        return audio_ao_vivo(sock, n_x, n_h);
-    default:
-        return send_error(sock, MORPHE_OP_AUDIO, MORPHE_STATUS_BAD_SIZE,
-                          "AUDIO: suboperacao desconhecida (0 captura, 1 reproduz, 2 loopback, "
-                          "4 ao vivo)");
-    }
-}
 #endif /* MORPHE_TEM_ADC */
 
 /* Dispara o IP da FFT sobre o que ja esta nas SRAMs de entrada e recolhe
- * o resultado. Unico ponto do servidor que fala com o hardware da FFT --
- * a direta e a inversa diferem so pelo argumento `inverse`.
+ * o resultado. Unico ponto do servidor que fala com o hardware da FFT.
+ * O argumento `inverse` so serve ao diagnostico MORPHE_FFT_INVERSE.
  *
  * O wrapper trava o bit `inverse` na borda de subida do `start`
  * (fft_wrapper.v:133), entao a ordem aqui e obrigatoria: escrever o bit,
@@ -1822,8 +949,8 @@ static int fft_run_block(uint32_t n, int inverse,
     return 0;
 }
 
-/* Empacota N bins complexos em float32 big-endian, re e im intercalados.
- * E o formato de resposta tanto da FFT quanto da IFFT. */
+/* Empacota N bins complexos em float32 big-endian, re e im intercalados:
+ * o formato de resposta da FFT. */
 static void pack_complex_be(uint8_t *tx, uint32_t n,
                             const int32_t *re_raw, const int32_t *im_raw,
                             float scale) {
@@ -1885,68 +1012,6 @@ static int handle_fft(int sock, uint16_t dtype, uint32_t n_x) {
     return 0;
 }
 
-/* IFFT: mesmo IP, mesmo wrapper, mesma memoria -- muda o bit `inverse` e
- * o fato de a entrada ser complexa.
- *
- * A entrada e um espectro, entao chegam 2*n_x int32 em Q15.8, re e im
- * intercalados. Cabe quem chama (o cliente) escalar o espectro para a
- * faixa do Q15.8 antes de mandar e desfazer a escala depois -- o Q15.8
- * satura em +-32768 e um X[k] pode ser ate N vezes maior que x[n]. */
-static int handle_ifft(int sock, uint16_t dtype, uint32_t n_x) {
-    LOG("IFFT request: dtype=%u, n_x=%u", dtype, n_x);
-
-    if (!fpga_preparada()) return recusar_sem_fpga(sock, MORPHE_OP_IFFT, "IFFT");
-
-    if (dtype != MORPHE_DTYPE_INT32) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_DTYPE, "IFFT: use int32 (Q15.8)");
-    if (n_x != MORPHE_FFT_N) return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_BAD_SIZE, "IFFT: N invalido");
-
-    struct timespec t0, t_entrada, t_fpga, t_fim;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-
-    size_t payload_bytes = (size_t) n_x * 8;   /* complexo: 4 bytes re + 4 im */
-    static uint8_t rx_buf[RX_BUF_MAX];
-    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
-
-    static int32_t xn_re_buf[MORPHE_FFT_N];
-    static int32_t xn_im_buf[MORPHE_FFT_N];
-    for (uint32_t i = 0; i < n_x; i++) {
-        xn_re_buf[i] = saturate_q1508(i32_from_be(rx_buf + i * 8 + 0));
-        xn_im_buf[i] = saturate_q1508(i32_from_be(rx_buf + i * 8 + 4));
-    }
-
-    for (uint32_t i = 0; i < n_x; i++) {
-        g_fft_xn_re[i]   = xn_re_buf[i];
-        g_fft_xn_imag[i] = xn_im_buf[i];
-    }
-    clock_gettime(CLOCK_MONOTONIC, &t_entrada);
-
-    static int32_t y_re_raw[MORPHE_FFT_N];
-    static int32_t y_im_raw[MORPHE_FFT_N];
-    uint32_t exp_raw; int32_t bfp_exp; float total_scale;
-
-    if (fft_run_block(n_x, 1, y_re_raw, y_im_raw,
-                      &exp_raw, &bfp_exp, &total_scale) < 0) {
-        return send_error(sock, MORPHE_OP_IFFT, MORPHE_STATUS_FPGA_TIMEOUT, "IFFT: timeout");
-    }
-    clock_gettime(CLOCK_MONOTONIC, &t_fpga);
-
-    static uint8_t tx_buf[TX_BUF_MAX];
-    uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_IFFT, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, n_x);
-    pack_complex_be(tx_buf, n_x, y_re_raw, y_im_raw, total_scale);
-
-    save_debug_bundle_fft("ifft", n_x, xn_re_buf, xn_im_buf, y_re_raw, y_im_raw,
-                          exp_raw, bfp_exp, total_scale);
-
-    if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
-    if (send_all(sock, tx_buf, (size_t) n_x * 8) < 0) return -1;
-    clock_gettime(CLOCK_MONOTONIC, &t_fim);
-
-    LOG("  -> IFFT OK: exp=%d, total_scale=%.8e", bfp_exp, total_scale);
-    log_tempos("IFFT", &t0, &t_entrada, &t_fpga, &t_fim);
-    return 0;
-}
-
 static int handle_ping(int sock) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1964,12 +1029,10 @@ static int handle_ping(int sock) {
     char body[512];
     int body_len = snprintf(body, sizeof body,
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
-        "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
-        "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
+        "fft_frac_bits=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
         "adc_fs_min=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
-        MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
-        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
+        MORPHE_FFT_FRAC_BITS,
         adc_ok ? MORPHE_ADC_N_MAX : 0,
         MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
         uptime_s, preparada);
@@ -2008,27 +1071,15 @@ static void serve_connection(int sock, const struct sockaddr_in *peer) {
     const int conta = opcode != MORPHE_OP_PING;
     if (conta) estado_inicio(opcode, peer);
 
-    /* O loopback do audio ocupa a RAM e os PIOs do ADC: quem precisa deles o
-     * pausa, e ele volta no fim. */
-    const int usa_ram_adc = opcode == MORPHE_OP_ADC || opcode == MORPHE_OP_ADC_CONTINUO ||
-                            (opcode == MORPHE_OP_AUDIO && flags != MORPHE_AUDIO_LOOPBACK);
-    const int loop_pausado = usa_ram_adc ? audio_loop_pausa() : 0;
-
     switch (opcode) {
-        case MORPHE_OP_CONV: handle_conv(sock, dtype, n_x, n_h); break;
         case MORPHE_OP_FFT:  handle_fft(sock, dtype, n_x); break;
-        case MORPHE_OP_IFFT: handle_ifft(sock, dtype, n_x); break;
-        case MORPHE_OP_FIR:  handle_fir(sock, dtype, n_x, n_h); break;
-        case MORPHE_OP_IIR:  handle_iir(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC:  handle_adc(sock, dtype, n_x, n_h, flags); break;
         case MORPHE_OP_ADC_CONTINUO: handle_adc_continuo(sock, dtype, n_x, n_h, flags); break;
-        case MORPHE_OP_AUDIO: handle_audio(sock, dtype, flags, n_x, n_h); break;
         case MORPHE_OP_PING: handle_ping(sock); break;
         default:
             send_error(sock, opcode, MORPHE_STATUS_BAD_OPCODE, "opcode desconhecido");
             break;
     }
-    audio_loop_retoma(loop_pausado);
     if (conta) estado_fim();
 }
 

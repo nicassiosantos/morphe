@@ -98,49 +98,6 @@ def _stem_signal(ax, sig: Optional[dsp.Signal], title: str, color: str):
     _attach_stem_format_coord(ax, n_plot, sig.x, x_label="n", y_label="x")
 
 
-def _plot_ifft(ax, x_ifft: Optional[np.ndarray], sig: Optional[dsp.Signal]):
-    """x[n] reconstruido pela IFFT da FPGA, no seu proprio eixo.
-
-    Sobrepor no x[n] original escondia justamente o que interessa: com o
-    ida-e-volta fechando, as duas curvas coincidem e nao da para ver nem
-    o padding nem onde o erro mora. Separado, o eixo mostra as 1024
-    amostras que voltaram -- o sinal e a cauda de zeros -- e o titulo
-    carrega o erro contra o original.
-    """
-    ax.clear()
-    if x_ifft is None:
-        theme.draw_empty_axes(
-            ax, "x[n] reconstruído\n(rode a IFFT na FPGA)")
-        return
-
-    n = np.arange(len(x_ifft), dtype=float)
-    ax.plot(n, np.real(x_ifft), color=dsp.COLOR_Y, linewidth=1.0,
-            label="IFFT da FPGA")
-
-    titulo = "x[n] reconstruído  (N=%d)" % len(x_ifft)
-    if sig is not None and sig.x.size:
-        n_orig = int(sig.x.size)
-        pico = float(np.max(np.abs(sig.x)))
-        if n_orig <= len(x_ifft) and pico > 0.0:
-            erro = float(np.max(np.abs(
-                np.real(x_ifft[:n_orig]) - sig.x))) / pico
-            titulo += "   —   erro contra o x[n] original: %.2e" % erro
-        if n_orig < len(x_ifft):
-            # Onde o sinal acaba e comeca o zero-padding da FFT.
-            ax.axvline(n_orig - 0.5, color=theme.COLORS["axis"],
-                       linewidth=0.8, linestyle=":", alpha=0.7)
-            ax.plot(np.arange(n_orig), sig.x, color=dsp.COLOR_X,
-                    linewidth=0.8, linestyle="--", alpha=0.55,
-                    label="x[n] original")
-
-    ax.set_title(titulo, fontsize=9)
-    ax.set_xlabel("n")
-    ax.set_ylabel("x[n]")
-    ax.axhline(0, color=theme.COLORS["axis"], linewidth=0.6)
-    ax.legend(fontsize=7, loc="upper right")
-    theme.style_plot_axes(ax)
-
-
 def _stem_complex_mag(ax, X: Optional[np.ndarray], db: bool, color: str,
                       fs: float = 1.0):
     ax.clear()
@@ -200,9 +157,6 @@ class FFTWindow(tk.Toplevel):
 
         self.x_sig: Optional[dsp.Signal] = None
         self.X_complex: Optional[np.ndarray] = None
-        #: x[n] reconstruido pela IFFT da FPGA, quando o usuario pede a
-        #: volta ao tempo. Tem eixo proprio, o quarto da figura.
-        self.x_ifft: Optional[np.ndarray] = None
 
         # Registry de pop-outs vivos: chave -> ReactivePopout.
         self._popouts: dict = {}
@@ -301,7 +255,7 @@ class FFTWindow(tk.Toplevel):
         ).pack(anchor="w", pady=(0, 2))
         ttk.Label(
             op,
-            text="Vale para a FFT e para a IFFT desta tela. Desligado, o "
+            text="Desligado, o "
                  "sinal vai como está — é o comportamento antigo, e satura "
                  "acima de 32768.",
             style="SectionHint.TLabel",
@@ -323,16 +277,6 @@ class FFTWindow(tk.Toplevel):
             command=self._on_fft,
         )
         self.btn_fft.pack(fill="x", pady=(0, 4))
-
-        # Volta ao tempo: mesma IP da FFT com o bit `inverse` ligado.
-        # Fica desabilitado ate existir um X[k] para mandar de volta.
-        self.btn_ifft = ttk.Button(
-            op, text="IFFT na FPGA (voltar ao tempo)",
-            style="Secondary.TButton",
-            command=self._on_ifft,
-            state="disabled",
-        )
-        self.btn_ifft.pack(fill="x", pady=(0, 4))
 
         # SECONDARY: ação de exportação
         ttk.Button(
@@ -358,18 +302,16 @@ class FFTWindow(tk.Toplevel):
                 ("x[n]",            lambda: self._popout_one("x")),
                 ("|X[k]|",          lambda: self._popout_one("mag")),
                 ("Fase de X[k]",    lambda: self._popout_one("phase")),
-                ("x[n] reconstruído", lambda: self._popout_one("ifft")),
             ],
         )
         header.pack(fill="x", pady=(0, 6))
 
         # Figura com 3 subplots verticais (igual ao antes).
-        self.fig = Figure(figsize=(7, 9.4), dpi=100)
+        self.fig = Figure(figsize=(7, 8), dpi=100)
         self.fig.patch.set_facecolor(theme.COLORS["bg"])
-        self.ax_x = self.fig.add_subplot(411)
-        self.ax_mag = self.fig.add_subplot(412)
-        self.ax_phase = self.fig.add_subplot(413)
-        self.ax_ifft = self.fig.add_subplot(414)
+        self.ax_x = self.fig.add_subplot(311)
+        self.ax_mag = self.fig.add_subplot(312)
+        self.ax_phase = self.fig.add_subplot(313)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -388,7 +330,6 @@ class FFTWindow(tk.Toplevel):
 
     def _redraw(self):
         _stem_signal(self.ax_x, self.x_sig, "x[n]", dsp.COLOR_X)
-        _plot_ifft(self.ax_ifft, self.x_ifft, self.x_sig)
         _stem_complex_mag(self.ax_mag, self.X_complex,
                           self.var_magdb.get(), dsp.COLOR_MAG,
                           fs=self._signal_fs)
@@ -398,7 +339,6 @@ class FFTWindow(tk.Toplevel):
         refresh_all(self._popouts)
 
     def _redraw_spectrum(self):
-        _plot_ifft(self.ax_ifft, self.x_ifft, self.x_sig)
         _stem_complex_mag(self.ax_mag, self.X_complex,
                           self.var_magdb.get(), dsp.COLOR_MAG,
                           fs=self._signal_fs)
@@ -433,16 +373,6 @@ class FFTWindow(tk.Toplevel):
                                   fs=self._signal_fs)
             open_or_focus(self._popouts, key="one_mag",
                           parent=self, title="Morphe — |X[k]|",
-                          draw_fn=draw, size="1000x600")
-        elif which == "ifft":
-            if self.x_ifft is None:
-                messagebox.showwarning("Atenção",
-                                       "IFFT ainda não foi calculada.")
-                return
-            def draw(fig: Figure):
-                _plot_ifft(fig.add_subplot(111), self.x_ifft, self.x_sig)
-            open_or_focus(self._popouts, key="one_ifft",
-                          parent=self, title="Morphe — x[n] reconstruído",
                           draw_fn=draw, size="1000x600")
         elif which == "phase":
             if self.X_complex is None:
@@ -544,11 +474,8 @@ class FFTWindow(tk.Toplevel):
     def _on_fft_done(self, X: np.ndarray, escala: float = 1.0,
                      n_blocos: int = 1):
         self.X_complex = X
-        # Um X[k] novo invalida a reconstrucao anterior.
-        self.x_ifft = None
         self._redraw()
         self.btn_fft.config(state="normal")
-        self.btn_ifft.config(state="normal")
         if n_blocos > 1:
             self.status.set(
                 "OK. FFT com %d pontos em quatro passos: %d FFTs de %d na "
@@ -566,67 +493,6 @@ class FFTWindow(tk.Toplevel):
     def _on_fft_error(self, err: Exception):
         self.btn_fft.config(state="normal")
         messagebox.showerror("Erro na FFT", str(err))
-        self.status.set("Erro — ver mensagem.")
-
-    # ------------------------------------------------------------------
-    # IFFT: o mesmo IP, com o bit `inverse` ligado
-    # ------------------------------------------------------------------
-
-    def _on_ifft(self):
-        if self.X_complex is None:
-            messagebox.showwarning("Atenção", "Calcule a FFT antes.")
-            return
-
-        try:
-            client = self.master.tcp_panel.make_client()
-        except Exception as e:
-            messagebox.showerror("Configuração", str(e))
-            return
-
-        X = self.X_complex
-        normalizar = bool(self.var_norm.get())
-        self.btn_ifft.config(state="disabled")
-        self.status.set("Mandando X[k] de volta à FPGA (inverse=1)...")
-
-        def progresso(feitos, total):
-            if total > 1:
-                self.after(0, lambda: self.status.set(
-                    f"IFFT {feitos} de {total} na FPGA..."))
-
-        def worker():
-            try:
-                # Com X de 1024 pontos e uma IFFT so, como sempre; acima,
-                # os quatro passos com a IFFT da placa.
-                x_rec = blocos.ifft_longa(X, blocos.IfftPlaca(client, normalizar),
-                                          progresso=progresso)
-                self.after(0, lambda: self._on_ifft_done(x_rec))
-            except Exception as e:
-                self.after(0, lambda err=e: self._on_ifft_error(err))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_ifft_done(self, x_rec: np.ndarray):
-        self.x_ifft = x_rec
-        self._redraw()
-        self.btn_ifft.config(state="normal")
-
-        # O numero que interessa: o quanto o ida-e-volta fechou. Compara
-        # so a parte do sinal original, sem o zero-padding.
-        msg = f"OK. IFFT com {len(x_rec)} pontos."
-        if self.x_sig is not None:
-            n_orig = int(self.x_sig.x.size)
-            pico = float(np.max(np.abs(self.x_sig.x)))
-            if n_orig <= len(x_rec) and pico > 0.0:
-                erro = float(np.max(np.abs(
-                    np.real(x_rec[:n_orig]) - self.x_sig.x))) / pico
-                vaz = float(np.max(np.abs(np.imag(x_rec)))) / pico
-                msg += (f"  Erro do ida-e-volta: {erro:.2e} "
-                        f"(vazamento na imaginária: {vaz:.2e})")
-        self.status.set(msg)
-
-    def _on_ifft_error(self, err: Exception):
-        self.btn_ifft.config(state="normal")
-        messagebox.showerror("Erro na IFFT", str(err))
         self.status.set("Erro — ver mensagem.")
 
     # ------------------------------------------------------------------
@@ -678,18 +544,6 @@ class FFTWindow(tk.Toplevel):
                     "data": self.X_complex,
                     "description": f"X[k] = FFT(x), N={N}",
                     "fs":   fs,
-                })
-
-            if self.x_ifft is not None:
-                m = len(self.x_ifft)
-                sections.append({
-                    "name": "x_ifft",
-                    "kind": "complex",
-                    "n":    np.arange(m, dtype=np.int64),
-                    "data": self.x_ifft,
-                    "description": (f"x[n] reconstruido = IFFT(X) na FPGA, "
-                                    f"N={m}"),
-                    "fs":   self.x_sig.fs,
                 })
 
             dsp.save_mrph_bundle(

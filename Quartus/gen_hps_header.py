@@ -181,41 +181,33 @@ def consistency_report(devices: list[Device]) -> list[str]:
     by_name = {d.module: d for d in devices}
 
     cfg_path = os.path.join(HERE, os.pardir, "C", "morphe_config.h")
-    conv_n_max = None
+    limites = {}
     if os.path.exists(cfg_path):
         with open(cfg_path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
-                if line.startswith("#define MORPHE_CONV_N_MAX"):
+                partes = line.split()
+                if len(partes) >= 3 and partes[0] == "#define" and \
+                        partes[1] in ("MORPHE_FFT_N", "MORPHE_ADC_N_MAX"):
                     try:
-                        conv_n_max = int(line.split()[2])
-                    except (IndexError, ValueError):
+                        limites[partes[1]] = int(partes[2])
+                    except ValueError:
                         pass
-    if conv_n_max is None:
+    if len(limites) < 2:
         return warnings
 
-    conv_y_max = 2 * conv_n_max - 1
-    needed = conv_y_max * 4  # int32_t por amostra
-
-    for name in ("conv1d_yn", "fir_yn"):
+    # memoria -> quantas palavras int32 o servidor precisa nela
+    precisa = {nome: limites["MORPHE_FFT_N"]
+               for nome in ("fft_xn_re", "fft_xn_imag", "fft_yn_re", "fft_yn_imag")}
+    precisa["adc_buf"] = limites["MORPHE_ADC_N_MAX"]
+    for name, n in precisa.items():
         dev = by_name.get(name)
         if dev is None:
             warnings.append("memoria '%s' ausente no projeto de hardware" % name)
-            continue
-        if dev.span < needed:
+        elif dev.span < n * 4:
             warnings.append(
-                "%s_SPAN = %d bytes (%d amostras) < MORPHE_CONV_Y_MAX = %d "
-                "(%d bytes) -- o _Static_assert do servidor vai falhar"
-                % (name.upper(), dev.span, dev.span // 4, conv_y_max, needed)
-            )
-
-    for name in ("conv1d_xn", "conv1d_hn", "fir_xn", "fir_hn"):
-        dev = by_name.get(name)
-        if dev is None:
-            warnings.append("memoria '%s' ausente no projeto de hardware" % name)
-        elif dev.span < conv_n_max * 4:
-            warnings.append(
-                "%s_SPAN = %d bytes (%d amostras) < MORPHE_CONV_N_MAX = %d"
-                % (name.upper(), dev.span, dev.span // 4, conv_n_max)
+                "%s_SPAN = %d bytes (%d amostras) < %d amostras "
+                "-- o _Static_assert do servidor vai falhar"
+                % (name.upper(), dev.span, dev.span // 4, n)
             )
 
     return warnings

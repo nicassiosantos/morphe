@@ -104,7 +104,7 @@ def tensao(cli: TcpClient, canal: int, vezes: int) -> None:
     print(f"  media das leituras: {m.mean():.4f} V; variacao entre leituras: "
           f"{np.ptp(m) * 1e3:.2f} mV")
     confere(np.ptp(m) < 0.005, "leituras estaveis (menos de 5 mV entre elas)")
-    print("  -> anote a tensao do multimetro ao lado desta media no DIARIO")
+    print("  -> anote a tensao do multimetro ao lado desta media")
 
 
 def senoide(cli: TcpClient, canal: int, f: float) -> None:

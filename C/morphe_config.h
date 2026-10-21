@@ -20,8 +20,7 @@
  *     Python codifica/decodifica Q15.8 transparentemente antes de
  *     enviar pelo protocolo Morphe.
  *
- *   - Convolucao 1D: ate MORPHE_CONV_N_MAX amostras Q15.16 por entrada
- *     (x e h), com saida ate 2*N-1 = MORPHE_CONV_Y_MAX amostras.
+ *   - ADC LTC2308: captura a fs fixa na RAM adc_buf (adc_captura.v).
  *
  * Se voce alterar qualquer numero abaixo, REGENERE hps_0.h a partir
  * do Qsys -- e atualize o morphe_config.py em sequencia.
@@ -50,46 +49,6 @@
  * FFT por 2^MORPHE_FFT_FRAC_BITS = 256, alem de aplicar o fator BFP. */
 #define MORPHE_FFT_FRAC_BITS    8
 
-/* ---- Convolucao 1D ----------------------------------------------------- */
-
-/* Numero maximo de amostras por entrada (x ou h) -- formato Q15.16. */
-#define MORPHE_CONV_N_MAX       1024
-
-/* Tamanho maximo do vetor de saida y[n] = x[n] * h[n]. */
-#define MORPHE_CONV_Y_MAX       (2 * MORPHE_CONV_N_MAX - 1)  /* = 2047 */
-
-/* Numero de bits fracionarios do formato Q15.16 usado pela conv1d.
- * 16 bits frac = escala de 2^16 = 65536. */
-#define MORPHE_CONV_FRAC_BITS   16
-
-/* ---- IIR (cascata de secoes de 2a ordem) ------------------------------- */
-
-/* O iir_cascade processa SEMPRE MORPHE_IIR_N_MAX amostras (N_SAMPLES do
- * Verilog); o servidor completa com zeros o que o cliente nao mandou e
- * devolve so as n_x pedidas. */
-#define MORPHE_IIR_N_MAX        1024
-
-/* Secoes de 2a ordem por execucao: 1..MORPHE_IIR_SECOES_MAX (MAX_SECOES
- * do Verilog; o PIO iir_nsecoes tem 5 bits). Ordem maxima 32. */
-#define MORPHE_IIR_SECOES_MAX   16
-
-/* Palavras de coeficiente por secao na SRAM iir_coef: b0 b1 b2 a1 a2. */
-#define MORPHE_IIR_COEF_POR_SECAO 5
-
-/* Amostras E coeficientes em Q15.16, o mesmo formato da conv1d. */
-#define MORPHE_IIR_FRAC_BITS    16
-
-/* Estado entre execucoes, na SRAM iir_coef (palavras; ver iir_cascade.v):
- * modo (bit 0 = carregar o estado inicial), marca que o bloco escreve ao
- * fim (so os bitstreams que devolvem o estado), estado inicial e final,
- * 4 palavras por secao: x1 x2 y1 y2. */
-#define MORPHE_IIR_EST_MODO     120
-#define MORPHE_IIR_EST_MARCA    121
-#define MORPHE_IIR_EST_IN       128
-#define MORPHE_IIR_EST_OUT      192
-#define MORPHE_IIR_EST_MARCA_VALOR 0x45535431  /* "EST1" */
-#define MORPHE_IIR_EST_POR_SECAO 4
-
 /* ---- ADC (LTC2308, captura a fs fixa pelo adc_captura.v) --------------- */
 
 /* Amostras por captura: a RAM adc_buf tem 2^15 palavras de 32 bits
@@ -109,20 +68,6 @@
 /* Bit 6 do PIO adc_config (fora da palavra do LTC2308): captura continua, com a
  * RAM como buffer circular. Quem o liga e o servidor, no OP_ADC_CONTINUO. */
 #define MORPHE_ADC_CFG_CONTINUO 0x40U
-
-/* ---- Audio (codec WM8731, audio_buf.v) ---------------------------------- */
-
-/* O audio usa a RAM e os PIOs do ADC; o bit 31 do adc_divisor liga o modo
- * audio (o divisor do ADC vai no maximo a 50 000). */
-#define MORPHE_AUDIO_MODO       0x80000000U
-/* Operacao do audio_buf.v, em adc_config[1:0]. */
-#define MORPHE_AUDIO_OP_CAPTURA  0U
-#define MORPHE_AUDIO_OP_REPRODUZ 1U
-#define MORPHE_AUDIO_OP_CAP_LOOP 2U
-#define MORPHE_AUDIO_OP_LOOP     3U
-/* fs = 50 MHz / 1024 (AUD_XCK = 12,5 MHz, codec em 256 fs). */
-#define MORPHE_AUDIO_DIVISOR    1024U
-#define MORPHE_AUDIO_FS         (50000000.0 / 1024.0)
 
 /* ---- Rede -------------------------------------------------------------- */
 

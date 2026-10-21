@@ -9,19 +9,19 @@ de endereço e porta ficam recolhidos em "Conexão manual".
 
 Consome `morphe_theme` para estilos e helpers. A configuração TCP vive
 na janela principal e é compartilhada por todas as janelas filhas
-(FFT, Convolução, FIR). Estas chamam `master.tcp_panel.make_client()`
+(Aquisição, FFT). Estas chamam `master.tcp_panel.make_client()`
 em vez de instanciar a própria.
 
 Dois caminhos de conexão
 ────────────────────────
   - Conectar   : valida o servidor informado manualmente (host/porta/timeout)
-                 com um handshake OP_PING e reporta hostname/FFT_N/Conv_N.
+                 com um handshake OP_PING e reporta hostname/FFT_N.
   - Autoconnect: varre a LAN e preenche host/porta com o primeiro servidor
                  Morphe encontrado.
 
 Observação sobre o modelo de conexão
 ────────────────────────────────────
-O protocolo Morphe é *sem conexão persistente*: cada operação (CONV/FFT/FIR)
+O protocolo Morphe é *sem conexão persistente*: cada operação (FFT, ADC)
 abre um socket, envia, recebe e fecha (ver `TcpClient.request`). Por isso
 "Conectar" aqui NÃO mantém um socket aberto — é uma verificação de
 alcançabilidade/identidade do servidor (o mesmo OP_PING da descoberta),
@@ -280,7 +280,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         Tenta primeiro a placa lembrada — um handshake só, instantâneo — e
         só cai na varredura da LAN se ela não responder. Falhar aqui não é
         erro: o painel continua utilizável à mão, e quem está sem placa
-        (gerador de sinais, comparação, projeto de FIR) não leva um pop-up
+        (gerador de sinais, comparação) não leva um pop-up
         na cara ao abrir o programa.
         """
         if self._busy():
@@ -423,7 +423,7 @@ class TcpConfigPanel(ttk.LabelFrame):
 
         Por que o tempo do OP_PING mede ocupação: o servidor da placa é um
         laço accept/atende/fecha sem thread nenhuma, então um cliente no
-        meio de uma convolução de ~200 ms segura o próximo na fila do
+        meio de uma captura do ADC segura o próximo na fila do
         listen(). Uma placa livre responde em milissegundos; uma ocupada
         responde depois de terminar o que está fazendo.
 

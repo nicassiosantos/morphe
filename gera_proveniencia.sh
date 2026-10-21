@@ -5,7 +5,7 @@
 # Rode na maquina onde o bitstream foi compilado E validado, logo depois
 # da validacao:
 #
-#     ./gera_proveniencia.sh "morphe_ping 4/4; IFFT 0 falhas; Fmax 60,99 MHz"
+#     ./gera_proveniencia.sh "morphe_ping 4/4; testa_adc TUDO OK; Fmax 61 MHz"
 #
 # O argumento e a frase de validacao que entra no cabecalho. Sem ele o
 # script se recusa a rodar: proveniencia sem validacao nao e proveniencia.
@@ -26,14 +26,8 @@ fi
 # O conjunto inseparavel: RTL que vira bitstream, o bitstream, o mapa de
 # enderecos que sai dele e o servidor que o usa. Mudou um, muda o hash.
 ARQUIVOS=(
-    Quartus/conv1d.v
     Quartus/fft_wrapper.v
-    Quartus/iir_cascade.v
-    Quartus/iir_biquad_mac.v
     Quartus/adc_captura.v
-    Quartus/audio_i2s.v
-    Quartus/audio_vu.v
-    Quartus/audio_buf.v
     Quartus/ghrd_top.v
     Quartus/soc_system.qsys
     Quartus/soc_system.sopcinfo

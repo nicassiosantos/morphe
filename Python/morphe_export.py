@@ -579,8 +579,7 @@ class SvgExporter:
                       justify="center")
 
     def _do_button(self, w, box):
-        """tk.Button — usado pela toolbar do Matplotlib e pelos botões
-        coloridos do construtor de sinais do FIR."""
+        """tk.Button — usado pela toolbar do Matplotlib."""
         bg = self.rgb(self.cget(w, "background"), w)
         fg = self.rgb(self.cget(w, "foreground", "black"), w)
         bd = int(self.cget(w, "borderwidth", 1) or 0)

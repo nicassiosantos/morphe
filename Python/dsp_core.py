@@ -21,7 +21,6 @@ import numpy as np
 # =======================================================================
 
 from morphe_config import FFT_N as MAX_FFT_INPUT_SIZE
-from morphe_config import CONV_N_MAX as MAX_CONV_INPUT_SIZE
 
 
 # =======================================================================
@@ -29,8 +28,7 @@ from morphe_config import CONV_N_MAX as MAX_CONV_INPUT_SIZE
 # =======================================================================
 
 COLOR_X     = "tab:blue"      # sinal de entrada x[n]
-COLOR_H     = "tab:orange"    # filtro / impulso h[n]
-COLOR_Y     = "tab:green"     # saída y[n] = x ∗ h
+COLOR_Y     = "tab:green"     # resultado da FPGA
 COLOR_MAG   = "tab:purple"    # |X[k]|
 COLOR_PHASE = "tab:red"       # ∠X[k]
 
@@ -302,57 +300,6 @@ def find_peaks_simple(x: np.ndarray, *,
             selected.append(int(idx))
 
     return np.array(sorted(selected), dtype=np.int64)
-
-
-# =======================================================================
-# Q15.16 — formato fixed-point usado na conv1d da FPGA.
-#
-#   bit layout (32 bits):
-#     1 bit de sinal | 15 bits de parte inteira | 16 bits fracionários
-#
-#   valor_float = valor_int32 / 2^16
-#   valor_int32 = round(valor_float * 2^16)   [saturado nos limites]
-#
-#   range: [-32768.0, +32767.999984741...]
-#   resolução: 2^-16 ≈ 1.5259 × 10^-5
-# =======================================================================
-
-Q_FRAC_BITS = 16
-Q_SCALE = 1 << Q_FRAC_BITS          # 65536
-Q_MAX   = np.iinfo(np.int32).max    # 0x7FFFFFFF
-Q_MIN   = np.iinfo(np.int32).min    # -0x80000000
-Q_MAX_FLOAT = Q_MAX / Q_SCALE       # +32767.999984...
-Q_MIN_FLOAT = Q_MIN / Q_SCALE       # -32768.0
-Q_RESOLUTION = 1.0 / Q_SCALE        # ≈ 1.5259e-5
-
-
-def float_to_q1516(x: np.ndarray) -> np.ndarray:
-    """
-    Converte um array de floats para int32 em formato Q15.16, com saturação.
-    """
-    x = np.asarray(x, dtype=np.float64)
-    scaled = x * Q_SCALE
-    clipped = np.clip(scaled, Q_MIN, Q_MAX)
-    return np.round(clipped).astype(np.int32)
-
-
-def q1516_to_float(x: np.ndarray) -> np.ndarray:
-    """Converte int32 em Q15.16 de volta para float64."""
-    return np.asarray(x, dtype=np.int64).astype(np.float64) / Q_SCALE
-
-
-def q1516_range_warning(x: np.ndarray) -> str | None:
-    """
-    Retorna None se os valores cabem em Q15.16, ou uma mensagem explicando
-    o overflow/saturação que vai acontecer.
-    """
-    x = np.asarray(x, dtype=np.float64)
-    mx = float(np.max(np.abs(x))) if x.size else 0.0
-    if mx > Q_MAX_FLOAT:
-        return (f"Valores excedem a faixa Q15.16 [{Q_MIN_FLOAT:.1f}, "
-                f"{Q_MAX_FLOAT:.1f}]. Máximo absoluto: {mx:.3f}. "
-                "Haverá saturação.")
-    return None
 
 
 # ---- I/O ---------------------------------------------------------------
@@ -775,17 +722,7 @@ def compute_error_metrics(a: np.ndarray, b: np.ndarray, *,
 #
 # Estas funcoes reproduzem em NumPy o que a FPGA deveria ter computado.
 # A diferenca entre o resultado da FPGA (lido do .mrph) e estes valores
-# e o erro do hardware (quantizacao Q15.8 / Q15.16, BFP, etc.).
-
-def recompute_conv_numpy(x: np.ndarray, h: np.ndarray) -> np.ndarray:
-    """Convolucao linear cheia: y[n] = sum_k x[k] * h[n-k].
-
-    Usa np.convolve com mode='full' -- saida tem len(x)+len(h)-1 amostras.
-    """
-    return np.convolve(np.asarray(x, dtype=np.float64),
-                       np.asarray(h, dtype=np.float64),
-                       mode="full")
-
+# e o erro do hardware (quantizacao Q15.8, BFP, etc.).
 
 def recompute_fft_numpy(x: np.ndarray, n_fft: int) -> np.ndarray:
     """FFT direta de N pontos. Aplica zero-padding ate n_fft se necessario.

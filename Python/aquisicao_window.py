@@ -19,7 +19,7 @@ Duas coisas na mesma janela, as etapas 1 e 2 do docs/ADC.md:
     (frequencia, SINAD, ENOB) sao a forma de conferir o ADC com um gerador.
 
 A ultima captura vira o tipo "Captura do ADC" no painel de sinal de todas as
-outras janelas (convolucao, FFT, FIR, IIR), e pode ser salva em .csv, .npy ou
+outras janelas (FFT, gerador), e pode ser salva em .csv, .npy ou
 .wav para abrir depois pelo tipo "Arquivo".
 """
 from __future__ import annotations

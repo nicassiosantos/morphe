@@ -1,10 +1,29 @@
-# Morphe
+# Morphe — ADC e FFT
 
-Plataforma para executar operações de Processamento Digital de Sinais — convolução,
-FIR, IIR, FFT e IFFT — na FPGA de uma placa DE1-SoC, comparando o resultado do
-hardware com a referência calculada em software. TCC de Carlos Valadão (UEFS),
-evoluído no estágio de Antonio Nicassio Santos Lima no LabPS/UEFS, sob supervisão do
-Prof. Armando S. Sanca. Ver `NOTICE.md` e `LICENSE` (GPL v3).
+Plataforma para capturar sinais pelo **ADC** de uma placa DE1-SoC e calcular a **FFT**
+na FPGA da mesma placa, comparando o resultado do hardware com a referência calculada em
+software. TCC de Carlos Valadão (UEFS), evoluído no estágio de Antonio Nicassio Santos
+Lima no LabPS/UEFS, sob supervisão do Prof. Armando S. Sanca. Ver `NOTICE.md` e
+`LICENSE` (GPL v3).
+
+Esta é a branch `estagio/adc-fft`: só os dois blocos de hardware, a captura do ADC e a
+FFT.
+
+## Os dois blocos
+
+| bloco | hardware | o que faz |
+|---|---|---|
+| **ADC** | `Quartus/adc_captura.v` + RAM `adc_buf` | captura o LTC2308 (12 bits, 8 canais, conector J15) a uma fs fixa de 1 kHz a 200 kHz; até 32768 amostras de uma vez, ou contínua em blocos, sem limite |
+| **FFT** | `Quartus/fft_wrapper.v` + IP `fft_core` | FFT de 1024 pontos em Q15.8, com ponto flutuante de bloco; sinais maiores viram uma FFT de 1024·M pontos em quatro passos (M FFTs na placa, ligadas no PC) |
+
+No aplicativo:
+
+| janela | o que faz |
+|---|---|
+| **Gerador de Sinais** | gera ou abre de arquivo (`.csv`, `.txt`, `.npy`, `.wav`) um sinal e o salva em `.mrph` |
+| **Aquisição (ADC da placa)** | voltímetro, captura única ou contínua, medidas de uma senoide (frequência, SINAD, ENOB), gravação em arquivo |
+| **FFT** | manda um sinal gerado, de arquivo ou a última captura do ADC à FFT da placa; magnitude e fase |
+| **Comparador** | abre o `.mrph` salvo pela FFT e compara FPGA × NumPy (magnitude, real, imaginária) |
 
 ## Usar
 
@@ -18,60 +37,45 @@ Na estação do laboratório, com a placa ligada ao USB-Blaster:
 cd Python && python3 morphe_app.py
 ```
 
-O primeiro prepara a placa (programa a FPGA e sobe o servidor); o segundo abre o
-aplicativo, já conectado. O passo a passo completo, inclusive a instalação para uma
-turma inteira, está em `PREPARACAO.md`.
+O primeiro prepara a placa (programa a FPGA e sobe o servidor) e termina com o
+`morphe_ping` 4/4; o segundo abre o aplicativo, já conectado. O passo a passo completo,
+inclusive a instalação para uma turma inteira, está em `PREPARACAO.md`.
+
+O servidor atende um cliente por vez: dois alunos na mesma placa não recebem erro, um
+espera o outro. Com várias placas no `placas.conf`, o aplicativo escolhe a mais livre.
 
 ## O que é cada pasta
 
-**O produto** — o que roda quando alguém usa o Morphe:
-
 | pasta | o que é |
 |---|---|
-| `Python/` | o aplicativo (`morphe_app.py` e as janelas) e os módulos que ele usa: protocolo, projeto de filtros, núcleo de DSP |
+| `Python/` | o aplicativo (`morphe_app.py` e as janelas) e os módulos que ele usa: protocolo, captura do ADC, FFT longa, núcleo de DSP |
 | `C/` | o servidor que roda no processador ARM da placa e fala com a FPGA (`morphe_server.c`), mais o `autostart/` que o sobe no boot |
-| `Quartus/` | o projeto de hardware da FPGA e o bitstream pronto, em `output_files/soc_system_time_limited.sof` |
-| raiz | `morphe-up.sh` (prepara a placa), `deploy.sh` (envia o servidor), `instala-quartus.sh` (Quartus 20.1 para todas as contas de um computador), `instala-morphe.sh` (o aplicativo em `/opt/morphe`, com atalho no menu), `placas.conf` (as placas do laboratório) |
-
-**O que não é produto:**
-
-| pasta | o que é |
-|---|---|
-| `Python/ferramentas/` | testes contra a placa (`testa_*.py`), comparação com o MATLAB, geração de vetores para o testbench, geração de figuras. Rodar de dentro de `Python/`: `python3 ferramentas/testa_iir_hw.py <ip>` |
-| `exemplos/` | bundles `.mrph` com resultados reais da placa, para abrir no comparador do aplicativo |
-| `docs/` | documentação técnica e registro do estágio (ver abaixo) |
-| `legado/` | arquivos do projeto original que o produto não usa, guardados para referência |
-
-**Dentro de `Quartus/`**, nem tudo vai para o bitstream: o mapa da pasta está em
-`Quartus/README.md`. Os testbenches (`tb_*.v` e os `roda_tb_*.sh`) ficam em
-`Quartus/testbench/`; as ferramentas de compilação (`gen_hps_header.py`,
-`relatorio_timing.tcl`, `morphe_ping.py`) ficam na raiz de `Quartus/`.
-
-**Não mover os `iir_*.v` para fora de `Quartus/`:** eles não estão listados no
-`soc_system.qsf`; o Quartus os encontra por estarem na pasta do projeto. Fora dela, a
-compilação falha.
+| `Quartus/` | o projeto de hardware da FPGA e o bitstream; o mapa da pasta está em `Quartus/README.md` |
+| `Python/ferramentas/` | testes contra a placa: `testa_adc.py` (ADC com multímetro e gerador), `testa_blocos.py` (FFT longa e leitura de arquivos), `testa_porta_estado.py`, `estado_placas.py`. Rodar de dentro de `Python/` |
+| `exemplos/` | um bundle `.mrph` de FFT e sinais de teste em `exemplos/sinais/` |
+| `docs/` | documentação técnica (abaixo) |
+| raiz | `morphe-up.sh` (prepara a placa), `deploy.sh` (envia o servidor), `instala-quartus.sh` (Quartus 20.1 para todas as contas de um computador), `instala-morphe.sh` (o aplicativo em `/opt/morphe`), `atualizar.sh` e `atualizar-lab.sh` (atualizam as instalações), `placas.conf` (as placas do laboratório) |
 
 ## Documentação
 
 | arquivo | assunto |
 |---|---|
 | `PREPARACAO.md` | preparar a placa, instalar para uma turma, Quartus nos computadores |
-| `docs/GERENCIAMENTO-PLACAS.md` | como uma requisição chega à placa, com várias placas e vários clientes |
-| `docs/PRECISAO-NUMERICA.md` | os formatos de ponto fixo e os erros medidos |
-| `docs/COMPILAR-IIR.md` | como recompilar o bitstream |
+| `docs/ADC.md` | o ADC da placa: pinagem do J15, faixas, como a captura funciona, o que foi medido, como ligar um microfone |
+| `docs/PRECISAO-NUMERICA.md` | o formato Q15.8 da FFT, a normalização, o teto de ~92 dB e o ENOB do ADC |
+| `docs/COMPILAR.md` | como gerar o bitstream a partir do repositório, e o mapa de endereços |
 | `docs/NOVA-PLACA.md` | incorporar uma placa nova ao laboratório |
-| `docs/ADC.md` | como o ADC da placa funciona e as etapas para capturar sinais com ele |
-| `docs/RESSALVAS.md` | o que foi corrigido no projeto original, e por quê |
-| `docs/LINHA-DE-BASE-PASSOS.md` | a medição de usabilidade antes das mudanças |
-| `docs/DIARIO.md` | o diário do estágio: o que foi feito, medido e validado, dia a dia |
+| `docs/de1-soc/` | manuais da placa e folha de dados do LTC2308 |
 
-## Conferir um clone
+## Estado
 
-```bash
-sha256sum -c PROVENIENCIA.sha256
-```
+O código desta branch (Verilog, Platform Designer, servidor e aplicativo) tem só o ADC
+e a FFT. O servidor foi compilado para ARM sem avisos, e o aplicativo e o `morphe_ping`
+foram testados contra um servidor falso. **Falta na estação:** gerar o sistema,
+compilar o bitstream novo, gravar e testar na placa — ver `docs/COMPILAR.md`. Até lá, o
+`.sof` versionado é o da versão completa, que também serve: o ADC e a FFT estão nos
+mesmos endereços.
 
-Confere que as fontes e o bitstream são os mesmos que foram validados na placa.
-**Hoje `C/morphe_server.c` e `C/morphe_config.h` falham, e é esperado:** a lista foi
-gerada em 15/09, e o servidor mudou depois (em 21/09, para não travar a placa antes de a
-FPGA estar programada). Ela precisa ser regerada com `gera_proveniencia.sh` na estação.
+Depois da compilação, `./gera_proveniencia.sh` cria o `PROVENIENCIA.sha256`, e
+`sha256sum -c PROVENIENCIA.sha256` passa a conferir que as fontes e o bitstream de um
+clone são os validados na placa.

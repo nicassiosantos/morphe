@@ -240,39 +240,9 @@ localparam FFT_CLOG4_DATA_WIDTH = 4;
 localparam FFT_DATA_WIDTH       = 32;
 localparam FFT_ADDRESS_WIDTH    = 10;
 
-// --- FIR Parameters ---
-// Integer: +-32767 | Float: ~0.000015
-localparam FIR_DATA_WIDTH    = 32;
-localparam FIR_XN_ADDR_WIDTH = 10;
-localparam FIR_HN_ADDR_WIDTH = 10;
-localparam FIR_YN_ADDR_WIDTH = FIR_XN_ADDR_WIDTH + 1;
-localparam FIR_XN_LENGTH     = 1024;
-localparam FIR_HN_LENGTH     = 1024;
-localparam FIR_YN_LENGTH     = FIR_XN_LENGTH + FIR_HN_LENGTH - 1;
-
-localparam FIR_SAMPLE_COUNT  = 1024;
-localparam FIR_SAMPLE_PERIOD = 96;   // 50 MHz / 0.52 MSPS
-
-// --- CONV1D Parameters (Fixed point Q16.16 signed) ---
-// Integer: +-32767 | Float: ~0.000015
-// --- IIR (cascata de secoes de 2a ordem) ---
-localparam IIR_DATA_WIDTH      = 32;
-localparam IIR_ADDR_WIDTH      = 10;    // 1024 amostras
-localparam IIR_COEF_ADDR_WIDTH = 8;     // 256 palavras = ate 51 secoes
-localparam IIR_N_SAMPLES       = 1024;
-localparam IIR_MAX_SECOES      = 16;    // ordem 32; o estudo nunca passou de 11
-
 // --- ADC (captura do LTC2308 a fs fixa, adc_captura.v) ---
 localparam ADC_ADDR_WIDTH = 15;         // 32768 amostras na RAM adc_buf
 localparam ADC_DIV_MIN    = 250;        // 50 MHz / 250 = 200 kHz, a fs maxima
-
-localparam CONV1d_DATA_WIDTH    = 32;
-localparam CONV1d_XN_ADDR_WIDTH = 10;
-localparam CONV1d_HN_ADDR_WIDTH = 10;
-localparam CONV1d_YN_ADDR_WIDTH = CONV1d_XN_ADDR_WIDTH + 1;
-localparam CONV1d_XN_LENGTH     = 1024;
-localparam CONV1d_HN_LENGTH     = 1024;
-localparam CONV1d_YN_LENGTH     = CONV1d_XN_LENGTH + CONV1d_HN_LENGTH - 1;
 
 
 /* -------------------------------------------------------------------------------------------
@@ -326,81 +296,7 @@ wire [FFT_CLOG4_DATA_WIDTH-1:0] fft_yn_imag_byteenable = {FFT_CLOG4_DATA_WIDTH{1
 
 
 /* -------------------------------------------------------------------------------------------
- * 3. CONV1D PERIPHERAL SIGNALS
- * ------------------------------------------------------------------------------------------- */
-// --- Control & Status ---
-wire                            conv1d_start;
-wire                            conv1d_done;
-//assign LEDR[0] = conv1d_start;
-//assign LEDR[1] = conv1d_done;
-
-// --- SRAM Interface: X[n] ---
-wire [CONV1d_XN_ADDR_WIDTH-1:0] conv1d_xn_address;
-wire                            conv1d_xn_clken;
-wire                            conv1d_xn_chipselect;
-wire                            conv1d_xn_write;
-wire [CONV1d_DATA_WIDTH-1:0]    conv1d_xn_readdata;
-wire [CONV1d_DATA_WIDTH-1:0]    conv1d_xn_writedata;
-wire [3:0]                      conv1d_xn_byteenable = 4'b1111;
-
-// --- SRAM Interface: H[n] ---
-wire [CONV1d_HN_ADDR_WIDTH-1:0] conv1d_hn_address;
-wire                            conv1d_hn_clken;
-wire                            conv1d_hn_chipselect;
-wire                            conv1d_hn_write;
-wire [CONV1d_DATA_WIDTH-1:0]    conv1d_hn_readdata;
-wire [CONV1d_DATA_WIDTH-1:0]    conv1d_hn_writedata;
-wire [3:0]                      conv1d_hn_byteenable = 4'b1111;
-
-// --- SRAM Interface: Y[n] ---
-wire [CONV1d_YN_ADDR_WIDTH-1:0] conv1d_yn_address;
-wire                            conv1d_yn_clken;
-wire                            conv1d_yn_chipselect;
-wire                            conv1d_yn_write;
-wire [CONV1d_DATA_WIDTH-1:0]    conv1d_yn_readdata;
-wire [CONV1d_DATA_WIDTH-1:0]    conv1d_yn_writedata;
-wire [3:0]                      conv1d_yn_byteenable = 4'b1111;
-
-
-/* -------------------------------------------------------------------------------------------
- * 3-bis. IIR CASCADE PERIPHERAL SIGNALS
- * ------------------------------------------------------------------------------------------- */
-// --- Controle e status ---
-wire                              iir_start;
-wire                              iir_done;
-wire                              iir_error;
-wire [4:0]                        iir_nsecoes;
-
-// --- SRAM de entrada x[n] ---
-wire [IIR_ADDR_WIDTH-1:0]         iir_xn_address;
-wire                              iir_xn_clken;
-wire                              iir_xn_chipselect;
-wire                              iir_xn_write;
-wire [IIR_DATA_WIDTH-1:0]         iir_xn_readdata;
-wire [IIR_DATA_WIDTH-1:0]         iir_xn_writedata;
-wire [3:0]                        iir_xn_byteenable = 4'b1111;
-
-// --- SRAM dos coeficientes: 5 palavras por secao ---
-wire [IIR_COEF_ADDR_WIDTH-1:0]    iir_coef_address;
-wire                              iir_coef_clken;
-wire                              iir_coef_chipselect;
-wire                              iir_coef_write;
-wire [IIR_DATA_WIDTH-1:0]         iir_coef_readdata;
-wire [IIR_DATA_WIDTH-1:0]         iir_coef_writedata;
-wire [3:0]                        iir_coef_byteenable = 4'b1111;
-
-// --- SRAM de saida y[n] ---
-wire [IIR_ADDR_WIDTH-1:0]         iir_yn_address;
-wire                              iir_yn_clken;
-wire                              iir_yn_chipselect;
-wire                              iir_yn_write;
-wire [IIR_DATA_WIDTH-1:0]         iir_yn_readdata;
-wire [IIR_DATA_WIDTH-1:0]         iir_yn_writedata;
-wire [3:0]                        iir_yn_byteenable = 4'b1111;
-
-
-/* -------------------------------------------------------------------------------------------
- * 3-ter. ADC (CAPTURA) PERIPHERAL SIGNALS
+ * 3. ADC (CAPTURA) PERIPHERAL SIGNALS
  * ------------------------------------------------------------------------------------------- */
 // --- Controle e status ---
 wire                              adc_start;
@@ -419,62 +315,8 @@ wire [31:0]                       adc_buf_readdata;
 wire [31:0]                       adc_buf_writedata;
 wire [3:0]                        adc_buf_byteenable = 4'b1111;
 
-// --- Modo audio (15/10/2026): os mesmos PIOs e a mesma RAM servem ao codec ---
-// Nao sobra PIO no Qsys; o bit 31 do adc_divisor (o divisor vai no maximo a
-// 50 000) diz quem usa a RAM: 0 = adc_captura, 1 = audio_buf.
-wire                              modo_audio = adc_divisor[31];
-wire                              adc_done_adc,  adc_done_audio;
-wire [31:0]                       adc_contador_adc, adc_contador_audio;
-wire [ADC_ADDR_WIDTH-1:0]         adcram_addr_adc;
-wire [31:0]                       adcram_wdata_adc;
-wire                              adcram_write_adc;
-wire [ADC_ADDR_WIDTH-1:0]         adcram_addr_audio;
-wire [31:0]                       adcram_wdata_audio;
-wire                              adcram_write_audio;
-assign adc_done           = modo_audio ? adc_done_audio     : adc_done_adc;
-assign adc_contador       = modo_audio ? adc_contador_audio : adc_contador_adc;
-assign adc_buf_address    = modo_audio ? adcram_addr_audio  : adcram_addr_adc;
-assign adc_buf_writedata  = modo_audio ? adcram_wdata_audio : adcram_wdata_adc;
-assign adc_buf_write      = modo_audio ? adcram_write_audio : adcram_write_adc;
 assign adc_buf_chipselect = 1'b1;
 assign adc_buf_clken      = 1'b1;
-
-
-/* -------------------------------------------------------------------------------------------
- * 4. FIR WRAPPER PERIPHERAL SIGNALS
- * ------------------------------------------------------------------------------------------- */
-// --- Control & Status ---
-wire                             fir_start;
-wire                             fir_done;
-wire                             fir_error;
-
-// --- SRAM Interface: X[n] — entrada do FIR (leitura pelo wrapper, escrita pela HPS) ---
-wire [FIR_XN_ADDR_WIDTH-1:0]     fir_xn_address;
-wire                             fir_xn_clken;
-wire                             fir_xn_chipselect;
-wire                             fir_xn_write;
-wire [FIR_DATA_WIDTH-1:0]        fir_xn_readdata;
-wire [FIR_DATA_WIDTH-1:0]        fir_xn_writedata;
-wire [3:0]                       fir_xn_byteenable = 4'b1111; // Updated to 4 bytes for 32-bit data
-
-// --- SRAM Interface: H[n] — coeficientes do FIR (leitura pelo wrapper, escrita pela HPS) ---
-wire [FIR_HN_ADDR_WIDTH-1:0]     fir_hn_address;
-wire                             fir_hn_clken;
-wire                             fir_hn_chipselect;
-wire                             fir_hn_write;
-wire [FIR_DATA_WIDTH-1:0]        fir_hn_readdata;
-wire [FIR_DATA_WIDTH-1:0]        fir_hn_writedata;
-wire [3:0]                       fir_hn_byteenable = 4'b1111; // Updated to 4 bytes for 32-bit data
-
-// --- SRAM Interface: Y[n] — saída do FIR (escrita pelo wrapper, leitura pela HPS) ---
-wire [FIR_YN_ADDR_WIDTH-1:0]     fir_yn_address;
-wire                             fir_yn_clken;
-wire                             fir_yn_chipselect;
-wire                             fir_yn_write;
-wire [FIR_DATA_WIDTH-1:0]        fir_yn_readdata;
-wire [FIR_DATA_WIDTH-1:0]        fir_yn_writedata;
-wire [3:0]                       fir_yn_byteenable = 4'b1111; // Updated to 4 bytes for 32-bit data
-
 
 
 /* ===========================================================================================
@@ -482,136 +324,6 @@ wire [3:0]                       fir_yn_byteenable = 4'b1111; // Updated to 4 by
  * CUSTOM DSP MODULES (INSTANTIATIONS)
  * ===========================================================================================
  * =========================================================================================== */
-
-/*
-memory_write_controller #(
-    .MEM_ADDRESS_N_BITS(10),
-    .DATA_WIDTH(16)
-) memory_write_controller_fft_xn_re (
-    .clk        (CLOCK_50),
-    .reset_n    (reset_n_xn),
-    .start_write(!KEY[0]),
-    .data_in_addr(10'd_1023),
-    .data_in    (16'h_31),
-
-    .mem_address (fft_xn_re_address),
-    .mem_wdata   (fft_xn_re_writedata),
-    .mem_write   (fft_xn_re_write),
-    .write_done  (HEX5[0]),
-    .clken       (fft_xn_re_clken),
-    .chipselect  (fft_xn_re_chipselect)
-);
-
-memory_write_controller #(
-    .MEM_ADDRESS_N_BITS(10),
-    .DATA_WIDTH(16)
-) memory_write_controller_fft_xn_imag (
-    .clk        (CLOCK_50),
-    .reset_n    (reset_n_xn),
-    .start_write(!KEY[1]),
-    .data_in_addr(10'd_1023),
-    .data_in    (16'h_17),
-
-    .mem_address (fft_xn_imag_address),
-    .mem_wdata   (fft_xn_imag_writedata),
-    .mem_write   (fft_xn_imag_write),
-    .write_done  (HEX5[1]),
-    .clken       (fft_xn_imag_clken),
-    .chipselect  (fft_xn_imag_chipselect)
-);
-
-memory_write_controller #(
-    .MEM_ADDRESS_N_BITS(10),
-    .DATA_WIDTH(16)
-) memory_write_controller_fft_yn_re (
-    .clk        (CLOCK_50),
-    .reset_n    (reset_n_yn),
-    .start_write(!KEY[2]),
-    .data_in_addr(10'd_1023),
-    .data_in    (16'h_19),
-
-    .mem_address (fft_yn_re_address),
-    .mem_wdata   (fft_yn_re_writedata),
-    .mem_write   (fft_yn_re_write),
-    .write_done  (HEX5[2]),
-    .clken       (fft_yn_re_clken),
-    .chipselect  (fft_yn_re_chipselect)
-);
-
-memory_write_controller #(
-    .MEM_ADDRESS_N_BITS(10),
-    .DATA_WIDTH(16)
-) memory_write_controller_fft_yn_imag (
-    .clk        (CLOCK_50),
-    .reset_n    (reset_n_yn),
-    .start_write(!KEY[3]),
-    .data_in_addr(10'd_1023),
-    .data_in    (16'h_23),
-
-    .mem_address (fft_yn_imag_address),
-    .mem_wdata   (fft_yn_imag_writedata),
-    .mem_write   (fft_yn_imag_write),
-    .write_done  (HEX5[3]),
-    .clken       (fft_yn_imag_clken),
-    .chipselect  (fft_yn_imag_chipselect)
-);
-
-memory_write_controller #(
-    .MEM_ADDRESS_N_BITS(10),
-    .DATA_WIDTH(12)
-) memory_write_controller_fft_yn_imag (
-    .clk        (CLOCK_50),
-    .reset_n    (reset_n_yn),
-    .start_write(!KEY[3]),
-    .data_in_addr(10'd_1023),
-    .data_in    (adc_ch0),
-
-    .mem_address (fft_yn_imag_address),
-    .mem_wdata   (fft_yn_imag_writedata),
-    .mem_write   (fft_yn_imag_write),
-    .write_done  (HEX5[3]),
-    .clken       (fft_yn_imag_clken),
-    .chipselect  (fft_yn_imag_chipselect)
-);
-*/
-
-conv1d #(
-    .DATA_WIDTH     (CONV1d_DATA_WIDTH),
-    .XN_LENGTH      (CONV1d_XN_LENGTH),
-    .HN_LENGTH      (CONV1d_HN_LENGTH),
-    .YN_LENGTH      (CONV1d_YN_LENGTH), // XN_LENGTH + HN_LENGTH - 1
-    .XN_ADDR_N_BITS (CONV1d_XN_ADDR_WIDTH),
-    .HN_ADDR_N_BITS (CONV1d_HN_ADDR_WIDTH),
-    .YN_ADDR_N_BITS (CONV1d_YN_ADDR_WIDTH)
-) u_conv1d (
-    .clk                (CLOCK_50),
-    .reset_n            (hps_fpga_reset_n),
-
-    // PIO de controle (Platform Designer)
-    .start              (conv1d_start),       // bit 0 do PIO start (HPS -> FPGA)
-    .done               (conv1d_done),        // bit 0 do PIO done  (FPGA -> HPS)
-
-    // Interface SRAM de x[n] (leitura)
-    .xn_sram_readdata   (conv1d_xn_readdata),
-    .xn_sram_address    (conv1d_xn_address),
-    .xn_sram_chipselect (conv1d_xn_chipselect),
-    .xn_sram_clken      (conv1d_xn_clken),
-    .xn_sram_write      (conv1d_xn_write),
-
-    // Interface SRAM de h[n] (leitura)
-    .hn_sram_readdata   (conv1d_hn_readdata),
-    .hn_sram_address    (conv1d_hn_address),
-    .hn_sram_chipselect (conv1d_hn_chipselect),
-    .hn_sram_clken      (conv1d_hn_clken),
-    .hn_sram_write      (conv1d_hn_write),
-
-    // Interface SRAM de y[n] (escrita)
-    .yn_sram_address    (conv1d_yn_address),
-    .yn_sram_wdata      (conv1d_yn_writedata),
-    .yn_sram_chipselect (conv1d_yn_chipselect),
-    .yn_sram_clken      (conv1d_yn_clken),
-    .yn_sram_write      (conv1d_yn_write)
-);
 
 // ===========================================================================================
 // INSTANTIATION: ADC (captura do LTC2308)
@@ -629,13 +341,13 @@ adc_captura #(
     .reset_n    (hps_fpga_reset_n),
 
     // PIOs de controle
-    .start      (adc_start & ~modo_audio),   // HPS -> FPGA
-    .done       (adc_done_adc),              // FPGA -> HPS (pelo mux do modo audio)
+    .start      (adc_start),         // HPS -> FPGA
+    .done       (adc_done),          // FPGA -> HPS
     .divisor    (adc_divisor),
     .n_amostras (adc_namostras),
     .config_adc (adc_config[5:0]),
     .continuo   (adc_config[6]),
-    .contador   (adc_contador_adc),
+    .contador   (adc_contador),
 
     // LTC2308
     .adc_convst (ADC_CONVST),
@@ -644,103 +356,30 @@ adc_captura #(
     .adc_dout   (ADC_DOUT),
 
     // SRAM de captura (porta do FPGA)
-    .ram_address    (adcram_addr_adc),
-    .ram_wdata      (adcram_wdata_adc),
-    .ram_write      (adcram_write_adc),
+    .ram_address    (adc_buf_address),
+    .ram_wdata      (adc_buf_writedata),
+    .ram_write      (adc_buf_write),
     .ram_chipselect (),              // sempre 1 (adc_captura.v)
     .ram_clken      ()
 );
 
-// ===========================================================================================
-// INSTANTIATION: codec de audio WM8731 (I2S, etapa 2 do codec)
-// ===========================================================================================
-// O codec e o mestre dos relogios de audio (BCLK, ADCLRCK, DACLRCK): a FPGA so
-// entrega o AUD_XCK (12,5 MHz -> fs = 48 828,125 Hz) e le o resto a 50 MHz.
-// A configuracao (I2C) e feita pelo HPS, programa C/codec.c, "./codec digital".
-// SW[9] = 1: onda quadrada de 1017 Hz no DAC; SW[9] = 0: o DAC toca o que o
-// audio_buf mandar -- silencio, a RAM ou o loopback, comandados pelo HPS.
-//
-// I2C do codec em alta impedancia: sem driver, o Quartus prende FPGA_I2C_SCLK
-// em GND (Warning 13410). Com o multiplexador virado para o HPS
-// (HPS_I2C_CONTROL = 1) o lado da FPGA fica isolado -- o codec respondeu ao
-// HPS em 13/10/2026 mesmo com o pino aterrado --, mas um SCL preso em 0 deixaria
-// o barramento morto no dia em que o multiplexador voltar para a FPGA.
+// I2C do codec de audio (nao usado nesta versao) em alta impedancia: sem
+// driver, o Quartus prende FPGA_I2C_SCLK em GND, e um SCL preso em 0 deixa o
+// barramento morto se o multiplexador (HPS_I2C_CONTROL) virar para a FPGA.
 assign FPGA_I2C_SCLK = 1'bz;
 assign FPGA_I2C_SDAT = 1'bz;
 
-wire [15:0] audio_rx_esq;
-wire [15:0] audio_rx_dir;
-wire        audio_rx_quadro;
-wire [15:0] audio_tx_esq;
-wire [15:0] audio_tx_dir;
-
-audio_i2s audio_inst (
-    .clk         (CLOCK_50),
-    .reset_n     (hps_fpga_reset_n),
-    .aud_xck     (AUD_XCK),
-    .aud_bclk    (AUD_BCLK),
-    .aud_adclrck (AUD_ADCLRCK),
-    .aud_daclrck (AUD_DACLRCK),
-    .aud_adcdat  (AUD_ADCDAT),
-    .aud_dacdat  (AUD_DACDAT),
-    .tom         (SW[9]),
-    .tx_esq_in   (audio_tx_esq),
-    .tx_dir_in   (audio_tx_dir),
-    .rx_esq      (audio_rx_esq),
-    .rx_dir      (audio_rx_dir),
-    .rx_quadro   (audio_rx_quadro)
-);
-
-// Audio <-> RAM adc_buf <-> HPS: captura, reproducao e loopback (etapa 3).
-// adc_config[1:0] = operacao, adc_config[6] = continuo (audio_buf.v).
-audio_buf #(
-    .ADDR_BITS (ADC_ADDR_WIDTH)
-) audio_buf_inst (
-    .clk          (CLOCK_50),
-    .reset_n      (hps_fpga_reset_n),
-    .start        (adc_start & modo_audio),
-    .done         (adc_done_audio),
-    .op           (adc_config[1:0]),
-    .continuo     (adc_config[6]),
-    .n_amostras   (adc_namostras),
-    .contador     (adc_contador_audio),
-    .rx_esq       (audio_rx_esq),
-    .rx_dir       (audio_rx_dir),
-    .rx_quadro    (audio_rx_quadro),
-    .tx_esq       (audio_tx_esq),
-    .tx_dir       (audio_tx_dir),
-    .ram_address  (adcram_addr_audio),
-    .ram_wdata    (adcram_wdata_audio),
-    .ram_write    (adcram_write_audio),
-    .ram_readdata (adc_buf_readdata)
-);
-
-// Medidor de nivel do audio recebido em HEX0..HEX4 (6 dB por degrau). Prova a
-// recepcao I2S sem cabo de audio: um fone no MIC-in faz papel de microfone
-// ("./codec --entrada mic digital").
-audio_vu audio_vu_inst (
-    .clk     (CLOCK_50),
-    .reset_n (hps_fpga_reset_n),
-    .esq     (audio_rx_esq),
-    .dir     (audio_rx_dir),
-    .quadro  (audio_rx_quadro),
-    .hex0    (HEX0),
-    .hex1    (HEX1),
-    .hex2    (HEX2),
-    .hex3    (HEX3),
-    .hex4    (HEX4),
-    .degrau  ()
-);
+// Displays de 7 segmentos apagados (ativos em 0).
+assign HEX0 = 7'h7F;
+assign HEX1 = 7'h7F;
+assign HEX2 = 7'h7F;
+assign HEX3 = 7'h7F;
+assign HEX4 = 7'h7F;
+assign HEX5 = 7'h7F;
 
 wire [3:0] fft_debug_state;
 assign LEDR[3:0] = fft_debug_state;
-wire [3:0] fir_debug_state;
-assign LEDR[7:4] = fir_debug_state;
-assign LEDR[8]   = fir_done;
-assign LEDR[9]   = fir_error;
-
-// Temporarily mapping the SRAM output to the LEDs for debugging
-// assign LEDR[9:0] = fft_xn_re_readdata[9:0];
+assign LEDR[9:4] = 6'b0;
 
 // ===========================================================================================
 // INSTANTIATION: FFT Wrapper
@@ -792,138 +431,6 @@ fft_wrapper #(
     // Debug (Optional)
     .debug_state            (fft_debug_state) // Leave unconnected if not routing to LEDs
 );
-
-
-// ===========================================================================================
-// INSTANTIATION: FIR Wrapper
-// NOTA: fir_xn e fir_yn precisam ser exportados no Platform Designer (soc_system)
-//       como on-chip RAMs de 16 bits / 1024 palavras + PIOs de controle,
-//       seguindo o mesmo padrão das SRAMs do FFT e conv1d.
-// ===========================================================================================
-/*fir_wrapper #(
-    .SAMPLE_COUNT  (FIR_SAMPLE_COUNT),
-    .ADDR_WIDTH    (FIR_ADDRESS_WIDTH),
-    .SAMPLE_PERIOD (FIR_SAMPLE_PERIOD)
-) u_fir_wrapper (
-    .clk           (CLOCK_50),
-    .rst_n         (hps_fpga_reset_n),
-
-    // Controle (PIOs do Platform Designer)
-    .start         (fir_start),
-    .done          (fir_done),
-    .error         (fir_error),
-
-    // SRAM de entrada: X[n]
-    .in_address    (fir_xn_address),
-    .in_write      (fir_xn_write),
-    .in_clken      (fir_xn_clken),
-    .in_chipselect (fir_xn_chipselect),
-    .in_readdata   (fir_xn_readdata),
-
-    // SRAM de saída: Y[n]
-    .out_address   (fir_yn_address),
-    .out_write     (fir_yn_write),
-    .out_clken     (fir_yn_clken),
-    .out_chipselect(fir_yn_chipselect),
-    .out_writedata (fir_yn_writedata),
-
-    // Debug (mapeado em LEDR[7:4])
-    .state_dbg     (fir_debug_state)
-);
-*/
-
-
-
-// ===========================================================================================
-// INSTANTIATION: IIR Cascade
-// ===========================================================================================
-// A saida y[n] tem o mesmo comprimento da entrada -- diferente do conv1d, em
-// que y cresce para N+M-1. Filtro recursivo nao alonga o sinal.
-iir_cascade #(
-    .DATA_WIDTH       (IIR_DATA_WIDTH),
-    .FRAC_BITS        (16),                    // Q15.16, o mesmo do conv1d
-    .ACC_WIDTH        (72),
-    .N_SAMPLES        (IIR_N_SAMPLES),
-    .ADDR_N_BITS      (IIR_ADDR_WIDTH),
-    .MAX_SECOES       (IIR_MAX_SECOES),
-    .COEF_ADDR_N_BITS (IIR_COEF_ADDR_WIDTH)
-) iir_inst (
-    .clk       (CLOCK_50),
-    .reset_n   (hps_fpga_reset_n),
-
-    // PIOs de controle
-    .start     (iir_start),          // HPS -> FPGA
-    .done      (iir_done),           // FPGA -> HPS
-    .error_sat (iir_error),          // FPGA -> HPS, saturou em alguma amostra
-    .n_secoes  (iir_nsecoes[$clog2(IIR_MAX_SECOES+1)-1:0]),
-
-    // SRAM dos coeficientes
-    .coef_sram_readdata   (iir_coef_readdata),
-    .coef_sram_address    (iir_coef_address),
-    .coef_sram_chipselect (iir_coef_chipselect),
-    .coef_sram_clken      (iir_coef_clken),
-    .coef_sram_write      (iir_coef_write),
-    .coef_sram_wdata      (iir_coef_writedata),  // estado final e marca
-
-    // SRAM de x[n]
-    .xn_sram_readdata     (iir_xn_readdata),
-    .xn_sram_address      (iir_xn_address),
-    .xn_sram_chipselect   (iir_xn_chipselect),
-    .xn_sram_clken        (iir_xn_clken),
-    .xn_sram_write        (iir_xn_write),
-
-    // SRAM de y[n]
-    .yn_sram_address      (iir_yn_address),
-    .yn_sram_wdata        (iir_yn_writedata),
-    .yn_sram_chipselect   (iir_yn_chipselect),
-    .yn_sram_clken        (iir_yn_clken),
-    .yn_sram_write        (iir_yn_write),
-
-    .debug_state          ()
-);
-
-// ===========================================================================================
-// INSTANTIATION: FIR Filter (using conv1d hardware accelerator)
-// ===========================================================================================
-conv1d #(
-    .DATA_WIDTH     (FIR_DATA_WIDTH),
-    .XN_LENGTH      (FIR_XN_LENGTH),
-    .HN_LENGTH      (FIR_HN_LENGTH),
-    .YN_LENGTH      (FIR_YN_LENGTH), // XN_LENGTH + HN_LENGTH - 1
-    .XN_ADDR_N_BITS (FIR_XN_ADDR_WIDTH),
-    .HN_ADDR_N_BITS (FIR_HN_ADDR_WIDTH),
-    .YN_ADDR_N_BITS (FIR_YN_ADDR_WIDTH)
-) fir_inst (
-    .clk                (CLOCK_50),
-    .reset_n            (hps_fpga_reset_n),
-
-    // PIO de controle (Platform Designer)
-    .start              (fir_start),          // HPS -> FPGA
-    .done               (fir_done),           // FPGA -> HPS
-
-    // Interface SRAM de x[n] (leitura da amostra)
-    .xn_sram_readdata   (fir_xn_readdata),
-    .xn_sram_address    (fir_xn_address),
-    .xn_sram_chipselect (fir_xn_chipselect),
-    .xn_sram_clken      (fir_xn_clken),
-    .xn_sram_write      (fir_xn_write),
-
-    // Interface SRAM de h[n] (leitura dos coeficientes do FIR)
-    .hn_sram_readdata   (fir_hn_readdata),
-    .hn_sram_address    (fir_hn_address),
-    .hn_sram_chipselect (fir_hn_chipselect),
-    .hn_sram_clken      (fir_hn_clken),
-    .hn_sram_write      (fir_hn_write),
-
-    // Interface SRAM de y[n] (escrita do resultado filtrado)
-    .yn_sram_address    (fir_yn_address),
-    .yn_sram_wdata      (fir_yn_writedata),
-    .yn_sram_chipselect (fir_yn_chipselect),
-    .yn_sram_clken      (fir_yn_clken),
-    .yn_sram_write      (fir_yn_write)
-);
-
-
 
 
 /* ===========================================================================================
@@ -978,111 +485,6 @@ soc_system u0 (
     .fft_yn_imag_writedata    (fft_yn_imag_writedata),  //            .writedata
     .fft_yn_imag_byteenable   (fft_yn_imag_byteenable), //            .byteenable
     
-
-    // =======================================================================================
-    //  CUSTOM DSP EXPORTS: 1D CONVOLUTION
-    // =======================================================================================
-    // Control
-    .conv1d_start_export      (conv1d_start),           // conv1d_start.export
-    .conv1d_done_export       (conv1d_done),            // conv1d_done.export
-
-    // Memory: X[n]
-    .conv1d_xn_address        (conv1d_xn_address),      // conv1d_xn.address
-    .conv1d_xn_clken          (conv1d_xn_clken),        //          .clken
-    .conv1d_xn_chipselect     (conv1d_xn_chipselect),   //          .chipselect
-    .conv1d_xn_write          (conv1d_xn_write),        //          .write
-    .conv1d_xn_readdata       (conv1d_xn_readdata),     //          .readdata
-    .conv1d_xn_writedata      (conv1d_xn_writedata),    //          .writedata
-    .conv1d_xn_byteenable     (conv1d_xn_byteenable),   //          .byteenable
-    
-    // Memory: H[n]
-    .conv1d_hn_address        (conv1d_hn_address),      // conv1d_hn.address
-    .conv1d_hn_clken          (conv1d_hn_clken),        //          .clken
-    .conv1d_hn_chipselect     (conv1d_hn_chipselect),   //          .chipselect
-    .conv1d_hn_write          (conv1d_hn_write),        //          .write
-    .conv1d_hn_readdata       (conv1d_hn_readdata),     //          .readdata
-    .conv1d_hn_writedata      (conv1d_hn_writedata),    //          .writedata
-    .conv1d_hn_byteenable     (conv1d_hn_byteenable),   //          .byteenable
-    
-    // Memory: Y[n]
-    .conv1d_yn_address        (conv1d_yn_address),      // conv1d_yn.address
-    .conv1d_yn_clken          (conv1d_yn_clken),        //          .clken
-    .conv1d_yn_chipselect     (conv1d_yn_chipselect),   //          .chipselect
-    .conv1d_yn_write          (conv1d_yn_write),        //          .write
-    .conv1d_yn_readdata       (conv1d_yn_readdata),     //          .readdata
-    .conv1d_yn_writedata      (conv1d_yn_writedata),    //          .writedata
-    .conv1d_yn_byteenable     (conv1d_yn_byteenable),   //          .byteenable
-    
-    // =======================================================================================
-    //  TODO: CUSTOM DSP EXPORTS: FIR WRAPPER
-    //  Adicionar no Platform Designer (soc_system.qsys):
-    //    - PIO 1-bit output : fir_start
-    //    - PIO 1-bit input  : fir_done
-    //    - PIO 1-bit input  : fir_error
-    //    - On-chip RAM 16-bit x 1024: fir_xn  (porta A HPS r/w, porta B FPGA read)
-    //    - On-chip RAM 16-bit x 1024: fir_yn  (porta A HPS read, porta B FPGA write)
-    //  Após exportar, descomentar e preencher os connects abaixo:
-    // =======================================================================================
-    .fir_start_export       (fir_start),
-    .fir_done_export        (fir_done),
-    .fir_error_export       (fir_error),
-
-    .fir_xn_address         (fir_xn_address),
-    .fir_xn_clken           (fir_xn_clken),
-    .fir_xn_chipselect      (fir_xn_chipselect),
-    .fir_xn_write           (fir_xn_write),
-    .fir_xn_readdata        (fir_xn_readdata),
-    .fir_xn_writedata       (fir_xn_writedata),
-    .fir_xn_byteenable      (fir_xn_byteenable),
-
-    .fir_hn_address         (fir_hn_address),
-    .fir_hn_clken           (fir_hn_clken),
-    .fir_hn_chipselect      (fir_hn_chipselect),
-    .fir_hn_write           (fir_hn_write),
-    .fir_hn_readdata        (fir_hn_readdata),
-    .fir_hn_writedata       (fir_hn_writedata),
-    .fir_hn_byteenable      (fir_hn_byteenable),
-
-    .fir_yn_address         (fir_yn_address),
-    .fir_yn_clken           (fir_yn_clken),
-    .fir_yn_chipselect      (fir_yn_chipselect),
-    .fir_yn_write           (fir_yn_write),
-    .fir_yn_readdata        (fir_yn_readdata),
-    .fir_yn_writedata       (fir_yn_writedata),
-    .fir_yn_byteenable      (fir_yn_byteenable),
-
-    // ======================================================
-    //  CUSTOM DSP EXPORTS: IIR
-    // ======================================================
-    .iir_start_export       (iir_start),
-    .iir_done_export        (iir_done),
-    .iir_error_export       (iir_error),
-    .iir_nsecoes_export     (iir_nsecoes),
-
-    .iir_xn_address          (iir_xn_address),
-    .iir_xn_clken            (iir_xn_clken),
-    .iir_xn_chipselect       (iir_xn_chipselect),
-    .iir_xn_write            (iir_xn_write),
-    .iir_xn_readdata         (iir_xn_readdata),
-    .iir_xn_writedata        (iir_xn_writedata),
-    .iir_xn_byteenable       (iir_xn_byteenable),
-
-    .iir_coef_address        (iir_coef_address),
-    .iir_coef_clken          (iir_coef_clken),
-    .iir_coef_chipselect     (iir_coef_chipselect),
-    .iir_coef_write          (iir_coef_write),
-    .iir_coef_readdata       (iir_coef_readdata),
-    .iir_coef_writedata      (iir_coef_writedata),
-    .iir_coef_byteenable     (iir_coef_byteenable),
-
-    .iir_yn_address          (iir_yn_address),
-    .iir_yn_clken            (iir_yn_clken),
-    .iir_yn_chipselect       (iir_yn_chipselect),
-    .iir_yn_write            (iir_yn_write),
-    .iir_yn_readdata         (iir_yn_readdata),
-    .iir_yn_writedata        (iir_yn_writedata),
-    .iir_yn_byteenable       (iir_yn_byteenable),
-
     // ======================================================
     //  CUSTOM DSP EXPORTS: ADC (captura)
     // ======================================================

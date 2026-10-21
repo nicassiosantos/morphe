@@ -7,12 +7,14 @@ Faz 4 testes em sequência, reportando claramente onde (se) falhou:
 
     1. TCP reachable         — consegue abrir conexão na porta?
     2. Protocolo responde    — servidor fala Morphe (magic 'MRPN')?
-    3. Convolução impulso    — h = δ[n], x = qualquer → y == x?
+    3. Captura do ADC        — 64 amostras do CH0 voltam dentro da faixa?
     4. FFT impulso           — x = δ[n] → |X[k]| constante?
 
-O teste 3 verifica o pipeline completo: Q15.16 encode, SRAMs, FSM da
-conv1d, BFP (se aplicável), decode. Se só o 3 ou 4 falham, o problema
-é no hardware; se 1 ou 2 falham, é rede/servidor.
+O teste 3 passa pelo adc_captura.v e pela RAM adc_buf; o 4, pelo
+fft_wrapper.v, as SRAMs da FFT e o BFP. Se só o 3 ou 4 falham, o problema
+é no hardware; se 1 ou 2 falham, é rede/servidor. O teste 3 não depende
+do que estiver ligado no CH0: só confere que a captura anda e que os
+códigos são do conversor (0 a 4095).
 
 Uso:
     morphe_ping <host> [porta]
@@ -32,11 +34,10 @@ import numpy as np
 sys.path.insert(0, ".")
 sys.path.insert(0, "./morphe_app")
 try:
-    import dsp_core as dsp
+    import aquisicao
     from morphe_protocol import (
-        TcpClient, build_conv_request, build_fft_request,
+        TcpClient, build_adc_request, decode_adc_response, build_fft_request,
         decode_fft_response, build_ping_request, decode_ping_response,
-        DTYPE_INT32, DTYPE_FLOAT32,
     )
 except ImportError:
     print("ERRO: não achei morphe_protocol.py / dsp_core.py no path.")
@@ -136,46 +137,43 @@ def test_2_protocol_magic(host: str, port: int) -> bool:
                 fail("esperava erro (opcode inválido), veio OK",
                      "protocolo inconsistente — versão errada?")
                 return False
-        ok(f"magic MRPN correto, status de erro bem-formado")
+        ok("magic MRPN correto, status de erro bem-formado")
         return True
     except Exception as e:
         fail(f"exceção: {e}")
         return False
 
 
-def test_3_conv_impulse(host: str, port: int) -> bool:
-    step(3, "Convolução com impulso (h = δ[n])")
+def test_3_adc(host: str, port: int) -> bool:
+    step(3, "Captura do ADC (64 amostras do CH0 a 20 kHz)")
     try:
         client = TcpClient(host, port, timeout=5)
-        # qualquer x; h é um impulso unitário → y deve ser == x (com um shift de 0)
-        x = np.array([1.5, -2.25, 0.5, 3.75, -1.0], dtype=np.float64)
-        h = np.array([1.0], dtype=np.float64)
-        x_q = dsp.float_to_q1516(x).astype(np.float64)
-        h_q = dsp.float_to_q1516(h).astype(np.float64)
-        req = build_conv_request(x_q, h_q, DTYPE_INT32)
+        # adc_n_max = 0 no PING: o servidor nao pode usar o ADC agora --
+        # FPGA de fabrica, ou um bitstream que nao e o do hps_0.h dele.
+        info = decode_ping_response(client.request(build_ping_request()))
+        if info.get("adc_n_max", "0") == "0":
+            fail("o servidor informou adc_n_max=0",
+                 "FPGA sem o bitstream deste servidor: ./morphe-up.sh --board <ip>")
+            return False
+        n, divisor = 64, 2500                     # 50 MHz / 2500 = 20 kHz
+        req = build_adc_request(n, divisor, aquisicao.palavra_config("simples", 0))
         t0 = time.monotonic()
         resp = client.request(req)
         dt_ms = (time.monotonic() - t0) * 1000
         if not resp.ok:
-            msg = resp.payload.decode('utf-8', 'replace')
-            if "nao preparada" in msg:
-                dica = ("a placa foi ligada mas ninguem programou o bitstream do Morphe "
-                        "nela: ./morphe-up.sh --board <ip> resolve")
-            else:
-                dica = "pode ser limite de tamanho ou timeout da FPGA"
-            fail(f"servidor retornou erro: {msg}", dica)
+            fail(f"servidor retornou erro: {resp.payload.decode('utf-8', 'replace')}")
             return False
-        y_q = np.frombuffer(resp.payload, dtype=">i4", count=resp.n_out)
-        y = dsp.q1516_to_float(y_q)
-        err = np.max(np.abs(y - x))
-        if err > 1e-3:
-            fail(f"y != x, erro máximo = {err:.4e}",
-                 "conv1d produziu resultado inconsistente — "
-                 "hardware ou FSM com bug?")
-            print(f"    x = {x}")
-            print(f"    y = {y}")
+        codigos, div_usado = decode_adc_response(resp)
+        if codigos.size != n or div_usado != divisor:
+            fail(f"vieram {codigos.size} amostras com divisor {div_usado}; "
+                 f"pedi {n} com {divisor}")
             return False
-        ok(f"y == x (erro {err:.2e}), resposta em {dt_ms:.1f} ms")
+        if codigos.min() < 0 or codigos.max() > 4095:
+            fail(f"codigos fora de 0..4095: min={codigos.min()}, max={codigos.max()}",
+                 "adc_captura.v ou o modo (unipolar) com problema")
+            return False
+        ok(f"{n} amostras, media {codigos.mean() / 1000:.3f} V, "
+           f"resposta em {dt_ms:.1f} ms")
         return True
     except Exception as e:
         fail(f"exceção: {e}")
@@ -247,7 +245,7 @@ def main() -> int:
     tests: list[Callable[[str, int], bool]] = [
         test_1_tcp_reachable,
         test_2_protocol_magic,
-        test_3_conv_impulse,
+        test_3_adc,
         test_4_fft_impulse,
     ]
 

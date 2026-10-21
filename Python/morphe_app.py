@@ -3,7 +3,7 @@
 Consome o design system de `morphe_theme`. Estrutura:
   - Cabeçalho com título + subtítulo
   - Painel TCP (compartilhado por todas as janelas filhas)
-  - Card "Ferramentas FPGA" com ações primárias (inclui o analisador espectral)
+  - Card "Ferramentas FPGA": os dois blocos desta versão, ADC e FFT
   - Card "Comparação" (independente)
   - Link "Sair" discreto no canto inferior direito
 """
@@ -16,16 +16,7 @@ from tkinter import ttk
 import morphe_theme as theme
 from signal_generator_window import SignalGeneratorWindow
 from aquisicao_window import AquisicaoWindow
-from analisador_window import AnalisadorWindow
-from audio_window import AudioWindow
-from conv_window import ConvolutionWindow
 from fft_window import FFTWindow
-from ifft_window import IFFTWindow
-# ESPECTROGRAMA (desligado em 23/09/2026; a janela esta pronta e validada na
-# placa -- para reativar, descomentar esta linha, o botao e o callback abaixo):
-# from espectrograma_window import EspectrogramaWindow
-from fir_window import FIRWindow
-from iir_window import IIRWindow
 from comparator_window import ComparatorWindow
 from tcp_panel import TcpConfigPanel
 
@@ -108,15 +99,7 @@ class MorpheMainWindow(tk.Tk):
         primary_actions = [
             ("Gerador de Sinais",              self._open_generator),
             ("Aquisição  (ADC da placa)",      self._open_aquisicao),
-            ("Analisador espectral  (ADC → FFT na FPGA)", self._open_analisador),
-            ("Áudio  (codec: capturar, tocar, loopback)", self._open_audio),
-            ("Convolução  (2 sinais → FPGA)",  self._open_conv),
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
-            ("IFFT  (espectro de arquivo → FPGA)", self._open_ifft),
-            # ESPECTROGRAMA (desligado):
-            # ("Espectrograma  (sinal longo → FFTs na FPGA)", self._open_espectrograma),
-            ("Filtro FIR  (FPGA)",             self._open_fir),
-            ("Filtro IIR  (FPGA)",             self._open_iir),
         ]
         for label, cmd in primary_actions:
             ttk.Button(
@@ -224,30 +207,8 @@ class MorpheMainWindow(tk.Tk):
     def _open_aquisicao(self):
         AquisicaoWindow(self)
 
-    def _open_analisador(self):
-        AnalisadorWindow(self)
-
-    def _open_audio(self):
-        AudioWindow(self)
-
-    def _open_conv(self):
-        ConvolutionWindow(self)
-
     def _open_fft(self):
         FFTWindow(self)
-
-    def _open_ifft(self):
-        IFFTWindow(self)
-
-    # ESPECTROGRAMA (desligado):
-    # def _open_espectrograma(self):
-    #     EspectrogramaWindow(self)
-
-    def _open_fir(self):
-        FIRWindow(self)
-
-    def _open_iir(self):
-        IIRWindow(self)
 
     def _open_comparator(self):
         ComparatorWindow(self)

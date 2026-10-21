@@ -2,8 +2,8 @@
 signal_panel.py — widget reutilizável que gera um Signal.
 
 Consome o design system de `morphe_theme` (card branco + botão "Gerar"
-em estilo outline azul). Reutilizado pelas telas de convolução (duas
-instâncias), de FFT (uma instância) e pelo gerador. Aceita um `max_N`
+em estilo outline azul). Reutilizado pela tela de FFT e pelo gerador.
+Aceita um `max_N`
 opcional para impor o limite do hardware.
 
 O tipo "Arquivo" carrega um sinal qualquer (.csv, .txt, .npy, .wav) por
