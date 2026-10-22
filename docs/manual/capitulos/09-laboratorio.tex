@@ -25,13 +25,16 @@ estação, que prepara todas as placas:
 \ttfamily cd /opt/morphe/Python \&\& python3 morphe\_app.py
 \end{center}
 
-O \opt{todas} prepara, uma a uma, cada placa do \arq{placas.conf}, e no fim
-diz quais ficaram prontas; uma placa que falhe não impede as outras. Em
-30/09/2026, da conta \texttt{alunopds}: 2 de 2 prontas. Para preparar só uma
-placa, o \opt{cable} diz qual: na estação do laboratório, o cabo
-\texttt{DE-SoC [1-2]} é o da placa~1 (\texttt{de1soclinux}) e o
-\texttt{DE-SoC [1-3]} o da placa~2 (\texttt{de1soc-02}). O IP não precisa ser
-informado: o script acha a placa pelo nome. Com uma placa só, o
+O \opt{todas} grava, pelo USB, a FPGA de toda placa ligada à estação (o mesmo
+\arq{programar_local.py} do aplicativo, que não depende do nome do cabo) e
+depois prepara, uma a uma, cada placa do \arq{placas.conf} e do
+\arq{placas.local.conf}, achada pelo \emph{hostname}, só pela rede
+(\opt{skip-fpga}). No fim diz quais ficaram prontas; uma placa que falhe não
+impede as outras. Em 30/09/2026, da conta \texttt{alunopds}: 2 de 2 prontas
+(ainda no esquema antigo, uma rodada por cabo). O IP não precisa ser
+informado: o script acha a placa pelo nome. Desde 22/10/2026 o próprio
+aplicativo também grava, ao abrir, as FPGAs ligadas pelo USB no computador em
+que ele roda (\arq{docs/GERENCIAMENTO-PLACAS.md}, item 6). Com uma placa só, o
 \arq{./morphe-up.sh} sem argumentos basta. Depois de preparada, a placa fica
 pronta até ser desligada ou até a estação ser desligada
 (seção~\ref{sec:tether}).
@@ -75,13 +78,13 @@ Placa que não responde na porta de estado (desligada, ou com servidor antigo)
 não é conferida. O \opt{forca} pula a pergunta.
 
 \paragraph{Achar a placa do cabo.} A FPGA é programada pelo cabo JTAG, mas o
-servidor é reiniciado pela rede, e as duas coisas têm de ser a mesma placa. O
-\arq{placas.conf} diz o \emph{hostname} da placa de cada cabo; o script envia
-um \emph{broadcast} à porta de estado e fica com a placa que responder com
-aquele nome, no IP que ela tiver naquele dia. Um \opt{board} que aponte para
-outra placa é recusado. Antes de 30/09/2026 o script ficava com a primeira
-placa que respondesse, e com duas placas e só o \opt{cable} podia programar a
-FPGA de uma e reiniciar o servidor da outra.
+servidor é reiniciado pela rede, e as duas coisas têm de ser a mesma placa.
+Desde 22/10/2026 quem garante isso é a própria placa: depois de subir o
+servidor, o script pergunta a ela se a FPGA \emph{dela} tem a assinatura do
+bitstream (\texttt{fpga\_assinatura} no \texttt{PING}), e para se a resposta
+for não --- o cabo gravou outra placa. Antes, a garantia era a coluna do cabo
+no \arq{placas.conf}, que ficava errada sempre que um cabo trocava de porta
+USB, e o script gravava a marca de ``preparada'' na placa errada.
 
 \paragraph{Descobrir o cabo.} O nome do cabo JTAG (\texttt{DE-SoC [1-1]},
 \texttt{[1-2]}, \ldots) depende da porta USB. O script o lê do
@@ -114,9 +117,12 @@ que os clientes leem (capítulo~\ref{cap:placas}).
     \textbf{Opção} & \textbf{O que faz} \\
     \midrule
     (nenhuma) & prepara a placa lembrada, ou a que achar na rede \\
-    \opt{todas} & prepara, uma a uma, todas as placas do \arq{placas.conf} \\
-    \opt{cable} \textit{nome} & usa este cabo JTAG, quando há mais de um; a
-      placa é a que o \arq{placas.conf} associa a ele \\
+    \opt{todas} & grava pelo USB as FPGAs ligadas à estação e prepara,
+      uma a uma, as placas do \arq{placas.conf} e do
+      \arq{placas.local.conf}, pelo nome \\
+    \opt{cable} \textit{nome} & usa este cabo JTAG, quando há mais de um \\
+    \opt{marca} & para um \texttt{.sof} sem a assinatura (anterior a
+      22/10/2026): grava a marca de ``preparada'', como antes \\
     \opt{board} \textit{ip} & prepara a placa neste IP (normalmente
       desnecessário), e passa a lembrá-la \\
     \opt{deploy} & reenvia e recompila o servidor mesmo sem mudança \\

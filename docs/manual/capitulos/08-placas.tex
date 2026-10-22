@@ -16,7 +16,11 @@ O cliente junta as placas que conhece de três fontes, sem repetir:
 \begin{description}
   \item[\arq{placas.conf}] na raiz do repositório, \textbf{versionado}: a lista
     das placas do laboratório, um IP por linha, com um comentário (placa,
-    \emph{hostname}, MAC, cabo JTAG). É igual em todo computador, e é o que
+    \emph{hostname}, MAC; até 22/10/2026 também o cabo JTAG, que saiu porque
+    o nome dele vem da porta USB da estação e muda com ela). Ao lado dele, o
+    \arq{placas.local.conf}, fora do git, recebe as placas que um laboratório
+    acrescenta sem acesso de escrita ao repositório; os dois são lidos juntos,
+    e o \arq{atualizar-lab.sh} copia o da estação para os computadores. É igual em todo computador, e é o que
     faz um computador recém-instalado achar as placas só com o
     \texttt{git clone}. O \emph{hostname} do comentário é o que identifica
     cada placa. O IP escrito ali é só o ponto de partida: se o DHCP o trocar,
@@ -54,9 +58,8 @@ As listas e a busca trabalham juntas:
 \end{itemize}
 
 O \arq{morphe-up.sh} usa o mesmo \emph{broadcast}, mas procura pelo nome: o
-\arq{placas.conf} diz o \emph{hostname} da placa ligada a cada cabo JTAG, e o
-script prepara a placa que responder com aquele nome, no IP que ela tiver
-naquele dia (capítulo~\ref{cap:laboratorio}).
+\opt{todas} passa por cada placa da lista e a acha pelo \emph{hostname}, no IP
+que ela tiver naquele dia (capítulo~\ref{cap:laboratorio}).
 
 Não se deve usar o \arq{morphe-up.sh} só para registrar uma placa: mesmo sem
 reprogramar a FPGA, ele reinicia o servidor e interrompe quem estiver no meio de

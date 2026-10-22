@@ -122,6 +122,12 @@ o bitstream de fábrica. Agora, se a placa responde `0`, o script para e diz que
 está noutra placa, sem marcar nada. Para um `.sof` sem a assinatura (anterior a
 22/10/2026), `--marca` volta ao comportamento antigo.
 
+Também desde 22/10/2026 o `placas.conf` **não tem mais a coluna do cabo JTAG**: o nome
+do cabo vem da porta USB da estação, não da placa, e ficava errado a cada troca de porta.
+O `./morphe-up.sh --todas` grava pelo USB todas as FPGAs ligadas à estação (o
+`programar_local.py` do aplicativo) e depois prepara cada placa da lista pelo hostname,
+só pela rede (`--skip-fpga`). Uma linha antiga com o cabo no fim continua aceita.
+
 Isto não é conveniência: o servidor anterior tocava a FPGA ao subir e **travava o
 barramento do HPS** contra o bitstream de fábrica — a placa sumia da rede e nem o console
 serial respondia (21/09/2026, placa 2; `NOVA-PLACA.md`, seção 2.4).
