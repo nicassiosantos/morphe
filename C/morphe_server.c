@@ -119,6 +119,18 @@ static int    g_fd_mem    = -1;
  * /var/run (tmpfs): some sozinha no reboot -- que e exatamente quando o
  * U-Boot devolve a FPGA ao soc_system.rbf de fabrica. */
 #define MORPHE_MARCA_FPGA "/var/run/morphe-fpga-preparada"
+
+/* Assinatura do bitstream. Desde 22/10/2026 o ghrd_top liga a constante "MRPH"
+ * no h2f_gp_in do HPS, que aparece no registrador GPI do FPGA manager. O
+ * registrador e do HPS, nao da ponte: le-lo e seguro com qualquer bitstream,
+ * inclusive o de fabrica e com a FPGA sem configuracao. Assim a placa sabe
+ * que foi programada mesmo quando quem programou nao foi o morphe-up.sh (o
+ * aplicativo, ao abrir) e nao ha marca. Um bitstream de antes disso nao tem a
+ * assinatura e continua dependendo da marca. */
+#define FPGAMGR_BASE       0xFF706000U
+#define FPGAMGR_GPI        0x14U
+#define MORPHE_ASSINATURA  0x4D525048U   /* "MRPH" */
+static volatile uint32_t *g_fpgamgr = NULL;
 static int    g_pios_zerados = 0;
 static void  *g_fpga_virt = NULL;   
 static void  *g_lw_virt   = NULL;   
@@ -224,11 +236,12 @@ static void estado_fim(void) {
     pthread_mutex_unlock(&g_est_mtx);
 }
 
+static int fpga_tem_morphe(void);
+
 static int estado_texto(char *buf, size_t tam, int porta_tcp) {
     struct timespec agora;
     clock_gettime(CLOCK_MONOTONIC, &agora);
-    struct stat st;
-    int preparada = stat(MORPHE_MARCA_FPGA, &st) == 0;
+    int preparada = fpga_tem_morphe();
 
     pthread_mutex_lock(&g_est_mtx);
     int recentes = 0;
@@ -354,6 +367,14 @@ static int fpga_init(void) {
                      MAP_SHARED, g_fd_mem, LW_BRIDGE_BASE);
     if (g_lw_virt == MAP_FAILED) return -1;
 
+    /* Sem esta pagina o servidor segue so com a marca, como antes. */
+    void *mgr_pag = mmap(NULL, _MORPHE_PAGE_SIZE, PROT_READ, MAP_SHARED, g_fd_mem,
+                         FPGAMGR_BASE);
+    if (mgr_pag == MAP_FAILED)
+        LOG("FPGA manager nao mapeado (%s): so a marca indica FPGA preparada", strerror(errno));
+    else
+        g_fpgamgr = (volatile uint32_t *) mgr_pag;
+
     g_fft_xn_re   = (int32_t *)((char *)g_fpga_virt + FFT_XN_RE_BASE);
     g_fft_xn_imag = (int32_t *)((char *)g_fpga_virt + FFT_XN_IMAG_BASE);
     g_fft_yn_re   = (int32_t *)((char *)g_fpga_virt + FFT_YN_RE_BASE);
@@ -392,17 +413,32 @@ static int fpga_init(void) {
      * esses enderecos nao existem. No Cyclone V, acesso a endereco sem escravo
      * na ponte HPS->FPGA trava o barramento L3 inteiro, sem timeout: a placa
      * some da rede e ate o login na serial congela. O zeramento ficou para
-     * fpga_preparada(), que so o faz depois da marca do morphe-up.sh. */
+     * fpga_preparada(), que so o faz com a assinatura MRPH ou a marca do
+     * morphe-up.sh. */
     LOG("FPGA mapeada. FFT_ONCHIP=%p (%u KiB)", g_fpga_virt, MORPHE_ONCHIP_MMAP_SPAN / 1024U);
     return 0;
 }
 
-/* 1 se o morphe-up.sh ja programou o bitstream do Morphe nesta placa (marca
- * presente); 0 se a FPGA ainda esta com o de fabrica. Na primeira vez que a
- * marca aparece, zera os PIOs de start -- o que fpga_init() fazia antes. */
-static int fpga_preparada(void) {
+static int fpga_tem_assinatura(void) {
+    return g_fpgamgr && g_fpgamgr[FPGAMGR_GPI / 4] == MORPHE_ASSINATURA;
+}
+
+/* 1 se a FPGA esta com o bitstream do Morphe: assinatura no GPI ou marca do
+ * morphe-up.sh. So le; serve tambem a thread da porta de estado. */
+static int fpga_tem_morphe(void) {
     struct stat st;
-    if (stat(MORPHE_MARCA_FPGA, &st) != 0) return 0;
+    return fpga_tem_assinatura() || stat(MORPHE_MARCA_FPGA, &st) == 0;
+}
+
+/* Como fpga_tem_morphe(), e na passagem de "sem Morphe" para "com Morphe"
+ * zera os PIOs de start -- o que fpga_init() fazia antes. A passagem pode
+ * acontecer mais de uma vez com o servidor no ar: o aplicativo programa a
+ * FPGA sem reiniciar o servidor. */
+static int fpga_preparada(void) {
+    if (!fpga_tem_morphe()) {
+        g_pios_zerados = 0;
+        return 0;
+    }
     if (!g_pios_zerados) {
         *g_pio_fft_start  = 0;
 #if MORPHE_TEM_ADC
@@ -410,7 +446,8 @@ static int fpga_preparada(void) {
         if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_adc_start = 0;
 #endif
         g_pios_zerados = 1;
-        LOG("marca %s presente: FPGA preparada, PIOs de start zerados", MORPHE_MARCA_FPGA);
+        LOG("FPGA preparada (%s), PIOs de start zerados",
+            fpga_tem_assinatura() ? "assinatura MRPH" : "marca " MORPHE_MARCA_FPGA);
     }
     return 1;
 }
@@ -421,13 +458,14 @@ static int recusar_sem_fpga(int sock, uint16_t op, const char *nome) {
     char msg[128];
     snprintf(msg, sizeof msg,
              "%s: FPGA nao preparada -- rode ./morphe-up.sh nesta placa", nome);
-    LOG("  -> %s (marca %s ausente)", msg, MORPHE_MARCA_FPGA);
+    LOG("  -> %s (sem assinatura MRPH e sem a marca %s)", msg, MORPHE_MARCA_FPGA);
     return send_error(sock, op, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
 }
 
 static void fpga_shutdown(void) {
     if (g_fpga_virt) munmap(g_fpga_virt, MORPHE_ONCHIP_MMAP_SPAN);
     if (g_lw_virt)   munmap(g_lw_virt,   LW_BRIDGE_SPAN);
+    if (g_fpgamgr)   munmap((void *) g_fpgamgr, _MORPHE_PAGE_SIZE);
     if (g_fd_mem >= 0) close(g_fd_mem);
 }
 
@@ -1019,7 +1057,7 @@ static int handle_ping(int sock) {
 
     /* adc_n_max = 0 quando o ADC nao pode ser usado agora: servidor compilado
      * sem ele, FPGA ainda sem o bitstream do Morphe, ou bitstream sem o ADC
-     * (sysid diferente do hps_0.h). Ler o sysid e seguro depois da marca. */
+     * (sysid diferente do hps_0.h). Ler o sysid e seguro com a FPGA preparada. */
     int preparada = fpga_preparada();
     int adc_ok = 0;
 #if MORPHE_TEM_ADC

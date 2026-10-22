@@ -235,6 +235,11 @@ assign stm_hw_events = {{3{1'b0}}, SW, fpga_led_internal, fpga_debounced_buttons
 /* -------------------------------------------------------------------------------------------
  * 1. GLOBAL PARAMETERS
  * ------------------------------------------------------------------------------------------- */
+// --- Assinatura do bitstream ---
+// "MRPH" em ASCII, no h2f_gp_in do HPS: o servidor le no GPI do FPGA manager
+// para saber se a FPGA esta com o bitstream do Morphe.
+localparam MORPHE_ASSINATURA = 32'h4D525048;
+
 // --- FFT Parameters ---
 localparam FFT_CLOG4_DATA_WIDTH = 4;
 localparam FFT_DATA_WIDTH       = 32;
@@ -591,6 +596,9 @@ soc_system u0 (
     .hps_0_hps_io_hps_io_gpio_inst_GPIO53  ( HPS_LED),              //                               .hps_io_gpio_inst_GPIO53
     .hps_0_hps_io_hps_io_gpio_inst_GPIO54  ( HPS_KEY),              //                               .hps_io_gpio_inst_GPIO54
     .hps_0_hps_io_hps_io_gpio_inst_GPIO61  ( HPS_GSENSOR_INT),      //                               .hps_io_gpio_inst_GPIO61
+
+    .hps_0_h2f_gp_gp_in                    (MORPHE_ASSINATURA),     //                   hps_0_h2f_gp.gp_in
+    .hps_0_h2f_gp_gp_out                   (),                      //                               .gp_out
 
     .hps_0_f2h_stm_hw_events_stm_hwevents  (stm_hw_events),         //        hps_0_f2h_stm_hw_events.stm_hwevents
     .hps_0_h2f_reset_reset_n               (hps_fpga_reset_n),      //                hps_0_h2f_reset.reset_n

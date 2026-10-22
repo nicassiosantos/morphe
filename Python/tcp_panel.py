@@ -39,6 +39,7 @@ from tkinter import ttk, messagebox
 from typing import List, Optional, Tuple
 
 import morphe_theme as theme
+import programar_local
 from morphe_protocol import (
     TcpClient, ServerInfo, EstadoPlaca, consultar_estado, descobrir_placas, discover_servers,
     subredes_provaveis, build_ping_request, decode_ping_response,
@@ -206,6 +207,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         self._conectada: Optional[str] = None
         self._linhas: dict = {}            # ip -> widgets da linha
         self._estado_agendado = False
+        self._programou_local = False      # o aplicativo programou uma FPGA neste PC
 
         # A placa preparada pelo morphe-up.sh tem precedência sobre o
         # default fixo -- que, no laboratório, nunca é o endereço certo.
@@ -269,6 +271,7 @@ class TcpConfigPanel(ttk.LabelFrame):
         if autoconectar:
             # Depois que a janela existe, para o status já ter onde aparecer.
             self.after(200, self._conectar_automaticamente)
+            self.after(300, self._programar_placas_locais)
 
     # ==================================================================
     # Conexão automática ao abrir (versão 1.2)
@@ -468,10 +471,67 @@ class TcpConfigPanel(ttk.LabelFrame):
 
     def _autoconexao_sem_placa(self, lembrada: Optional[str]):
         self._set_busy(False)
-        self._mensagem("Nenhuma placa preparada respondeu. Quem prepara é o "
-                       "./morphe-up.sh, na estação. As ferramentas que não precisam "
+        if self._programou_local:
+            self._mensagem("A FPGA da placa ligada neste PC foi programada, mas nenhuma "
+                           "placa se diz preparada: o servidor ou o bitstream dela são "
+                           "de antes de 22/10/2026. Rode ./morphe-up.sh --deploy na "
+                           "estação.", "aviso")
+            return
+        self._mensagem("Nenhuma placa preparada respondeu. Ligue a placa pelo USB (cabo "
+                       "JTAG) neste PC e abra o aplicativo de novo, ou rode o "
+                       "./morphe-up.sh na estação. As ferramentas que não precisam "
                        "de placa (gerador, comparador, projetistas) funcionam assim mesmo.",
                        "neutro")
+
+    # ==================================================================
+    # Placas ligadas pelo USB neste PC (desde 22/10/2026)
+    # ==================================================================
+
+    def _programar_placas_locais(self):
+        """Programa, em segundo plano, a FPGA das placas ligadas pelo USB
+        neste computador (ver programar_local). O servidor da placa percebe
+        sozinho, pela assinatura do bitstream; o painel só precisa procurar
+        de novo se ainda não tem placa."""
+        def avisar(texto: str):
+            try:
+                self.after(0, self._mensagem, texto)
+            except RuntimeError:        # a janela fechou
+                pass
+
+        def run():
+            resultados = programar_local.programar_placas_locais(avisar)
+            try:
+                self.after(0, self._placas_locais_programadas, resultados)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _placas_locais_programadas(self, resultados):
+        programadas = [r.cabo for r in resultados if r.situacao == "programada"]
+        falhas = [r for r in resultados if r.situacao == "falhou"]
+        if programadas:
+            self._programou_local = True
+        if falhas:
+            self._mensagem("Não consegui programar a FPGA ligada neste PC ("
+                           + "; ".join(f"{r.cabo}: {r.detalhe}" if r.cabo else r.detalhe
+                                       for r in falhas)
+                           + "). Na estação, o ./morphe-up.sh resolve.", "aviso")
+        elif programadas:
+            self._mensagem(f"FPGA programada pelo cabo {', '.join(programadas)}, "
+                           "ligado neste PC.", "ok")
+        if programadas and self._conectada is None:
+            # O servidor da placa lê a assinatura a cada pergunta: já
+            # responde como preparada.
+            self.after(500, self._procurar_depois_de_programar)
+
+    def _procurar_depois_de_programar(self):
+        if self._conectada is not None:
+            return
+        if self._busy():
+            self.after(1000, self._procurar_depois_de_programar)
+            return
+        self._conectar_automaticamente()
 
     # ==================================================================
     # Guarda de exclusão mútua

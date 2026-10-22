@@ -274,7 +274,7 @@ achar_cabo() {
 # o --down. Um deploy.sh que programasse e retornasse mataria a FFT em 1 h.
 
 
-# "DE-SoC [1-3]" vira "DE-SoC_1-3_": nome de arquivo, sem colchete nem espaco.
+# "DE-SoC [1-3]" vira "DE-SoC__1-3_": nome de arquivo, sem colchete nem espaco.
 chave_cabo() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 
 pid_tether_de() { printf '%s/%s.pid' "$DIR_TETHERS" "$(chave_cabo "$1")"; }
