@@ -374,9 +374,9 @@ lembrar_placa() {
     { [[ -n "$atuais" ]] && printf '%s\n' "$atuais"; printf '%s\n' "$ip"; } | grava_estado "$CONF_PLACAS"
     # A lista versionada e o que os outros computadores leem. Placa fora dela
     # so e achada la por varredura -- quase sempre porque o DHCP trocou o IP.
-    if [[ -f "$RAIZ/placas.conf" ]] && ! grep -q "^[[:space:]]*${ip//./\\.}[[:space:]]" "$RAIZ/placas.conf"; then
-        aviso "$ip nao esta em placas.conf: os outros computadores nao a acham sem varrer a rede."
-        aviso "corrija o placas.conf (o IP pode ter mudado por DHCP), faca commit e git pull nos PCs."
+    if [[ -n "$(linhas_placas)" ]] && ! linhas_placas | grep -q "^[[:space:]]*${ip//./\\.}[[:space:]]"; then
+        aviso "$ip nao esta em placas.conf nem em placas.local.conf: os outros computadores nao a acham sem varrer a rede."
+        aviso "corrija a linha dela (o IP pode ter mudado por DHCP) e rode ./atualizar-lab.sh."
     fi
 }
 
@@ -504,18 +504,28 @@ programar_fpga() {
 # duas placas e so o --cable, a FPGA certa era programada e o servidor era
 # reiniciado -- e marcado como preparado -- na OUTRA placa.
 
-# A linha do placas.conf do cabo: "IP  placa N, hostname, MAC, cabo".
+# As linhas de placa, sem comentarios: as do placas.conf, versionado, e as do
+# placas.local.conf, que fica fora do git. O local existe para um laboratorio
+# acrescentar placa sem acesso de escrita ao repositorio (desde 22/10/2026).
+linhas_placas() {
+    local arq
+    for arq in "$RAIZ/placas.conf" "$RAIZ/placas.local.conf"; do
+        [[ -f "$arq" ]] && grep -v '^[[:space:]]*#' "$arq"
+    done
+    return 0
+}
+
+# A linha do cabo: "IP  placa N, hostname, MAC, cabo".
 linha_do_cabo() {
-    [[ -n "${1:-}" && -f "$RAIZ/placas.conf" ]] || return 0
-    grep -v '^[[:space:]]*#' "$RAIZ/placas.conf" | grep -F -- "$1" | head -1 || true
+    [[ -n "${1:-}" ]] || return 0
+    linhas_placas | grep -F -- "$1" | head -1 || true
 }
 ip_do_cabo()       { linha_do_cabo "$1" | awk '{print $1}'; }
 hostname_do_cabo() { linha_do_cabo "$1" | cut -s -d, -f2 | tr -d '[:space:]'; }
 
-# Os cabos do placas.conf, na ordem do arquivo (o ultimo campo de cada linha).
+# Os cabos das placas, na ordem dos arquivos (o ultimo campo de cada linha).
 cabos_do_laboratorio() {
-    [[ -f "$RAIZ/placas.conf" ]] || return 0
-    grep -v '^[[:space:]]*#' "$RAIZ/placas.conf" \
+    linhas_placas \
         | awk -F, 'NF >= 4 { c = $NF; gsub(/^[ \t]+|[ \t\r]+$/, "", c); if (c != "") print c }' \
         || true
 }

@@ -80,27 +80,38 @@ def _caminho_placas_conhecidas() -> str:
     return os.path.join(raiz, ".morphe-estado", "placas")
 
 
-def _caminho_placas_laboratorio() -> str:
-    """<raiz>/placas.conf — a lista versionada, igual em todo computador."""
+def _caminhos_placas_laboratorio() -> List[str]:
+    """<raiz>/placas.conf — a lista versionada, igual em todo computador — e
+    <raiz>/placas.local.conf, fora do git: as placas que um laboratório
+    acrescentou sem acesso de escrita ao repositório (desde 22/10/2026). O
+    atualizar-lab.sh copia o local da estação para os computadores."""
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(raiz, "placas.conf")
+    return [os.path.join(raiz, "placas.conf"), os.path.join(raiz, "placas.local.conf")]
+
+
+def _linhas_placas_laboratorio() -> List[str]:
+    linhas: List[str] = []
+    for caminho in _caminhos_placas_laboratorio():
+        try:
+            with open(caminho, encoding="utf-8") as f:
+                linhas += f.readlines()
+        except OSError:
+            pass
+    return linhas
 
 
 def ler_placas_laboratorio() -> List[str]:
-    """Os IPs do placas.conf: o primeiro campo de cada linha que não é
-    comentário. Linha que não começa com um IPv4 é ignorada."""
+    """Os IPs do placas.conf e do placas.local.conf: o primeiro campo de cada
+    linha que não é comentário. Linha que não começa com um IPv4 é ignorada."""
     ips: List[str] = []
-    try:
-        with open(_caminho_placas_laboratorio(), encoding="utf-8") as f:
-            for linha in f:
-                campo = linha.split("#", 1)[0].split()
-                if not campo:
-                    continue
-                partes = campo[0].split(".")
-                if len(partes) == 4 and all(p.isdigit() and int(p) < 256 for p in partes):
-                    ips.append(campo[0])
-    except OSError:
-        pass
+    for linha in _linhas_placas_laboratorio():
+        campo = linha.split("#", 1)[0].split()
+        if not campo:
+            continue
+        partes = campo[0].split(".")
+        if (len(partes) == 4 and all(p.isdigit() and int(p) < 256 for p in partes)
+                and campo[0] not in ips):
+            ips.append(campo[0])
     return ips
 
 
@@ -108,19 +119,15 @@ def ler_nomes_laboratorio() -> dict:
     """IP -> nome curto da placa, do comentário do placas.conf ("placa 1,
     de1soclinux, ..." vira "Placa 1"). Placa sem nome ali fica sem nome."""
     nomes: dict = {}
-    try:
-        with open(_caminho_placas_laboratorio(), encoding="utf-8") as f:
-            for linha in f:
-                util = linha.split("#", 1)[0].strip()
-                if not util:
-                    continue
-                partes = util.split(None, 1)
-                ip, resto = partes[0], (partes[1] if len(partes) > 1 else "")
-                nome = resto.split(",", 1)[0].strip()
-                if ip and nome:
-                    nomes[ip] = nome[:1].upper() + nome[1:]
-    except OSError:
-        pass
+    for linha in _linhas_placas_laboratorio():
+        util = linha.split("#", 1)[0].strip()
+        if not util:
+            continue
+        partes = util.split(None, 1)
+        ip, resto = partes[0], (partes[1] if len(partes) > 1 else "")
+        nome = resto.split(",", 1)[0].strip()
+        if ip and nome:
+            nomes[ip] = nome[:1].upper() + nome[1:]
     return nomes
 
 

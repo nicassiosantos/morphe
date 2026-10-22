@@ -19,6 +19,9 @@ Quartus/output_files/*
 Quartus-funciona/
 *.zip
 
+# Placas acrescentadas so neste laboratorio, sem commit (ver placas.conf)
+placas.local.conf
+
 # Python
 __pycache__/
 .venv/
