@@ -18,6 +18,8 @@
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --forca              # nao pergunta se a placa esta em uso
+#   ./morphe-up.sh --marca              # .sof sem a assinatura MRPH (anterior a
+#                                       # 22/10/2026): marca a placa como antes
 #   ./morphe-up.sh --setup-ssh --board <ip>  # uma vez por placa: acaba com as senhas
 #   ./morphe-up.sh --status             # o que esta no ar agora, placa a placa
 #   ./morphe-up.sh --down               # encerra os tethers de TODAS as placas
@@ -90,6 +92,7 @@ CABO_PEDIDO=""
 FORCA_DEPLOY=0
 PULA_FPGA=0
 FORCA=0             # --forca: reprograma mesmo com a placa em uso, sem perguntar
+MARCA=0             # --marca: .sof sem assinatura; grava a marca, como antes de 22/10
 FPGA_PROGRAMADA=0   # vira 1 quando o quartus_pgm confirmar, nesta execucao
 PARAR_SERVIDOR=0
 ACAO=up
@@ -105,6 +108,7 @@ while [[ $# -gt 0 ]]; do
         --deploy)   FORCA_DEPLOY=1; REPASSE+=(--deploy); shift ;;
         --skip-fpga) PULA_FPGA=1; REPASSE+=(--skip-fpga); shift ;;
         --forca|--force) FORCA=1; REPASSE+=(--forca); shift ;;
+        --marca)    MARCA=1; REPASSE+=(--marca); shift ;;
         --down)     ACAO=down; shift ;;
         --stop-server) PARAR_SERVIDOR=1; shift ;;
         --status)   ACAO=status; shift ;;
@@ -541,6 +545,24 @@ if e is not None:
 " 2>/dev/null ) || true
 }
 
+# A placa diz se a FPGA DELA tem o bitstream do Morphe: "1" ou "0" (o
+# fpga_assinatura do PING, que o servidor le no GPI do FPGA manager); vazio se
+# nao respondeu ou se o servidor e anterior a 22/10/2026 e nao manda o campo.
+assinatura_em() {
+    local py; py="$(achar_python || true)"
+    [[ -n "$py" ]] || return 0
+    ( cd "$RAIZ/Python" && MORPHE_IP="$1" "$py" -c "
+import os
+from morphe_protocol import TcpClient, build_ping_request, decode_ping_response
+try:
+    info = decode_ping_response(TcpClient(os.environ['MORPHE_IP'], $PORTA, timeout=3.0)
+                                .request(build_ping_request()))
+    print(info.get('fpga_assinatura', ''))
+except Exception:
+    pass
+" 2>/dev/null ) || true
+}
+
 # O IP da placa do cabo: pelo hostname no broadcast; sem resposta, o IP que o
 # placas.conf registra. Vazio = cabo fora do placas.conf.
 ip_da_placa_do_cabo() {
@@ -732,21 +754,51 @@ enviar_servidor() {
     ok "servidor compilado na placa"
 }
 
+# A placa em $ALVO esta mesmo com a FPGA que este script acabou de gravar?
+# Ela responde pela assinatura. Prova o cabo quando a placa estava sem o
+# bitstream; se ela ja o tinha (gravada antes, pelo app ou por outro cabo), a
+# resposta e "1" de qualquer jeito -- o que nao confirma o cabo, mas tambem nao
+# faz mal: a placa esta preparada de verdade.
+confirmar_fpga() {
+    (( FPGA_PROGRAMADA )) || return 0
+    local cabo="${CABO:-$CABO_PEDIDO}" resp="" i
+    for i in 1 2 3; do
+        resp="$(assinatura_em "$ALVO")"
+        [[ -n "$resp" ]] && break
+        sleep 1
+    done
+    case "$resp" in
+        1)  ok "a placa confirmou o bitstream (assinatura MRPH): o cabo $cabo esta nela" ;;
+        0)  (( MARCA )) && return 0
+            morrer "a placa em $ALVO ($(hostname_em "$ALVO")) esta SEM o bitstream do Morphe." \
+                   "a FPGA gravada pelo cabo $cabo e de OUTRA placa: o cabo esta noutra placa," \
+                   "ou a placa trocou de porta USB. Nada foi marcado; esta placa segue recusando" \
+                   "operacoes, sem risco de travar. Confira com o jtagconfig qual placa esta em" \
+                   "qual porta e corrija o placas.conf / placas.local.conf." \
+                   "se o .sof for anterior a 22/10/2026 (sem a assinatura), rode com --marca." ;;
+        *)  aviso "a placa nao disse se tem a assinatura (servidor sem o campo ou sem resposta)"
+            aviso "o teste final (morphe_ping) e quem confere" ;;
+    esac
+}
+
 reiniciar_servidor() {
-    # Sempre DEPOIS de programar a FPGA, e e aqui que a placa fica sabendo
-    # disso: a marca /var/run/morphe-fpga-preparada. Sem ela o servidor recusa
-    # toda operacao com FPGA_NAO_PREPARADA em vez de tocar a FPGA -- porque
-    # uma placa recem-ligada carrega o bitstream de fabrica, em que os PIOs
-    # do Morphe nao existem, e um acesso a eles trava o barramento do HPS
-    # inteiro (placa 2, 21/09/2026: sumiu da rede a cada boot por causa do
-    # autostart). A marca vive em tmpfs e some no reboot, junto com o
-    # bitstream. So e criada se ESTA execucao programou a FPGA; com
-    # --skip-fpga vale a que ja estiver la, se estiver.
+    # Sempre DEPOIS de programar a FPGA. Uma placa recem-ligada carrega o
+    # bitstream de fabrica, em que os PIOs do Morphe nao existem, e um acesso
+    # a eles trava o barramento do HPS inteiro (placa 2, 21/09/2026). Por isso
+    # o servidor so toca a FPGA quando ela esta "preparada".
+    #
+    # Ate 22/10/2026 quem dizia isso era a marca /var/run/morphe-fpga-preparada,
+    # gravada AQUI na placa que o placas.conf diz ser a do cabo. Com outra placa
+    # naquela porta USB, a FPGA gravada era uma e a marca ia para a outra --
+    # que, se estivesse com o bitstream de fabrica, travava na primeira
+    # operacao. Desde entao o bitstream traz a assinatura MRPH, a propria
+    # placa a le, e o script so confere (confirmar_fpga, depois de subir o
+    # servidor). A marca ficou para o .sof antigo, com --marca.
     passo "(re)iniciando o servidor"
 
-    if (( FPGA_PROGRAMADA )); then
+    if (( FPGA_PROGRAMADA && MARCA )); then
         ssh_placa "if [ \"\$(id -u)\" = 0 ]; then SU=; else SU=sudo; fi; \$SU touch /var/run/morphe-fpga-preparada" \
-            && ok "placa marcada como preparada (/var/run/morphe-fpga-preparada)" \
+            && ok "--marca: placa marcada como preparada (/var/run/morphe-fpga-preparada)" \
             || aviso "nao consegui gravar a marca de FPGA preparada; as operacoes serao recusadas"
     fi
 
@@ -767,6 +819,7 @@ pgrep -x morphe_server > /dev/null"
 
     if ssh_placa "$remoto"; then
         ok "servidor no ar na porta $PORTA"
+        confirmar_fpga
         return 0
     fi
 
