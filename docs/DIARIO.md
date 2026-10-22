@@ -16,6 +16,25 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 22/10/2026 (tarde) — App programando a FPGA ao abrir: VALIDADO na placa 1
+
+Bitstream compilado na estação com o Quartus 20.1 a partir de `83ff652`
+(`qsys-generate`, `gen_hps_header.py`, `quartus_sh --flow compile`), gravado na placa 1
+(`172.16.230.24`, cabo `DE-SoC [1-2]`) pelo `morphe-up.sh --deploy`:
+
+- `morphe_ping` **4/4**; `testa_blocos.py --placa 172.16.230.24`: **TUDO OK**, itens 8
+  e 9 do IIR com 0 amostras diferentes. A assinatura não mudou nada do que já
+  funcionava.
+- Log do servidor: `FPGA preparada (assinatura MRPH), PIOs de start zerados`.
+- `programar_local.py` sozinho: `DE-SoC [1-2]: programada`.
+- O teste de verdade: `./morphe-up.sh --down`, placa desligada e ligada (bitstream de
+  fábrica, sem marca), app aberto do clone `validacao-final`: programou a FPGA sozinho e
+  conectou à placa.
+
+Achado no caminho: aberto pelo menu, o app é o de `/opt/morphe`, que ainda não tem o
+código novo. Falta: commit dos arquivos gerados (com a proveniência) e
+`/opt/morphe/atualizar.sh`.
+
 ## 22/10/2026 — O aplicativo programa a FPGA ao abrir (ESCRITO, falta compilar e validar na placa)
 
 Para a placa poder trocar de computador e de ponto de rede sem ida à estação.
