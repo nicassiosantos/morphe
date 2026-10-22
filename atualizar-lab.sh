@@ -121,12 +121,21 @@ if ! SAIDA=$(run git -C "$D" pull -q --ff-only 2>&1); then
     echo "RESULTADO falhou $ANTES"
     exit 0
 fi
+if [ -n "${2:-}" ]; then
+    printf "%s" "$2" | base64 -d | run tee "$D/placas.local.conf" > /dev/null \
+        && echo "    placas.local.conf copiado da estacao"
+fi
 AGORA=$(run git -C "$D" rev-parse --short HEAD)
 if [ "$ANTES" != "$AGORA" ]; then
     run git -C "$D" log --oneline --no-decorate "$ANTES..$AGORA" | sed "s/^/    /"
 fi
 echo "RESULTADO ok $ANTES $AGORA"
 '
+
+# O placas.local.conf daqui (as placas acrescentadas sem commit) vai junto, em
+# base64 como argumento: chega igual em todos e e gravado pela conta dona.
+LOCAL_B64=""
+[ -f "$DIR/placas.local.conf" ] && LOCAL_B64="$(base64 -w0 "$DIR/placas.local.conf")"
 
 SSH_OPCOES=(-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new)
 [ -f "$CHAVE" ] && SSH_OPCOES+=(-i "$CHAVE")
@@ -142,7 +151,7 @@ RESUMO=()
 ERROS=0
 for alvo in "${ALVOS[@]}"; do
     echo "=== ${alvo#*@}"
-    SAIDA=$(ssh "${SSH_OPCOES[@]}" "$alvo" bash -s -- "$MODO" <<< "$REMOTO" 2>&1)
+    SAIDA=$(ssh "${SSH_OPCOES[@]}" "$alvo" bash -s -- "$MODO" "$LOCAL_B64" <<< "$REMOTO" 2>&1)
     CODIGO=$?
     echo "$SAIDA" | grep -v '^RESULTADO ' | grep -v '^Warning: Permanently added'
     set -- $(echo "$SAIDA" | grep '^RESULTADO ' | tail -1)
