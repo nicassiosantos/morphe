@@ -16,6 +16,21 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 22/10/2026 (noite) — morphe-up confere a placa pela assinatura (ESCRITO, falta validar)
+
+Com a assinatura, a marca `/var/run/morphe-fpga-preparada` virou um risco: o
+`morphe-up.sh` a gravava na placa que o `placas.conf` associa ao cabo, e uma placa
+diferente na mesma porta USB recebia o bitstream enquanto a outra ganhava a marca, o
+que trava o HPS se ela estiver com o bitstream de fábrica. Agora o servidor manda
+`fpga_assinatura` no PING e o script, depois de subir o servidor, exige `1`; com `0`,
+para dizendo que o cabo está noutra placa. `--marca` mantém o comportamento antigo para
+`.sof` sem assinatura. Também: `placas.local.conf` (`9fd17fc`), para registrar placa sem
+acesso de escrita ao repositório.
+
+Verificado sem placa: a lógica de confirmação nos cinco casos (WSL, com as respostas
+simuladas), o servidor compilando para ARM sem aviso, o `placas.local.conf` lido pelo
+`morphe-up.sh`, pelo painel e copiado pelo `atualizar-lab.sh`.
+
 ## 22/10/2026 (tarde) — App programando a FPGA ao abrir: VALIDADO na placa 1
 
 Bitstream compilado na estação com o Quartus 20.1 a partir de `83ff652`

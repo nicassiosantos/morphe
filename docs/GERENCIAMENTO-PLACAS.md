@@ -114,6 +114,14 @@ está preparada com a assinatura **ou** com a marca; a marca continua valendo pa
 bitstreams anteriores, que não têm a assinatura. É a assinatura que deixa o aplicativo
 programar a FPGA (item 6) sem SSH e sem reiniciar o servidor.
 
+Desde 22/10/2026 (noite) o `morphe-up.sh` **não grava mais a marca**: depois de subir o
+servidor, pergunta à placa (`fpga_assinatura` no PING) se a FPGA dela tem o bitstream. A
+marca ia para a placa que o `placas.conf` diz ser a do cabo; com outra placa naquela
+porta USB, a FPGA gravada era uma e a marca ia para a outra, que travava se estivesse com
+o bitstream de fábrica. Agora, se a placa responde `0`, o script para e diz que o cabo
+está noutra placa, sem marcar nada. Para um `.sof` sem a assinatura (anterior a
+22/10/2026), `--marca` volta ao comportamento antigo.
+
 Isto não é conveniência: o servidor anterior tocava a FPGA ao subir e **travava o
 barramento do HPS** contra o bitstream de fábrica — a placa sumia da rede e nem o console
 serial respondia (21/09/2026, placa 2; `NOVA-PLACA.md`, seção 2.4).

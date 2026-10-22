@@ -2004,13 +2004,13 @@ static int handle_ping(int sock) {
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
         "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
         "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
-        "adc_fs_min=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
+        "adc_fs_min=%d\nuptime_s=%ld\nfpga_preparada=%d\nfpga_assinatura=%d\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
         MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
         MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
         adc_ok ? MORPHE_ADC_N_MAX : 0,
         MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
-        uptime_s, preparada);
+        uptime_s, preparada, fpga_tem_assinatura());
 
     uint8_t hdr[MORPHE_HEADER_SIZE];
     build_resp_header(hdr, MORPHE_OP_PING, MORPHE_DTYPE_FLOAT32, MORPHE_STATUS_OK, (uint32_t) body_len);
