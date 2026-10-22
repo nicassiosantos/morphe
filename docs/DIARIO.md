@@ -16,6 +16,29 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 22/10/2026 (fim) — Placa 3 em serviço, pelo caminho do aplicativo
+
+Placa 3 (`de1soc-03`, MAC `02:00:00:6d:70:03`, `172.16.230.176`) montada pelo guia
+`docs/guias/nova-placa.tex`, cartão gravado com a imagem de 03/09:
+
+- console serial, MAC no U-Boot, DHCP e nome conferidos no primeiro boot;
+- FPGA gravada pelo `programar_local.py` (o do aplicativo), servidor por
+  `morphe-up.sh --skip-fpga --board 172.16.230.176 --deploy`: `morphe_ping` **4/4**;
+- `testa_blocos.py --placa 172.16.230.176`: **TUDO OK** (itens 8 e 9 do IIR com 0
+  amostras diferentes);
+- início automático instalado; depois de desligar e ligar, a placa voltou sozinha à
+  rede, respondendo "FPGA não preparada" (o esperado: bitstream de fábrica);
+- chave SSH nas contas `coordenador` e `alunopds`; linha em
+  `/opt/morphe/placas.local.conf`, sem o cabo.
+
+Ainda não visto: o aplicativo do menu gravando a placa 3 depois do boot (o mesmo
+fluxo já validado na placa 1), e o `--todas` novo (`85dfd12`) com as três placas. O
+`atualizar-lab.sh` não alcançou os 8 PCs (desligados).
+
+Achado do dia: o nome do cabo JTAG (`DE-SoC [1-2]`) vem da porta USB da estação, não
+da placa. Por isso o `placas.conf` perdeu a coluna do cabo (`85dfd12`) e o
+`morphe-up.sh` passou a conferir a placa pela assinatura (`cb551df`).
+
 ## 22/10/2026 (noite) — morphe-up confere a placa pela assinatura (ESCRITO, falta validar)
 
 Com a assinatura, a marca `/var/run/morphe-fpga-preparada` virou um risco: o
