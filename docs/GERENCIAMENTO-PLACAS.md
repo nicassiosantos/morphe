@@ -106,6 +106,14 @@ nesta placa". A marca é `/var/run/morphe-fpga-preparada`, gravada pelo `morphe-
 depois do `Configuration succeeded` e apagada sozinha no reboot (é tmpfs), junto com o
 bitstream que ela atesta.
 
+Desde 22/10/2026 o bitstream também se identifica sozinho: o `ghrd_top` liga a
+constante `"MRPH"` (`0x4D525048`) no `h2f_gp_in` do HPS, e o servidor a lê no
+registrador GPI do FPGA manager (`0xFF706014`). O registrador é do HPS, não da ponte:
+lê-lo é seguro com o bitstream de fábrica e até com a FPGA sem configuração. A placa
+está preparada com a assinatura **ou** com a marca; a marca continua valendo para os
+bitstreams anteriores, que não têm a assinatura. É a assinatura que deixa o aplicativo
+programar a FPGA (item 6) sem SSH e sem reiniciar o servidor.
+
 Isto não é conveniência: o servidor anterior tocava a FPGA ao subir e **travava o
 barramento do HPS** contra o bitstream de fábrica — a placa sumia da rede e nem o console
 serial respondia (21/09/2026, placa 2; `NOVA-PLACA.md`, seção 2.4).
@@ -119,6 +127,17 @@ bitstream inteiro para depois de uma hora. O `morphe-up.sh` mantém um tether **
 O tether pertence a uma **conta**. Desde 21/09, se outra conta tentar reprogramar aquele
 cabo, o script para e diz de quem ele é, em vez de subir um segundo `quartus_pgm` e
 esbarrar no Quartus. Cada conta que for operar precisa do seu `--setup-ssh`.
+
+Desde 22/10/2026 o **aplicativo** também programa, ao abrir (`Python/programar_local.py`):
+no Linux, com Quartus, cada cabo `DE-SoC` que o `jtagconfig` mostrar e que não tenha um
+`quartus_pgm` aberto (de qualquer conta) recebe o `.sof` do clone, e o tether fica no
+mesmo `.morphe-estado/tethers/<cabo>.pid` — o `--status` e o `--down` o enxergam. Assim
+uma placa troca de computador e de ponto de rede sem ida à estação: basta abrir o
+aplicativo no PC em que o cabo USB dela está. Cabo com tether vivo é pulado, então
+abrir o aplicativo de novo não reprograma nada. Duas aberturas ao mesmo tempo no mesmo
+PC não programam juntas (trava em `/tmp/morphe-programar.lock`). O tether é da sessão de
+quem abriu o aplicativo: sem `linger`, morre no logout, e a FFT daquela placa passa a ter
+1 hora — até a próxima abertura do aplicativo naquele PC.
 
 ---
 
@@ -206,7 +225,8 @@ existência da outra. É exatamente o que a falta de alocação produz.
 | Dois clientes caíram na mesma placa | não há alocação, só a sonda de ocupação | fechar e reabrir um deles, ou informar o host à mão |
 | Tudo ficou ~2× mais lento | outra pessoa está na mesma placa | é a fila; veja a outra placa |
 | "A placa não respondeu", mas ela está no ar | a sonda expirou: placa ocupada, ou o primeiro pacote depois de a estação ligar (visto uma vez em 22/09, não reproduzido) | tentar de novo — o `testa_concorrencia.py` já faz duas tentativas |
-| Operação recusada com "FPGA nao preparada" | a placa foi ligada e ninguém programou o bitstream | `./morphe-up.sh --board <ip>` |
+| Operação recusada com "FPGA nao preparada" | a placa foi ligada e ninguém programou o bitstream | abrir o aplicativo no PC em que o cabo USB dela está, ou `./morphe-up.sh --board <ip>` |
+| O aplicativo diz que programou, mas a placa segue "FPGA não preparada" | servidor ou bitstream de antes de 22/10/2026, sem a assinatura | `./morphe-up.sh --deploy` na estação |
 | O notebook só enxerga uma placa | a descoberta para na primeira e o `.morphe-estado` dele está vazio | escrever `.morphe-estado/placas` com os dois IPs |
 | "o tether de DE-SoC [1-x] pertence a conta ..." | o tether é de outra conta logada | usar a placa como está, ou pedir àquela conta um `--down` |
 

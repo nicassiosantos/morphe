@@ -16,6 +16,29 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 22/10/2026 — O aplicativo programa a FPGA ao abrir (ESCRITO, falta compilar e validar na placa)
+
+Para a placa poder trocar de computador e de ponto de rede sem ida à estação.
+
+- **Bitstream:** `GP_Enable` no `hps_0` do Qsys, `h2f_gp` exportado, e o `ghrd_top`
+  liga `"MRPH"` (`0x4D525048`) no `h2f_gp_in`.
+- **Servidor:** lê a assinatura no GPI do FPGA manager (`0xFF706014`, registrador do
+  HPS: seguro com qualquer bitstream). Preparada = assinatura **ou** marca do
+  `morphe-up.sh`; os PIOs de start são zerados a cada passagem para "preparada".
+- **Aplicativo:** `Python/programar_local.py`, chamado pelo painel de placas ao abrir:
+  no Linux com Quartus, programa cada cabo `DE-SoC` sem `quartus_pgm` aberto e deixa o
+  tether em `.morphe-estado/tethers/`, como o `morphe-up.sh`.
+
+Verificado **sem placa**: `qsys-generate` 23.1 numa cópia do Qsys gera as portas
+`hps_0_h2f_gp_gp_in/out`; o `ghrd_top` elabora no Icarus contra esse `soc_system`;
+o servidor compila para ARM (zig cc) sem aviso; o `programar_local` no WSL com
+`quartus_pgm`/`jtagconfig` falsos programa, pula o cabo com tether, relata o erro do
+Quartus, respeita a trava e ignora o USB-Blaster; as mensagens do painel conferidas.
+
+**Falta, na estação:** `qsys-generate` 20.1, `gen_hps_header.py`, compilar, `morphe-up.sh
+--deploy`, `testa_blocos` e, num PC com a placa no USB, abrir o aplicativo com a placa
+recém-ligada.
+
 ## 19/10/2026 (noite, fim) — Bitstream OFICIAL 20.1 com o estado do IIR, validado (a309e06)
 
 Compilado na estação com o Quartus 20.1 a partir de `0bf97a9` (sem `qsys-generate`) e

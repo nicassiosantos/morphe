@@ -125,6 +125,13 @@ O painel de conexão agora procura a placa ao abrir, sem clique: primeiro a que 
 com uma mensagem no próprio painel — sem pop-up, porque quem vai usar o gerador de
 sinais, a comparação ou o projeto de FIR não precisa de placa nenhuma.
 
+Desde 22/10/2026, ao abrir, o aplicativo também **programa a FPGA das placas ligadas
+pelo USB naquele computador** (Linux com Quartus; passo 3 desta página, e só ele). Cabo
+que já tem tether é pulado. O servidor da placa percebe sozinho, pela assinatura que o
+bitstream põe no HPS, e o painel procura as placas de novo. O `morphe-up.sh` continua
+sendo o caminho para enviar o servidor e para placa sem cabo USB num PC.
+Detalhes em `docs/GERENCIAMENTO-PLACAS.md`, itens 5 e 6.
+
 ## Instalação para uso em turma
 
 Tudo acima supõe **uma conta só**. Na estação do laboratório são duas, e elas não são
