@@ -14,7 +14,8 @@
 #   ./morphe-up.sh                      # placa lembrada ou descoberta na rede
 #   ./morphe-up.sh --board 172.16.103.226
 #   ./morphe-up.sh --cable 'DE-SoC [1-2]'   # quando ha mais de uma placa na estacao
-#   ./morphe-up.sh --todas              # todas as placas do placas.conf, uma a uma
+#   ./morphe-up.sh --todas              # grava pelo USB as FPGAs ligadas nesta estacao e
+#                                       # prepara cada placa da lista, pelo nome
 #   ./morphe-up.sh --deploy             # forca reenviar e recompilar o servidor
 #   ./morphe-up.sh --skip-fpga          # so servidor, sem tocar na FPGA
 #   ./morphe-up.sh --forca              # nao pergunta se a placa esta em uso
@@ -512,13 +513,6 @@ linha_do_cabo() {
 }
 ip_do_cabo()       { linha_do_cabo "$1" | awk '{print $1}'; }
 hostname_do_cabo() { linha_do_cabo "$1" | cut -s -d, -f2 | tr -d '[:space:]'; }
-
-# Os cabos das placas, na ordem dos arquivos (o ultimo campo de cada linha).
-cabos_do_laboratorio() {
-    linhas_placas \
-        | awk -F, 'NF >= 4 { c = $NF; gsub(/^[ \t]+|[ \t\r]+$/, "", c); if (c != "") print c }' \
-        || true
-}
 
 # "ip hostname" de cada placa que responde ao broadcast da porta de estado.
 # Vazio: rede que bloqueia broadcast, ou nenhuma placa no ar.
@@ -1173,29 +1167,47 @@ acao_up() {
     printf 'Ao terminar:     ./morphe-up.sh --down\n'
 }
 
-# --todas: o proprio script, uma vez por cabo do placas.conf. Cada rodada acha
-# a sua placa pelo hostname; uma que falhe nao impede as outras.
+# --todas: grava a FPGA de toda placa ligada pelo USB nesta estacao (o mesmo
+# programar_local.py do aplicativo, que nao depende do nome do cabo) e depois
+# roda o proprio script com --skip-fpga em cada placa da lista, achada pelo
+# hostname no IP que tiver hoje. Ate 22/10/2026 era uma rodada por cabo do
+# placas.conf; mas o nome do cabo muda com a porta USB, e a coluna saiu da
+# lista. Uma placa que falhe nao impede as outras.
 acao_todas() {
     [[ -z "$PLACA" && -z "$CABO_PEDIDO" ]] || morrer "--todas nao combina com --board nem --cable." \
-        "ele ja escolhe cabo e placa pelo placas.conf."
-    local cabos=() c
-    while IFS= read -r c; do [[ -n "$c" ]] && cabos+=("$c"); done < <(cabos_do_laboratorio)
-    (( ${#cabos[@]} > 0 )) || morrer "nenhum cabo JTAG no placas.conf." \
-        "o ultimo campo de cada linha e o cabo, como o jtagconfig mostra: DE-SoC [1-2]"
+        "ele ja acha as placas pelo placas.conf e pelo placas.local.conf."
+    local linhas=() l
+    while IFS= read -r l; do [[ -n "${l//[[:space:]]/}" ]] && linhas+=("$l"); done < <(linhas_placas)
+    (( ${#linhas[@]} > 0 )) || morrer "nenhuma placa no placas.conf nem no placas.local.conf."
 
-    local falhas=() prontas=()
-    for c in "${cabos[@]}"; do
-        printf '\n%s===== %s (%s) =====%s\n' "$NEG" "$c" "$(hostname_do_cabo "$c")" "$FIM"
-        if "${BASH_SOURCE[0]}" --cable "$c" ${REPASSE[@]+"${REPASSE[@]}"}; then
-            prontas+=("$c")
+    if (( ! PULA_FPGA )); then
+        passo "gravando a FPGA das placas ligadas pelo USB nesta estacao"
+        local py; py="$(achar_python || true)"
+        [[ -n "$py" ]] || morrer "preciso do Python para gravar as FPGAs (Python/programar_local.py)."
+        "$py" "$RAIZ/Python/programar_local.py" | sed 's/^/    /' || true
+    fi
+
+    local na_rede; na_rede="$(placas_na_rede)"
+    local falhas=() prontas=() ip host atual rotulo
+    for l in "${linhas[@]}"; do
+        ip="$(awk '{print $1}' <<< "$l")"
+        host="$(cut -s -d, -f2 <<< "$l" | tr -d '[:space:]')"
+        if [[ -n "$host" ]]; then
+            atual="$(awk -v h="$host" '$2 == h {print $1; exit}' <<< "$na_rede")"
+            [[ -n "$atual" ]] && ip="$atual"
+        fi
+        rotulo="$ip (${host:-sem nome})"
+        printf '\n%s===== %s =====%s\n' "$NEG" "$rotulo" "$FIM"
+        if "${BASH_SOURCE[0]}" --skip-fpga --board "$ip" ${REPASSE[@]+"${REPASSE[@]}"}; then
+            prontas+=("$rotulo")
         else
-            falhas+=("$c")
+            falhas+=("$rotulo")
         fi
     done
 
-    printf '\n%sResumo:%s %d de %d placas prontas\n' "$NEG" "$FIM" "${#prontas[@]}" "${#cabos[@]}"
-    for c in ${prontas[@]+"${prontas[@]}"}; do ok "$c ($(hostname_do_cabo "$c"))"; done
-    for c in ${falhas[@]+"${falhas[@]}"}; do erro "$c ($(hostname_do_cabo "$c")) -- veja a saida acima"; done
+    printf '\n%sResumo:%s %d de %d placas prontas\n' "$NEG" "$FIM" "${#prontas[@]}" "${#linhas[@]}"
+    for l in ${prontas[@]+"${prontas[@]}"}; do ok "$l"; done
+    for l in ${falhas[@]+"${falhas[@]}"}; do erro "$l -- veja a saida acima"; done
     (( ${#falhas[@]} == 0 ))
 }
 
