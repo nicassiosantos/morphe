@@ -89,6 +89,8 @@ module soc_system (
 		input  wire [27:0] hps_0_f2h_stm_hw_events_stm_hwevents,  //   hps_0_f2h_stm_hw_events.stm_hwevents
 		input  wire        hps_0_f2h_warm_reset_req_reset_n,      //  hps_0_f2h_warm_reset_req.reset_n
 		output wire        hps_0_h2f_reset_reset_n,               //           hps_0_h2f_reset.reset_n
+		input  wire [31:0] hps_0_h2f_gp_gp_in,                    //              hps_0_h2f_gp.gp_in
+		output wire [31:0] hps_0_h2f_gp_gp_out,                   //                          .gp_out
 		output wire        hps_0_hps_io_hps_io_emac1_inst_TX_CLK, //              hps_0_hps_io.hps_io_emac1_inst_TX_CLK
 		output wire        hps_0_hps_io_hps_io_emac1_inst_TXD0,   //                          .hps_io_emac1_inst_TXD0
 		output wire        hps_0_hps_io_hps_io_emac1_inst_TXD1,   //                          .hps_io_emac1_inst_TXD1
@@ -870,6 +872,8 @@ module soc_system (
 		.f2h_dbg_rst_req_n        (hps_0_f2h_debug_reset_req_reset_n),             // f2h_debug_reset_req.reset_n
 		.f2h_warm_rst_req_n       (hps_0_f2h_warm_reset_req_reset_n),              //  f2h_warm_reset_req.reset_n
 		.f2h_stm_hwevents         (hps_0_f2h_stm_hw_events_stm_hwevents),          //   f2h_stm_hw_events.stm_hwevents
+		.h2f_gp_in                (hps_0_h2f_gp_gp_in),                            //              h2f_gp.gp_in
+		.h2f_gp_out               (hps_0_h2f_gp_gp_out),                           //                    .gp_out
 		.mem_a                    (memory_mem_a),                                  //              memory.mem_a
 		.mem_ba                   (memory_mem_ba),                                 //                    .mem_ba
 		.mem_ck                   (memory_mem_ck),                                 //                    .mem_ck

@@ -22,6 +22,9 @@ module soc_system_hps_0_fpga_interfaces(
  ,input wire [1 - 1 : 0 ] f2h_warm_rst_req_n
 // f2h_stm_hw_events
  ,input wire [28 - 1 : 0 ] f2h_stm_hwevents
+// h2f_gp
+ ,input wire [32 - 1 : 0 ] h2f_gp_in
+ ,output wire [32 - 1 : 0 ] h2f_gp_out
 // f2h_axi_clock
  ,input wire [1 - 1 : 0 ] f2h_axi_clk
 // f2h_axi_slave
@@ -187,6 +190,16 @@ cyclonev_hps_interface_stm_event stm_event(
 cyclonev_hps_interface_tpiu_trace tpiu(
  .traceclk_ctl({
     1'b1 // 0:0
+  })
+);
+
+
+cyclonev_hps_interface_mpu_general_purpose h2f_gp(
+ .gp_in({
+    h2f_gp_in[31:0] // 31:0
+  })
+,.gp_out({
+    h2f_gp_out[31:0] // 31:0
   })
 );
 

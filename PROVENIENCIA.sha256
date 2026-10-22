@@ -1,10 +1,10 @@
 # PROVENIENCIA -- sha256 do conjunto validado em hardware.
 #
 # Origem  : LABPS-47723:/home/coordenador/Documentos/validacao-final/morphe
-# Commit  : 0bf97a9
-# Coleta  : 2026-10-19T12:09:45-0300
-# Build   : Quartus Prime 20.1 Lite, Quartus/output_files/soc_system_time_limited.sof de 2026-10-19 12:02
-# Validado: testa_blocos --placa TUDO OK (IIR pelo estado 0 LSB); testa_codec TUDO OK
+# Commit  : 83ff652
+# Coleta  : 2026-10-22T13:05:58-0300
+# Build   : Quartus Prime 20.1 Lite, Quartus/output_files/soc_system_time_limited.sof de 2026-10-22 12:33
+# Validado: morphe_ping 4/4; testa_blocos TUDO OK; assinatura MRPH lida pelo servidor; app programou a FPGA sozinho (placa 1)
 #
 # Gerado por ./gera_proveniencia.sh -- nao edite a mao; rode de novo.
 # Verificar:  sha256sum -c PROVENIENCIA.sha256
@@ -17,11 +17,11 @@ e382469ef32105fcc483952a3e90548789ff0198d5f36eaf68b4921bfcbfcc66  Quartus/iir_bi
 7fc1098dc60027610768cef8b1dabda0fd00f4c708a94fc56374d335ac4a805c  Quartus/audio_i2s.v
 7547888e152039f15b479cb865cc7e1b1a22be08c78a83b409ed49c5b382df72  Quartus/audio_vu.v
 b588b2c55d080bfda74b653f0d078cab613f6ad97847c833e1b057863f19b831  Quartus/audio_buf.v
-49a1b8e912352cc843598226b2492e7ef687b44920116893d164906adb4ee87f  Quartus/ghrd_top.v
-0a781231341eeea0a6257783b2ee303bc199297061d82f9f019e4227a67964c8  Quartus/soc_system.qsys
-48f5fd13b3abf8a138388a81563dcabfe977c9ae574abcfb87ded82b17c2a694  Quartus/soc_system.sopcinfo
-9453c0dccee4d3d2f0bf50134c45485da44296bfce9d19ad3aba9ff2f6fdb7f2  Quartus/output_files/soc_system_time_limited.sof
-e1c75e4ef1e9041446c45a50a51d4dc709978378c3c88e125dd8c3dfbc30d2f4  C/hps_0.h
+8be3f7a005926be26679138ece936351fe23b97c9d16aa78ae53ed332bcc332c  Quartus/ghrd_top.v
+51e5ba4097c0a2753af0301d3583925d717043ba2d68ef7a531e43aebbcffc7f  Quartus/soc_system.qsys
+60098ac31c7eb0a7f32a4e17f3579788fefbfb30558e82bfb0a5dc600e7fdf44  Quartus/soc_system.sopcinfo
+b49bb177994d06a87f78d059c393e7664cbf3ebcb7b12c541b32dd12050b17b2  Quartus/output_files/soc_system_time_limited.sof
+a93adf435b34d2d59b66332a1e20e01b878972cabe69ea40d5b179985c64547a  C/hps_0.h
 3be4377d1b226bd21398bc5ceb29416a9005ae16d79d96b578dd4362a643cad0  C/morphe_config.h
-cb6d190d8079666f7f6599177ab1f205ee86513c2e40fb2da2ca5d45815ffd67  C/morphe_server.c
+2a8002490bf32f37b972db82f24899b9a471517a06271887d4b5979b67ad5669  C/morphe_server.c
 2a887b03e166a65ae9c7083ec76a576667d99741e73e4d824c32698940fc9d0e  C/address_map_arm.h

@@ -85,6 +85,8 @@
 			hps_0_f2h_stm_hw_events_stm_hwevents  : in    std_logic_vector(27 downto 0) := (others => 'X'); -- stm_hwevents
 			hps_0_f2h_warm_reset_req_reset_n      : in    std_logic                     := 'X';             -- reset_n
 			hps_0_h2f_reset_reset_n               : out   std_logic;                                        -- reset_n
+			hps_0_h2f_gp_gp_in                    : in    std_logic_vector(31 downto 0) := (others => 'X'); -- gp_in
+			hps_0_h2f_gp_gp_out                   : out   std_logic_vector(31 downto 0);                    -- gp_out
 			hps_0_hps_io_hps_io_emac1_inst_TX_CLK : out   std_logic;                                        -- hps_io_emac1_inst_TX_CLK
 			hps_0_hps_io_hps_io_emac1_inst_TXD0   : out   std_logic;                                        -- hps_io_emac1_inst_TXD0
 			hps_0_hps_io_hps_io_emac1_inst_TXD1   : out   std_logic;                                        -- hps_io_emac1_inst_TXD1
