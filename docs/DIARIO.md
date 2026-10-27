@@ -16,6 +16,42 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 27/10/2026 — Versão adc-fft compilada; placa trocada de PC e de ponto de rede
+
+**Branch `estagio/adc-fft` completa** (ADC e FFT): recebeu os commits da principal
+que tiram o cabo do `placas.conf`, trazem o `placas.local.conf` e fazem o
+`morphe-up.sh` conferir a placa pela assinatura. Compilada na estação com o
+Quartus 20.1 (`1b59dbc`): **24 % dos ALMs** (a completa usa 45 %), 46 % da memória,
+9 DSPs, `clock_50` com Fmax de **76,27 MHz**. Na placa 1 (`172.16.230.24`):
+`morphe_ping` **4/4**, com a placa confirmando a assinatura MRPH;
+`testa_blocos --placa` **TUDO OK** (FFT de 8192 pontos a 92,9 dB contra o `np.fft`);
+`testa_adc basico` **TUDO OK** (contínua de 10 s a 200 kHz, 2 000 000 de 2 000 000
+amostras). Placa 2 (`172.16.230.52`) passada para a adc-fft: `morphe_ping` **4/4**.
+Isso valida também a conferência pela assinatura do `morphe-up.sh` (`cb551df`), que
+estava só escrita.
+
+**Troca de PC e de ponto de rede, VALIDADA com a placa 2.** A placa saiu da estação e
+foi para o LABPS-47721 (`172.16.230.168`), noutro ponto de rede. Ao abrir, o
+aplicativo, na conta do aluno, **gravou a FPGA sozinho pelo USB** e conectou;
+a Aquisição e a FFT com a "Captura do ADC" funcionaram. Nenhum passo na estação.
+
+Ferramentas novas: `atualizar-lab.sh --ramo` troca o ramo do `/opt/morphe` de todos
+os PCs por SSH (5 PCs passaram para a adc-fft; 3 estavam desligados), e
+`morphe-up.sh --board <hostname>` acha o IP pelo broadcast (`7bc2c00`).
+
+Achados:
+- o LABPS-47721 estava fora do `computadores.conf`, por isso continuava em
+  `be57936`, de 15/10. Já tinha a chave SSH da estação: provavelmente é um dos 8
+  com o IP trocado. Acrescentado;
+- o `ps` da placa (Ubuntu) sem opções só lista o próprio terminal: para ver o
+  servidor, `pgrep -f morphe_server`;
+- **nesse ponto de rede o broadcast não volta** (o firewall está desligado e a máscara
+  é /16 nos dois lados), mas a pergunta direta pelo IP responde em 1 ms. O app
+  achou a placa pela lista do `placas.conf`. Causa não investigada; só faz diferença
+  se a placa mudar de IP. A placa manteve o `.52` no ponto novo.
+
+Falta: placa 3 com a adc-fft (`--deploy`), placa 1 num PC e os 3 PCs desligados.
+
 ## 22/10/2026 (fim) — Placa 3 em serviço, pelo caminho do aplicativo
 
 Placa 3 (`de1soc-03`, MAC `02:00:00:6d:70:03`, `172.16.230.176`) montada pelo guia
