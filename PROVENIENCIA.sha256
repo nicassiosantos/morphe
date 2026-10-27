@@ -1,0 +1,21 @@
+# PROVENIENCIA -- sha256 do conjunto validado em hardware.
+#
+# Origem  : LABPS-47723:/home/coordenador/morphe-adc-fft
+# Commit  : 3f0ced2
+# Coleta  : 2026-10-27T14:12:45-0300
+# Build   : Quartus Prime 20.1 Lite, Quartus/output_files/soc_system_time_limited.sof de 2026-10-27 14:09
+# Validado: morphe_ping 4/4 com assinatura MRPH; testa_adc basico TUDO OK; testa_blocos TUDO OK; 24% ALMs; clock_50 76,27 MHz
+#
+# Gerado por ./gera_proveniencia.sh -- nao edite a mao; rode de novo.
+# Verificar:  sha256sum -c PROVENIENCIA.sha256
+#
+dfb90740d2bccf2778201336f0a77c09c20ba67f9124ef50a6022bbfbfd8d5f5  Quartus/fft_wrapper.v
+c7bf45228fa035a07247a83e73d15c91a82a99a8ce9940e615cbce1541cac984  Quartus/adc_captura.v
+c4a227210f501bb1aab3120171c5b337539f8f03288f06f1a82d8b5b06110d50  Quartus/ghrd_top.v
+2e54348d6fea1140ec4a0f12c922e0f167196d70bfee480e6de8271c6dc9e1e5  Quartus/soc_system.qsys
+4b96de51c199aae5e1cf27a7ab682be574eb78eef15f9cb2191b11a04050eff1  Quartus/soc_system.sopcinfo
+99ed58d9b6fae3d3743ae1c29e2e276029862935df52323c6c20099aaad1f907  Quartus/output_files/soc_system_time_limited.sof
+6baa05244249a1927977b481573fb2c16e6cbd375dd9328cd4954682653554ef  C/hps_0.h
+722f54ad8755286092b7fd873d2831e5fe585f8e3a70fe774ed84bfaf9679c11  C/morphe_config.h
+53b85d23d322885e895888eab63e1c0f64ed898b47d9289d83d1d085faaef41c  C/morphe_server.c
+a78a9d978b2d9d64dea13099e2d92e02d93a1baa2415b934c3a2b3cd00904bb2  C/address_map_arm.h

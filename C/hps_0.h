@@ -32,66 +32,6 @@
 #define ONCHIP_MEMORY2_0_END 0xffff
 
 /*
- * Macros for device 'fir_yn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'FIR_YN_'.
- */
-#define FIR_YN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define FIR_YN_COMPONENT_NAME fir_yn
-#define FIR_YN_BASE 0x10000
-#define FIR_YN_SPAN 8192
-#define FIR_YN_END 0x11fff
-
-/*
- * Macros for device 'conv1d_yn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'CONV1D_YN_'.
- */
-#define CONV1D_YN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define CONV1D_YN_COMPONENT_NAME conv1d_yn
-#define CONV1D_YN_BASE 0x12000
-#define CONV1D_YN_SPAN 8192
-#define CONV1D_YN_END 0x13fff
-
-/*
- * Macros for device 'fir_hn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'FIR_HN_'.
- */
-#define FIR_HN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define FIR_HN_COMPONENT_NAME fir_hn
-#define FIR_HN_BASE 0x14000
-#define FIR_HN_SPAN 4096
-#define FIR_HN_END 0x14fff
-
-/*
- * Macros for device 'fir_xn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'FIR_XN_'.
- */
-#define FIR_XN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define FIR_XN_COMPONENT_NAME fir_xn
-#define FIR_XN_BASE 0x15000
-#define FIR_XN_SPAN 4096
-#define FIR_XN_END 0x15fff
-
-/*
- * Macros for device 'conv1d_hn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'CONV1D_HN_'.
- */
-#define CONV1D_HN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define CONV1D_HN_COMPONENT_NAME conv1d_hn
-#define CONV1D_HN_BASE 0x16000
-#define CONV1D_HN_SPAN 4096
-#define CONV1D_HN_END 0x16fff
-
-/*
- * Macros for device 'conv1d_xn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'CONV1D_XN_'.
- */
-#define CONV1D_XN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define CONV1D_XN_COMPONENT_NAME conv1d_xn
-#define CONV1D_XN_BASE 0x17000
-#define CONV1D_XN_SPAN 4096
-#define CONV1D_XN_END 0x17fff
-
-/*
  * Macros for device 'fft_yn_re', class 'altera_avalon_onchip_memory2'
  * The macros are prefixed with 'FFT_YN_RE_'.
  */
@@ -132,36 +72,6 @@
 #define FFT_XN_IMAG_END 0x1bfff
 
 /*
- * Macros for device 'iir_xn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'IIR_XN_'.
- */
-#define IIR_XN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define IIR_XN_COMPONENT_NAME iir_xn
-#define IIR_XN_BASE 0x1c000
-#define IIR_XN_SPAN 4096
-#define IIR_XN_END 0x1cfff
-
-/*
- * Macros for device 'iir_yn', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'IIR_YN_'.
- */
-#define IIR_YN_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define IIR_YN_COMPONENT_NAME iir_yn
-#define IIR_YN_BASE 0x1d000
-#define IIR_YN_SPAN 4096
-#define IIR_YN_END 0x1dfff
-
-/*
- * Macros for device 'iir_coef', class 'altera_avalon_onchip_memory2'
- * The macros are prefixed with 'IIR_COEF_'.
- */
-#define IIR_COEF_COMPONENT_TYPE altera_avalon_onchip_memory2
-#define IIR_COEF_COMPONENT_NAME iir_coef
-#define IIR_COEF_BASE 0x1e000
-#define IIR_COEF_SPAN 1024
-#define IIR_COEF_END 0x1e3ff
-
-/*
  * Macros for device 'adc_buf', class 'altera_avalon_onchip_memory2'
  * The macros are prefixed with 'ADC_BUF_'.
  */
@@ -170,56 +80,6 @@
 #define ADC_BUF_BASE 0x20000
 #define ADC_BUF_SPAN 131072
 #define ADC_BUF_END 0x3ffff
-
-/*
- * Macros for device 'fir_error', class 'altera_avalon_pio'
- * The macros are prefixed with 'FIR_ERROR_'.
- */
-#define FIR_ERROR_COMPONENT_TYPE altera_avalon_pio
-#define FIR_ERROR_COMPONENT_NAME fir_error
-#define FIR_ERROR_BASE 0x0
-#define FIR_ERROR_SPAN 16
-#define FIR_ERROR_END 0xf
-
-/*
- * Macros for device 'fir_done', class 'altera_avalon_pio'
- * The macros are prefixed with 'FIR_DONE_'.
- */
-#define FIR_DONE_COMPONENT_TYPE altera_avalon_pio
-#define FIR_DONE_COMPONENT_NAME fir_done
-#define FIR_DONE_BASE 0x10
-#define FIR_DONE_SPAN 16
-#define FIR_DONE_END 0x1f
-
-/*
- * Macros for device 'fir_start', class 'altera_avalon_pio'
- * The macros are prefixed with 'FIR_START_'.
- */
-#define FIR_START_COMPONENT_TYPE altera_avalon_pio
-#define FIR_START_COMPONENT_NAME fir_start
-#define FIR_START_BASE 0x20
-#define FIR_START_SPAN 16
-#define FIR_START_END 0x2f
-
-/*
- * Macros for device 'conv1d_done', class 'altera_avalon_pio'
- * The macros are prefixed with 'CONV1D_DONE_'.
- */
-#define CONV1D_DONE_COMPONENT_TYPE altera_avalon_pio
-#define CONV1D_DONE_COMPONENT_NAME conv1d_done
-#define CONV1D_DONE_BASE 0x30
-#define CONV1D_DONE_SPAN 16
-#define CONV1D_DONE_END 0x3f
-
-/*
- * Macros for device 'conv1d_start', class 'altera_avalon_pio'
- * The macros are prefixed with 'CONV1D_START_'.
- */
-#define CONV1D_START_COMPONENT_TYPE altera_avalon_pio
-#define CONV1D_START_COMPONENT_NAME conv1d_start
-#define CONV1D_START_BASE 0x40
-#define CONV1D_START_SPAN 16
-#define CONV1D_START_END 0x4f
 
 /*
  * Macros for device 'fft_bfp_exponent', class 'altera_avalon_pio'
@@ -260,46 +120,6 @@
 #define FFT_WRAPPER_START_BASE 0x80
 #define FFT_WRAPPER_START_SPAN 16
 #define FFT_WRAPPER_START_END 0x8f
-
-/*
- * Macros for device 'iir_start', class 'altera_avalon_pio'
- * The macros are prefixed with 'IIR_START_'.
- */
-#define IIR_START_COMPONENT_TYPE altera_avalon_pio
-#define IIR_START_COMPONENT_NAME iir_start
-#define IIR_START_BASE 0x90
-#define IIR_START_SPAN 16
-#define IIR_START_END 0x9f
-
-/*
- * Macros for device 'iir_done', class 'altera_avalon_pio'
- * The macros are prefixed with 'IIR_DONE_'.
- */
-#define IIR_DONE_COMPONENT_TYPE altera_avalon_pio
-#define IIR_DONE_COMPONENT_NAME iir_done
-#define IIR_DONE_BASE 0xa0
-#define IIR_DONE_SPAN 16
-#define IIR_DONE_END 0xaf
-
-/*
- * Macros for device 'iir_error', class 'altera_avalon_pio'
- * The macros are prefixed with 'IIR_ERROR_'.
- */
-#define IIR_ERROR_COMPONENT_TYPE altera_avalon_pio
-#define IIR_ERROR_COMPONENT_NAME iir_error
-#define IIR_ERROR_BASE 0xb0
-#define IIR_ERROR_SPAN 16
-#define IIR_ERROR_END 0xbf
-
-/*
- * Macros for device 'iir_nsecoes', class 'altera_avalon_pio'
- * The macros are prefixed with 'IIR_NSECOES_'.
- */
-#define IIR_NSECOES_COMPONENT_TYPE altera_avalon_pio
-#define IIR_NSECOES_COMPONENT_NAME iir_nsecoes
-#define IIR_NSECOES_BASE 0xc0
-#define IIR_NSECOES_SPAN 16
-#define IIR_NSECOES_END 0xcf
 
 /*
  * Macros for device 'adc_start', class 'altera_avalon_pio'
@@ -371,7 +191,7 @@
 #define SYSID_QSYS_SPAN 8
 #define SYSID_QSYS_END 0x10007
 #define SYSID_QSYS_ID 2899645186u
-#define SYSID_QSYS_TIMESTAMP 1790258011u
+#define SYSID_QSYS_TIMESTAMP 1793120442u
 
 /*
  * Macros for device 'jtag_uart', class 'altera_avalon_jtag_uart'

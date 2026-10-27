@@ -5,29 +5,6 @@
 `timescale 1 ps / 1 ps
 module soc_system (
 		input  wire        clk_clk,                               //                       clk.clk
-		input  wire        conv1d_done_export,                    //               conv1d_done.export
-		input  wire [9:0]  conv1d_hn_address,                     //                 conv1d_hn.address
-		input  wire        conv1d_hn_clken,                       //                          .clken
-		input  wire        conv1d_hn_chipselect,                  //                          .chipselect
-		input  wire        conv1d_hn_write,                       //                          .write
-		output wire [31:0] conv1d_hn_readdata,                    //                          .readdata
-		input  wire [31:0] conv1d_hn_writedata,                   //                          .writedata
-		input  wire [3:0]  conv1d_hn_byteenable,                  //                          .byteenable
-		output wire        conv1d_start_export,                   //              conv1d_start.export
-		input  wire [9:0]  conv1d_xn_address,                     //                 conv1d_xn.address
-		input  wire        conv1d_xn_clken,                       //                          .clken
-		input  wire        conv1d_xn_chipselect,                  //                          .chipselect
-		input  wire        conv1d_xn_write,                       //                          .write
-		output wire [31:0] conv1d_xn_readdata,                    //                          .readdata
-		input  wire [31:0] conv1d_xn_writedata,                   //                          .writedata
-		input  wire [3:0]  conv1d_xn_byteenable,                  //                          .byteenable
-		input  wire [10:0] conv1d_yn_address,                     //                 conv1d_yn.address
-		input  wire        conv1d_yn_clken,                       //                          .clken
-		input  wire        conv1d_yn_chipselect,                  //                          .chipselect
-		input  wire        conv1d_yn_write,                       //                          .write
-		output wire [31:0] conv1d_yn_readdata,                    //                          .readdata
-		input  wire [31:0] conv1d_yn_writedata,                   //                          .writedata
-		input  wire [3:0]  conv1d_yn_byteenable,                  //                          .byteenable
 		input  wire [5:0]  fft_bfp_exponent_export,               //          fft_bfp_exponent.export
 		output wire        fft_inverse_export,                    //               fft_inverse.export
 		input  wire        fft_wrapper_done_export,               //          fft_wrapper_done.export
@@ -60,35 +37,13 @@ module soc_system (
 		output wire [31:0] fft_yn_re_readdata,                    //                          .readdata
 		input  wire [31:0] fft_yn_re_writedata,                   //                          .writedata
 		input  wire [3:0]  fft_yn_re_byteenable,                  //                          .byteenable
-		input  wire        fir_done_export,                       //                  fir_done.export
-		input  wire        fir_error_export,                      //                 fir_error.export
-		input  wire [9:0]  fir_hn_address,                        //                    fir_hn.address
-		input  wire        fir_hn_clken,                          //                          .clken
-		input  wire        fir_hn_chipselect,                     //                          .chipselect
-		input  wire        fir_hn_write,                          //                          .write
-		output wire [31:0] fir_hn_readdata,                       //                          .readdata
-		input  wire [31:0] fir_hn_writedata,                      //                          .writedata
-		input  wire [3:0]  fir_hn_byteenable,                     //                          .byteenable
-		output wire        fir_start_export,                      //                 fir_start.export
-		input  wire [9:0]  fir_xn_address,                        //                    fir_xn.address
-		input  wire        fir_xn_clken,                          //                          .clken
-		input  wire        fir_xn_chipselect,                     //                          .chipselect
-		input  wire        fir_xn_write,                          //                          .write
-		output wire [31:0] fir_xn_readdata,                       //                          .readdata
-		input  wire [31:0] fir_xn_writedata,                      //                          .writedata
-		input  wire [3:0]  fir_xn_byteenable,                     //                          .byteenable
-		input  wire [10:0] fir_yn_address,                        //                    fir_yn.address
-		input  wire        fir_yn_clken,                          //                          .clken
-		input  wire        fir_yn_chipselect,                     //                          .chipselect
-		input  wire        fir_yn_write,                          //                          .write
-		output wire [31:0] fir_yn_readdata,                       //                          .readdata
-		input  wire [31:0] fir_yn_writedata,                      //                          .writedata
-		input  wire [3:0]  fir_yn_byteenable,                     //                          .byteenable
 		input  wire        hps_0_f2h_cold_reset_req_reset_n,      //  hps_0_f2h_cold_reset_req.reset_n
 		input  wire        hps_0_f2h_debug_reset_req_reset_n,     // hps_0_f2h_debug_reset_req.reset_n
 		input  wire [27:0] hps_0_f2h_stm_hw_events_stm_hwevents,  //   hps_0_f2h_stm_hw_events.stm_hwevents
 		input  wire        hps_0_f2h_warm_reset_req_reset_n,      //  hps_0_f2h_warm_reset_req.reset_n
 		output wire        hps_0_h2f_reset_reset_n,               //           hps_0_h2f_reset.reset_n
+		input  wire [31:0] hps_0_h2f_gp_gp_in,                    //              hps_0_h2f_gp.gp_in
+		output wire [31:0] hps_0_h2f_gp_gp_out,                   //                          .gp_out
 		output wire        hps_0_hps_io_hps_io_emac1_inst_TX_CLK, //              hps_0_hps_io.hps_io_emac1_inst_TX_CLK
 		output wire        hps_0_hps_io_hps_io_emac1_inst_TXD0,   //                          .hps_io_emac1_inst_TXD0
 		output wire        hps_0_hps_io_hps_io_emac1_inst_TXD1,   //                          .hps_io_emac1_inst_TXD1
@@ -161,31 +116,6 @@ module soc_system (
 		output wire [3:0]  memory_mem_dm,                         //                          .mem_dm
 		input  wire        memory_oct_rzqin,                      //                          .oct_rzqin
 		input  wire        reset_reset_n,                         //                     reset.reset_n
-		input  wire [9:0]  iir_xn_address,                        //                    iir_xn.address
-		input  wire        iir_xn_clken,                          //                          .clken
-		input  wire        iir_xn_chipselect,                     //                          .chipselect
-		input  wire        iir_xn_write,                          //                          .write
-		output wire [31:0] iir_xn_readdata,                       //                          .readdata
-		input  wire [31:0] iir_xn_writedata,                      //                          .writedata
-		input  wire [3:0]  iir_xn_byteenable,                     //                          .byteenable
-		input  wire [9:0]  iir_yn_address,                        //                    iir_yn.address
-		input  wire        iir_yn_clken,                          //                          .clken
-		input  wire        iir_yn_chipselect,                     //                          .chipselect
-		input  wire        iir_yn_write,                          //                          .write
-		output wire [31:0] iir_yn_readdata,                       //                          .readdata
-		input  wire [31:0] iir_yn_writedata,                      //                          .writedata
-		input  wire [3:0]  iir_yn_byteenable,                     //                          .byteenable
-		input  wire [7:0]  iir_coef_address,                      //                  iir_coef.address
-		input  wire        iir_coef_clken,                        //                          .clken
-		input  wire        iir_coef_chipselect,                   //                          .chipselect
-		input  wire        iir_coef_write,                        //                          .write
-		output wire [31:0] iir_coef_readdata,                     //                          .readdata
-		input  wire [31:0] iir_coef_writedata,                    //                          .writedata
-		input  wire [3:0]  iir_coef_byteenable,                   //                          .byteenable
-		output wire        iir_start_export,                      //                 iir_start.export
-		input  wire        iir_done_export,                       //                  iir_done.export
-		input  wire        iir_error_export,                      //                 iir_error.export
-		output wire [4:0]  iir_nsecoes_export,                    //               iir_nsecoes.export
 		input  wire [14:0] adc_buf_address,                       //                   adc_buf.address
 		input  wire        adc_buf_clken,                         //                          .clken
 		input  wire        adc_buf_chipselect,                    //                          .chipselect
@@ -316,69 +246,6 @@ module soc_system (
 	wire         mm_interconnect_0_fft_yn_re_s2_write;                      // mm_interconnect_0:fft_yn_re_s2_write -> fft_yn_re:write2
 	wire  [31:0] mm_interconnect_0_fft_yn_re_s2_writedata;                  // mm_interconnect_0:fft_yn_re_s2_writedata -> fft_yn_re:writedata2
 	wire         mm_interconnect_0_fft_yn_re_s2_clken;                      // mm_interconnect_0:fft_yn_re_s2_clken -> fft_yn_re:clken2
-	wire         mm_interconnect_0_conv1d_xn_s2_chipselect;                 // mm_interconnect_0:conv1d_xn_s2_chipselect -> conv1d_xn:chipselect2
-	wire  [31:0] mm_interconnect_0_conv1d_xn_s2_readdata;                   // conv1d_xn:readdata2 -> mm_interconnect_0:conv1d_xn_s2_readdata
-	wire   [9:0] mm_interconnect_0_conv1d_xn_s2_address;                    // mm_interconnect_0:conv1d_xn_s2_address -> conv1d_xn:address2
-	wire   [3:0] mm_interconnect_0_conv1d_xn_s2_byteenable;                 // mm_interconnect_0:conv1d_xn_s2_byteenable -> conv1d_xn:byteenable2
-	wire         mm_interconnect_0_conv1d_xn_s2_write;                      // mm_interconnect_0:conv1d_xn_s2_write -> conv1d_xn:write2
-	wire  [31:0] mm_interconnect_0_conv1d_xn_s2_writedata;                  // mm_interconnect_0:conv1d_xn_s2_writedata -> conv1d_xn:writedata2
-	wire         mm_interconnect_0_conv1d_xn_s2_clken;                      // mm_interconnect_0:conv1d_xn_s2_clken -> conv1d_xn:clken2
-	wire         mm_interconnect_0_conv1d_hn_s2_chipselect;                 // mm_interconnect_0:conv1d_hn_s2_chipselect -> conv1d_hn:chipselect2
-	wire  [31:0] mm_interconnect_0_conv1d_hn_s2_readdata;                   // conv1d_hn:readdata2 -> mm_interconnect_0:conv1d_hn_s2_readdata
-	wire   [9:0] mm_interconnect_0_conv1d_hn_s2_address;                    // mm_interconnect_0:conv1d_hn_s2_address -> conv1d_hn:address2
-	wire   [3:0] mm_interconnect_0_conv1d_hn_s2_byteenable;                 // mm_interconnect_0:conv1d_hn_s2_byteenable -> conv1d_hn:byteenable2
-	wire         mm_interconnect_0_conv1d_hn_s2_write;                      // mm_interconnect_0:conv1d_hn_s2_write -> conv1d_hn:write2
-	wire  [31:0] mm_interconnect_0_conv1d_hn_s2_writedata;                  // mm_interconnect_0:conv1d_hn_s2_writedata -> conv1d_hn:writedata2
-	wire         mm_interconnect_0_conv1d_hn_s2_clken;                      // mm_interconnect_0:conv1d_hn_s2_clken -> conv1d_hn:clken2
-	wire         mm_interconnect_0_conv1d_yn_s2_chipselect;                 // mm_interconnect_0:conv1d_yn_s2_chipselect -> conv1d_yn:chipselect2
-	wire  [31:0] mm_interconnect_0_conv1d_yn_s2_readdata;                   // conv1d_yn:readdata2 -> mm_interconnect_0:conv1d_yn_s2_readdata
-	wire  [10:0] mm_interconnect_0_conv1d_yn_s2_address;                    // mm_interconnect_0:conv1d_yn_s2_address -> conv1d_yn:address2
-	wire   [3:0] mm_interconnect_0_conv1d_yn_s2_byteenable;                 // mm_interconnect_0:conv1d_yn_s2_byteenable -> conv1d_yn:byteenable2
-	wire         mm_interconnect_0_conv1d_yn_s2_write;                      // mm_interconnect_0:conv1d_yn_s2_write -> conv1d_yn:write2
-	wire  [31:0] mm_interconnect_0_conv1d_yn_s2_writedata;                  // mm_interconnect_0:conv1d_yn_s2_writedata -> conv1d_yn:writedata2
-	wire         mm_interconnect_0_conv1d_yn_s2_clken;                      // mm_interconnect_0:conv1d_yn_s2_clken -> conv1d_yn:clken2
-	wire         mm_interconnect_0_fir_xn_s2_chipselect;                    // mm_interconnect_0:fir_xn_s2_chipselect -> fir_xn:chipselect2
-	wire  [31:0] mm_interconnect_0_fir_xn_s2_readdata;                      // fir_xn:readdata2 -> mm_interconnect_0:fir_xn_s2_readdata
-	wire   [9:0] mm_interconnect_0_fir_xn_s2_address;                       // mm_interconnect_0:fir_xn_s2_address -> fir_xn:address2
-	wire   [3:0] mm_interconnect_0_fir_xn_s2_byteenable;                    // mm_interconnect_0:fir_xn_s2_byteenable -> fir_xn:byteenable2
-	wire         mm_interconnect_0_fir_xn_s2_write;                         // mm_interconnect_0:fir_xn_s2_write -> fir_xn:write2
-	wire  [31:0] mm_interconnect_0_fir_xn_s2_writedata;                     // mm_interconnect_0:fir_xn_s2_writedata -> fir_xn:writedata2
-	wire         mm_interconnect_0_fir_xn_s2_clken;                         // mm_interconnect_0:fir_xn_s2_clken -> fir_xn:clken2
-	wire         mm_interconnect_0_fir_yn_s2_chipselect;                    // mm_interconnect_0:fir_yn_s2_chipselect -> fir_yn:chipselect2
-	wire  [31:0] mm_interconnect_0_fir_yn_s2_readdata;                      // fir_yn:readdata2 -> mm_interconnect_0:fir_yn_s2_readdata
-	wire  [10:0] mm_interconnect_0_fir_yn_s2_address;                       // mm_interconnect_0:fir_yn_s2_address -> fir_yn:address2
-	wire   [3:0] mm_interconnect_0_fir_yn_s2_byteenable;                    // mm_interconnect_0:fir_yn_s2_byteenable -> fir_yn:byteenable2
-	wire         mm_interconnect_0_fir_yn_s2_write;                         // mm_interconnect_0:fir_yn_s2_write -> fir_yn:write2
-	wire  [31:0] mm_interconnect_0_fir_yn_s2_writedata;                     // mm_interconnect_0:fir_yn_s2_writedata -> fir_yn:writedata2
-	wire         mm_interconnect_0_fir_yn_s2_clken;                         // mm_interconnect_0:fir_yn_s2_clken -> fir_yn:clken2
-	wire         mm_interconnect_0_fir_hn_s2_chipselect;                    // mm_interconnect_0:fir_hn_s2_chipselect -> fir_hn:chipselect2
-	wire  [31:0] mm_interconnect_0_fir_hn_s2_readdata;                      // fir_hn:readdata2 -> mm_interconnect_0:fir_hn_s2_readdata
-	wire   [9:0] mm_interconnect_0_fir_hn_s2_address;                       // mm_interconnect_0:fir_hn_s2_address -> fir_hn:address2
-	wire   [3:0] mm_interconnect_0_fir_hn_s2_byteenable;                    // mm_interconnect_0:fir_hn_s2_byteenable -> fir_hn:byteenable2
-	wire         mm_interconnect_0_fir_hn_s2_write;                         // mm_interconnect_0:fir_hn_s2_write -> fir_hn:write2
-	wire  [31:0] mm_interconnect_0_fir_hn_s2_writedata;                     // mm_interconnect_0:fir_hn_s2_writedata -> fir_hn:writedata2
-	wire         mm_interconnect_0_fir_hn_s2_clken;                         // mm_interconnect_0:fir_hn_s2_clken -> fir_hn:clken2
-	wire         mm_interconnect_0_iir_xn_s2_chipselect;                    // mm_interconnect_0:iir_xn_s2_chipselect -> iir_xn:chipselect2
-	wire  [31:0] mm_interconnect_0_iir_xn_s2_readdata;                      // iir_xn:readdata2 -> mm_interconnect_0:iir_xn_s2_readdata
-	wire   [9:0] mm_interconnect_0_iir_xn_s2_address;                       // mm_interconnect_0:iir_xn_s2_address -> iir_xn:address2
-	wire   [3:0] mm_interconnect_0_iir_xn_s2_byteenable;                    // mm_interconnect_0:iir_xn_s2_byteenable -> iir_xn:byteenable2
-	wire         mm_interconnect_0_iir_xn_s2_write;                         // mm_interconnect_0:iir_xn_s2_write -> iir_xn:write2
-	wire  [31:0] mm_interconnect_0_iir_xn_s2_writedata;                     // mm_interconnect_0:iir_xn_s2_writedata -> iir_xn:writedata2
-	wire         mm_interconnect_0_iir_xn_s2_clken;                         // mm_interconnect_0:iir_xn_s2_clken -> iir_xn:clken2
-	wire         mm_interconnect_0_iir_yn_s2_chipselect;                    // mm_interconnect_0:iir_yn_s2_chipselect -> iir_yn:chipselect2
-	wire  [31:0] mm_interconnect_0_iir_yn_s2_readdata;                      // iir_yn:readdata2 -> mm_interconnect_0:iir_yn_s2_readdata
-	wire   [9:0] mm_interconnect_0_iir_yn_s2_address;                       // mm_interconnect_0:iir_yn_s2_address -> iir_yn:address2
-	wire   [3:0] mm_interconnect_0_iir_yn_s2_byteenable;                    // mm_interconnect_0:iir_yn_s2_byteenable -> iir_yn:byteenable2
-	wire         mm_interconnect_0_iir_yn_s2_write;                         // mm_interconnect_0:iir_yn_s2_write -> iir_yn:write2
-	wire  [31:0] mm_interconnect_0_iir_yn_s2_writedata;                     // mm_interconnect_0:iir_yn_s2_writedata -> iir_yn:writedata2
-	wire         mm_interconnect_0_iir_yn_s2_clken;                         // mm_interconnect_0:iir_yn_s2_clken -> iir_yn:clken2
-	wire         mm_interconnect_0_iir_coef_s2_chipselect;                  // mm_interconnect_0:iir_coef_s2_chipselect -> iir_coef:chipselect2
-	wire  [31:0] mm_interconnect_0_iir_coef_s2_readdata;                    // iir_coef:readdata2 -> mm_interconnect_0:iir_coef_s2_readdata
-	wire   [7:0] mm_interconnect_0_iir_coef_s2_address;                     // mm_interconnect_0:iir_coef_s2_address -> iir_coef:address2
-	wire   [3:0] mm_interconnect_0_iir_coef_s2_byteenable;                  // mm_interconnect_0:iir_coef_s2_byteenable -> iir_coef:byteenable2
-	wire         mm_interconnect_0_iir_coef_s2_write;                       // mm_interconnect_0:iir_coef_s2_write -> iir_coef:write2
-	wire  [31:0] mm_interconnect_0_iir_coef_s2_writedata;                   // mm_interconnect_0:iir_coef_s2_writedata -> iir_coef:writedata2
-	wire         mm_interconnect_0_iir_coef_s2_clken;                       // mm_interconnect_0:iir_coef_s2_clken -> iir_coef:clken2
 	wire         mm_interconnect_0_adc_buf_s2_chipselect;                   // mm_interconnect_0:adc_buf_s2_chipselect -> adc_buf:chipselect2
 	wire  [31:0] mm_interconnect_0_adc_buf_s2_readdata;                     // adc_buf:readdata2 -> mm_interconnect_0:adc_buf_s2_readdata
 	wire  [14:0] mm_interconnect_0_adc_buf_s2_address;                      // mm_interconnect_0:adc_buf_s2_address -> adc_buf:address2
@@ -412,36 +279,6 @@ module soc_system (
 	wire   [1:0] mm_interconnect_0_fft_wrapper_done_s1_address;             // mm_interconnect_0:fft_wrapper_done_s1_address -> fft_wrapper_done:address
 	wire  [31:0] mm_interconnect_0_fft_bfp_exponent_s1_readdata;            // fft_bfp_exponent:readdata -> mm_interconnect_0:fft_bfp_exponent_s1_readdata
 	wire   [1:0] mm_interconnect_0_fft_bfp_exponent_s1_address;             // mm_interconnect_0:fft_bfp_exponent_s1_address -> fft_bfp_exponent:address
-	wire         mm_interconnect_0_conv1d_start_s1_chipselect;              // mm_interconnect_0:conv1d_start_s1_chipselect -> conv1d_start:chipselect
-	wire  [31:0] mm_interconnect_0_conv1d_start_s1_readdata;                // conv1d_start:readdata -> mm_interconnect_0:conv1d_start_s1_readdata
-	wire   [1:0] mm_interconnect_0_conv1d_start_s1_address;                 // mm_interconnect_0:conv1d_start_s1_address -> conv1d_start:address
-	wire         mm_interconnect_0_conv1d_start_s1_write;                   // mm_interconnect_0:conv1d_start_s1_write -> conv1d_start:write_n
-	wire  [31:0] mm_interconnect_0_conv1d_start_s1_writedata;               // mm_interconnect_0:conv1d_start_s1_writedata -> conv1d_start:writedata
-	wire  [31:0] mm_interconnect_0_conv1d_done_s1_readdata;                 // conv1d_done:readdata -> mm_interconnect_0:conv1d_done_s1_readdata
-	wire   [1:0] mm_interconnect_0_conv1d_done_s1_address;                  // mm_interconnect_0:conv1d_done_s1_address -> conv1d_done:address
-	wire         mm_interconnect_0_fir_start_s1_chipselect;                 // mm_interconnect_0:fir_start_s1_chipselect -> fir_start:chipselect
-	wire  [31:0] mm_interconnect_0_fir_start_s1_readdata;                   // fir_start:readdata -> mm_interconnect_0:fir_start_s1_readdata
-	wire   [1:0] mm_interconnect_0_fir_start_s1_address;                    // mm_interconnect_0:fir_start_s1_address -> fir_start:address
-	wire         mm_interconnect_0_fir_start_s1_write;                      // mm_interconnect_0:fir_start_s1_write -> fir_start:write_n
-	wire  [31:0] mm_interconnect_0_fir_start_s1_writedata;                  // mm_interconnect_0:fir_start_s1_writedata -> fir_start:writedata
-	wire  [31:0] mm_interconnect_0_fir_done_s1_readdata;                    // fir_done:readdata -> mm_interconnect_0:fir_done_s1_readdata
-	wire   [1:0] mm_interconnect_0_fir_done_s1_address;                     // mm_interconnect_0:fir_done_s1_address -> fir_done:address
-	wire  [31:0] mm_interconnect_0_fir_error_s1_readdata;                   // fir_error:readdata -> mm_interconnect_0:fir_error_s1_readdata
-	wire   [1:0] mm_interconnect_0_fir_error_s1_address;                    // mm_interconnect_0:fir_error_s1_address -> fir_error:address
-	wire         mm_interconnect_0_iir_start_s1_chipselect;                 // mm_interconnect_0:iir_start_s1_chipselect -> iir_start:chipselect
-	wire  [31:0] mm_interconnect_0_iir_start_s1_readdata;                   // iir_start:readdata -> mm_interconnect_0:iir_start_s1_readdata
-	wire   [1:0] mm_interconnect_0_iir_start_s1_address;                    // mm_interconnect_0:iir_start_s1_address -> iir_start:address
-	wire         mm_interconnect_0_iir_start_s1_write;                      // mm_interconnect_0:iir_start_s1_write -> iir_start:write_n
-	wire  [31:0] mm_interconnect_0_iir_start_s1_writedata;                  // mm_interconnect_0:iir_start_s1_writedata -> iir_start:writedata
-	wire  [31:0] mm_interconnect_0_iir_done_s1_readdata;                    // iir_done:readdata -> mm_interconnect_0:iir_done_s1_readdata
-	wire   [1:0] mm_interconnect_0_iir_done_s1_address;                     // mm_interconnect_0:iir_done_s1_address -> iir_done:address
-	wire  [31:0] mm_interconnect_0_iir_error_s1_readdata;                   // iir_error:readdata -> mm_interconnect_0:iir_error_s1_readdata
-	wire   [1:0] mm_interconnect_0_iir_error_s1_address;                    // mm_interconnect_0:iir_error_s1_address -> iir_error:address
-	wire         mm_interconnect_0_iir_nsecoes_s1_chipselect;               // mm_interconnect_0:iir_nsecoes_s1_chipselect -> iir_nsecoes:chipselect
-	wire  [31:0] mm_interconnect_0_iir_nsecoes_s1_readdata;                 // iir_nsecoes:readdata -> mm_interconnect_0:iir_nsecoes_s1_readdata
-	wire   [1:0] mm_interconnect_0_iir_nsecoes_s1_address;                  // mm_interconnect_0:iir_nsecoes_s1_address -> iir_nsecoes:address
-	wire         mm_interconnect_0_iir_nsecoes_s1_write;                    // mm_interconnect_0:iir_nsecoes_s1_write -> iir_nsecoes:write_n
-	wire  [31:0] mm_interconnect_0_iir_nsecoes_s1_writedata;                // mm_interconnect_0:iir_nsecoes_s1_writedata -> iir_nsecoes:writedata
 	wire         mm_interconnect_0_adc_start_s1_chipselect;                 // mm_interconnect_0:adc_start_s1_chipselect -> adc_start:chipselect
 	wire  [31:0] mm_interconnect_0_adc_start_s1_readdata;                   // adc_start:readdata -> mm_interconnect_0:adc_start_s1_readdata
 	wire   [1:0] mm_interconnect_0_adc_start_s1_address;                    // mm_interconnect_0:adc_start_s1_address -> adc_start:address
@@ -516,100 +353,9 @@ module soc_system (
 	wire  [31:0] hps_0_f2h_irq1_irq;                                        // irq_mapper_001:sender_irq -> hps_0:f2h_irq_p1
 	wire  [31:0] intr_capturer_0_interrupt_receiver_irq;                    // irq_mapper_002:sender_irq -> intr_capturer_0:interrupt_in
 	wire         irq_mapper_receiver0_irq;                                  // jtag_uart:av_irq -> [irq_mapper:receiver0_irq, irq_mapper_002:receiver0_irq]
-	wire         rst_controller_reset_out_reset;                            // rst_controller:reset_out -> [adc_buf:reset, adc_buf:reset2, adc_config:reset_n, adc_contador:reset_n, adc_divisor:reset_n, adc_done:reset_n, adc_namostras:reset_n, adc_start:reset_n, conv1d_done:reset_n, conv1d_hn:reset, conv1d_hn:reset2, conv1d_start:reset_n, conv1d_xn:reset, conv1d_xn:reset2, conv1d_yn:reset, conv1d_yn:reset2, fft_bfp_exponent:reset_n, fft_inverse:reset_n, fft_wrapper_done:reset_n, fft_wrapper_start:reset_n, fft_xn_imag:reset, fft_xn_imag:reset2, fft_xn_re:reset, fft_xn_re:reset2, fft_yn_imag:reset, fft_yn_imag:reset2, fft_yn_re:reset, fft_yn_re:reset2, fir_done:reset_n, fir_error:reset_n, fir_hn:reset, fir_hn:reset2, fir_start:reset_n, fir_xn:reset, fir_xn:reset2, fir_yn:reset, fir_yn:reset2, iir_coef:reset, iir_coef:reset2, iir_done:reset_n, iir_error:reset_n, iir_nsecoes:reset_n, iir_start:reset_n, iir_xn:reset, iir_xn:reset2, iir_yn:reset, iir_yn:reset2, intr_capturer_0:rst_n, irq_mapper_002:reset, jtag_uart:rst_n, mm_interconnect_0:fpga_only_master_clk_reset_reset_bridge_in_reset_reset, mm_interconnect_0:onchip_memory2_0_reset1_reset_bridge_in_reset_reset, mm_interconnect_1:hps_only_master_clk_reset_reset_bridge_in_reset_reset, mm_interconnect_1:hps_only_master_master_translator_reset_reset_bridge_in_reset_reset, onchip_memory2_0:reset, rst_translator:in_reset, sysid_qsys:reset_n]
-	wire         rst_controller_reset_out_reset_req;                        // rst_controller:reset_req -> [adc_buf:reset_req, adc_buf:reset_req2, conv1d_hn:reset_req, conv1d_hn:reset_req2, conv1d_xn:reset_req, conv1d_xn:reset_req2, conv1d_yn:reset_req, conv1d_yn:reset_req2, fft_xn_imag:reset_req, fft_xn_imag:reset_req2, fft_xn_re:reset_req, fft_xn_re:reset_req2, fft_yn_imag:reset_req, fft_yn_imag:reset_req2, fft_yn_re:reset_req, fft_yn_re:reset_req2, fir_hn:reset_req, fir_hn:reset_req2, fir_xn:reset_req, fir_xn:reset_req2, fir_yn:reset_req, fir_yn:reset_req2, iir_coef:reset_req, iir_coef:reset_req2, iir_xn:reset_req, iir_xn:reset_req2, iir_yn:reset_req, iir_yn:reset_req2, onchip_memory2_0:reset_req, rst_translator:reset_req_in]
+	wire         rst_controller_reset_out_reset;                            // rst_controller:reset_out -> [adc_buf:reset, adc_buf:reset2, adc_config:reset_n, adc_contador:reset_n, adc_divisor:reset_n, adc_done:reset_n, adc_namostras:reset_n, adc_start:reset_n, fft_bfp_exponent:reset_n, fft_inverse:reset_n, fft_wrapper_done:reset_n, fft_wrapper_start:reset_n, fft_xn_imag:reset, fft_xn_imag:reset2, fft_xn_re:reset, fft_xn_re:reset2, fft_yn_imag:reset, fft_yn_imag:reset2, fft_yn_re:reset, fft_yn_re:reset2, intr_capturer_0:rst_n, irq_mapper_002:reset, jtag_uart:rst_n, mm_interconnect_0:fpga_only_master_clk_reset_reset_bridge_in_reset_reset, mm_interconnect_0:onchip_memory2_0_reset1_reset_bridge_in_reset_reset, mm_interconnect_1:hps_only_master_clk_reset_reset_bridge_in_reset_reset, mm_interconnect_1:hps_only_master_master_translator_reset_reset_bridge_in_reset_reset, onchip_memory2_0:reset, rst_translator:in_reset, sysid_qsys:reset_n]
+	wire         rst_controller_reset_out_reset_req;                        // rst_controller:reset_req -> [adc_buf:reset_req, adc_buf:reset_req2, fft_xn_imag:reset_req, fft_xn_imag:reset_req2, fft_xn_re:reset_req, fft_xn_re:reset_req2, fft_yn_imag:reset_req, fft_yn_imag:reset_req2, fft_yn_re:reset_req, fft_yn_re:reset_req2, onchip_memory2_0:reset_req, rst_translator:reset_req_in]
 	wire         rst_controller_001_reset_out_reset;                        // rst_controller_001:reset_out -> [mm_interconnect_0:hps_0_h2f_axi_master_agent_clk_reset_reset_bridge_in_reset_reset, mm_interconnect_1:hps_0_f2h_axi_slave_agent_reset_sink_reset_bridge_in_reset_reset]
-
-	soc_system_conv1d_done conv1d_done (
-		.clk      (clk_clk),                                   //                 clk.clk
-		.reset_n  (~rst_controller_reset_out_reset),           //               reset.reset_n
-		.address  (mm_interconnect_0_conv1d_done_s1_address),  //                  s1.address
-		.readdata (mm_interconnect_0_conv1d_done_s1_readdata), //                    .readdata
-		.in_port  (conv1d_done_export)                         // external_connection.export
-	);
-
-	soc_system_conv1d_hn conv1d_hn (
-		.clk         (clk_clk),                                   //   clk1.clk
-		.address     (conv1d_hn_address),                         //     s1.address
-		.clken       (conv1d_hn_clken),                           //       .clken
-		.chipselect  (conv1d_hn_chipselect),                      //       .chipselect
-		.write       (conv1d_hn_write),                           //       .write
-		.readdata    (conv1d_hn_readdata),                        //       .readdata
-		.writedata   (conv1d_hn_writedata),                       //       .writedata
-		.byteenable  (conv1d_hn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),            // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),        //       .reset_req
-		.address2    (mm_interconnect_0_conv1d_hn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_conv1d_hn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_conv1d_hn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_conv1d_hn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_conv1d_hn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_conv1d_hn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_conv1d_hn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                   //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),            // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),        //       .reset_req
-		.freeze      (1'b0)                                       // (terminated)
-	);
-
-	soc_system_conv1d_start conv1d_start (
-		.clk        (clk_clk),                                      //                 clk.clk
-		.reset_n    (~rst_controller_reset_out_reset),              //               reset.reset_n
-		.address    (mm_interconnect_0_conv1d_start_s1_address),    //                  s1.address
-		.write_n    (~mm_interconnect_0_conv1d_start_s1_write),     //                    .write_n
-		.writedata  (mm_interconnect_0_conv1d_start_s1_writedata),  //                    .writedata
-		.chipselect (mm_interconnect_0_conv1d_start_s1_chipselect), //                    .chipselect
-		.readdata   (mm_interconnect_0_conv1d_start_s1_readdata),   //                    .readdata
-		.out_port   (conv1d_start_export)                           // external_connection.export
-	);
-
-	soc_system_conv1d_xn conv1d_xn (
-		.clk         (clk_clk),                                   //   clk1.clk
-		.address     (conv1d_xn_address),                         //     s1.address
-		.clken       (conv1d_xn_clken),                           //       .clken
-		.chipselect  (conv1d_xn_chipselect),                      //       .chipselect
-		.write       (conv1d_xn_write),                           //       .write
-		.readdata    (conv1d_xn_readdata),                        //       .readdata
-		.writedata   (conv1d_xn_writedata),                       //       .writedata
-		.byteenable  (conv1d_xn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),            // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),        //       .reset_req
-		.address2    (mm_interconnect_0_conv1d_xn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_conv1d_xn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_conv1d_xn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_conv1d_xn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_conv1d_xn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_conv1d_xn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_conv1d_xn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                   //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),            // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),        //       .reset_req
-		.freeze      (1'b0)                                       // (terminated)
-	);
-
-	soc_system_conv1d_yn conv1d_yn (
-		.clk         (clk_clk),                                   //   clk1.clk
-		.address     (conv1d_yn_address),                         //     s1.address
-		.clken       (conv1d_yn_clken),                           //       .clken
-		.chipselect  (conv1d_yn_chipselect),                      //       .chipselect
-		.write       (conv1d_yn_write),                           //       .write
-		.readdata    (conv1d_yn_readdata),                        //       .readdata
-		.writedata   (conv1d_yn_writedata),                       //       .writedata
-		.byteenable  (conv1d_yn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),            // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),        //       .reset_req
-		.address2    (mm_interconnect_0_conv1d_yn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_conv1d_yn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_conv1d_yn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_conv1d_yn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_conv1d_yn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_conv1d_yn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_conv1d_yn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                   //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),            // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),        //       .reset_req
-		.freeze      (1'b0)                                       // (terminated)
-	);
 
 	soc_system_fft_bfp_exponent fft_bfp_exponent (
 		.clk      (clk_clk),                                        //                 clk.clk
@@ -619,7 +365,7 @@ module soc_system (
 		.in_port  (fft_bfp_exponent_export)                         // external_connection.export
 	);
 
-	soc_system_conv1d_start fft_inverse (
+	soc_system_fft_inverse fft_inverse (
 		.clk        (clk_clk),                                     //                 clk.clk
 		.reset_n    (~rst_controller_reset_out_reset),             //               reset.reset_n
 		.address    (mm_interconnect_0_fft_inverse_s1_address),    //                  s1.address
@@ -630,7 +376,7 @@ module soc_system (
 		.out_port   (fft_inverse_export)                           // external_connection.export
 	);
 
-	soc_system_conv1d_done fft_wrapper_done (
+	soc_system_fft_wrapper_done fft_wrapper_done (
 		.clk      (clk_clk),                                        //                 clk.clk
 		.reset_n  (~rst_controller_reset_out_reset),                //               reset.reset_n
 		.address  (mm_interconnect_0_fft_wrapper_done_s1_address),  //                  s1.address
@@ -638,7 +384,7 @@ module soc_system (
 		.in_port  (fft_wrapper_done_export)                         // external_connection.export
 	);
 
-	soc_system_conv1d_start fft_wrapper_start (
+	soc_system_fft_inverse fft_wrapper_start (
 		.clk        (clk_clk),                                           //                 clk.clk
 		.reset_n    (~rst_controller_reset_out_reset),                   //               reset.reset_n
 		.address    (mm_interconnect_0_fft_wrapper_start_s1_address),    //                  s1.address
@@ -745,105 +491,6 @@ module soc_system (
 		.freeze      (1'b0)                                       // (terminated)
 	);
 
-	soc_system_conv1d_done fir_done (
-		.clk      (clk_clk),                                //                 clk.clk
-		.reset_n  (~rst_controller_reset_out_reset),        //               reset.reset_n
-		.address  (mm_interconnect_0_fir_done_s1_address),  //                  s1.address
-		.readdata (mm_interconnect_0_fir_done_s1_readdata), //                    .readdata
-		.in_port  (fir_done_export)                         // external_connection.export
-	);
-
-	soc_system_conv1d_done fir_error (
-		.clk      (clk_clk),                                 //                 clk.clk
-		.reset_n  (~rst_controller_reset_out_reset),         //               reset.reset_n
-		.address  (mm_interconnect_0_fir_error_s1_address),  //                  s1.address
-		.readdata (mm_interconnect_0_fir_error_s1_readdata), //                    .readdata
-		.in_port  (fir_error_export)                         // external_connection.export
-	);
-
-	soc_system_fir_hn fir_hn (
-		.clk         (clk_clk),                                //   clk1.clk
-		.address     (fir_hn_address),                         //     s1.address
-		.clken       (fir_hn_clken),                           //       .clken
-		.chipselect  (fir_hn_chipselect),                      //       .chipselect
-		.write       (fir_hn_write),                           //       .write
-		.readdata    (fir_hn_readdata),                        //       .readdata
-		.writedata   (fir_hn_writedata),                       //       .writedata
-		.byteenable  (fir_hn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),         // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),     //       .reset_req
-		.address2    (mm_interconnect_0_fir_hn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_fir_hn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_fir_hn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_fir_hn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_fir_hn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_fir_hn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_fir_hn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),         // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),     //       .reset_req
-		.freeze      (1'b0)                                    // (terminated)
-	);
-
-	soc_system_conv1d_start fir_start (
-		.clk        (clk_clk),                                   //                 clk.clk
-		.reset_n    (~rst_controller_reset_out_reset),           //               reset.reset_n
-		.address    (mm_interconnect_0_fir_start_s1_address),    //                  s1.address
-		.write_n    (~mm_interconnect_0_fir_start_s1_write),     //                    .write_n
-		.writedata  (mm_interconnect_0_fir_start_s1_writedata),  //                    .writedata
-		.chipselect (mm_interconnect_0_fir_start_s1_chipselect), //                    .chipselect
-		.readdata   (mm_interconnect_0_fir_start_s1_readdata),   //                    .readdata
-		.out_port   (fir_start_export)                           // external_connection.export
-	);
-
-	soc_system_fir_xn fir_xn (
-		.clk         (clk_clk),                                //   clk1.clk
-		.address     (fir_xn_address),                         //     s1.address
-		.clken       (fir_xn_clken),                           //       .clken
-		.chipselect  (fir_xn_chipselect),                      //       .chipselect
-		.write       (fir_xn_write),                           //       .write
-		.readdata    (fir_xn_readdata),                        //       .readdata
-		.writedata   (fir_xn_writedata),                       //       .writedata
-		.byteenable  (fir_xn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),         // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),     //       .reset_req
-		.address2    (mm_interconnect_0_fir_xn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_fir_xn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_fir_xn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_fir_xn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_fir_xn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_fir_xn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_fir_xn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),         // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),     //       .reset_req
-		.freeze      (1'b0)                                    // (terminated)
-	);
-
-	soc_system_fir_yn fir_yn (
-		.clk         (clk_clk),                                //   clk1.clk
-		.address     (fir_yn_address),                         //     s1.address
-		.clken       (fir_yn_clken),                           //       .clken
-		.chipselect  (fir_yn_chipselect),                      //       .chipselect
-		.write       (fir_yn_write),                           //       .write
-		.readdata    (fir_yn_readdata),                        //       .readdata
-		.writedata   (fir_yn_writedata),                       //       .writedata
-		.byteenable  (fir_yn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),         // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),     //       .reset_req
-		.address2    (mm_interconnect_0_fir_yn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_fir_yn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_fir_yn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_fir_yn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_fir_yn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_fir_yn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_fir_yn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),         // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),     //       .reset_req
-		.freeze      (1'b0)                                    // (terminated)
-	);
-
 	soc_system_fpga_only_master #(
 		.USE_PLI     (0),
 		.PLI_PORT    (50000),
@@ -870,6 +517,8 @@ module soc_system (
 		.f2h_dbg_rst_req_n        (hps_0_f2h_debug_reset_req_reset_n),             // f2h_debug_reset_req.reset_n
 		.f2h_warm_rst_req_n       (hps_0_f2h_warm_reset_req_reset_n),              //  f2h_warm_reset_req.reset_n
 		.f2h_stm_hwevents         (hps_0_f2h_stm_hw_events_stm_hwevents),          //   f2h_stm_hw_events.stm_hwevents
+		.h2f_gp_in                (hps_0_h2f_gp_gp_in),                            //              h2f_gp.gp_in
+		.h2f_gp_out               (hps_0_h2f_gp_gp_out),                           //                    .gp_out
 		.mem_a                    (memory_mem_a),                                  //              memory.mem_a
 		.mem_ba                   (memory_mem_ba),                                 //                    .mem_ba
 		.mem_ck                   (memory_mem_ck),                                 //                    .mem_ck
@@ -1122,116 +771,6 @@ module soc_system (
 		.address  (mm_interconnect_0_sysid_qsys_control_slave_address)   //              .address
 	);
 
-	soc_system_iir_xn iir_xn (
-		.clk         (clk_clk),                                //   clk1.clk
-		.address     (iir_xn_address),                         //     s1.address
-		.clken       (iir_xn_clken),                           //       .clken
-		.chipselect  (iir_xn_chipselect),                      //       .chipselect
-		.write       (iir_xn_write),                           //       .write
-		.readdata    (iir_xn_readdata),                        //       .readdata
-		.writedata   (iir_xn_writedata),                       //       .writedata
-		.byteenable  (iir_xn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),         // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),     //       .reset_req
-		.address2    (mm_interconnect_0_iir_xn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_iir_xn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_iir_xn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_iir_xn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_iir_xn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_iir_xn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_iir_xn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),         // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),     //       .reset_req
-		.freeze      (1'b0)                                    // (terminated)
-	);
-
-	soc_system_iir_yn iir_yn (
-		.clk         (clk_clk),                                //   clk1.clk
-		.address     (iir_yn_address),                         //     s1.address
-		.clken       (iir_yn_clken),                           //       .clken
-		.chipselect  (iir_yn_chipselect),                      //       .chipselect
-		.write       (iir_yn_write),                           //       .write
-		.readdata    (iir_yn_readdata),                        //       .readdata
-		.writedata   (iir_yn_writedata),                       //       .writedata
-		.byteenable  (iir_yn_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),         // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),     //       .reset_req
-		.address2    (mm_interconnect_0_iir_yn_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_iir_yn_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_iir_yn_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_iir_yn_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_iir_yn_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_iir_yn_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_iir_yn_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),         // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),     //       .reset_req
-		.freeze      (1'b0)                                    // (terminated)
-	);
-
-	soc_system_iir_coef iir_coef (
-		.clk         (clk_clk),                                  //   clk1.clk
-		.address     (iir_coef_address),                         //     s1.address
-		.clken       (iir_coef_clken),                           //       .clken
-		.chipselect  (iir_coef_chipselect),                      //       .chipselect
-		.write       (iir_coef_write),                           //       .write
-		.readdata    (iir_coef_readdata),                        //       .readdata
-		.writedata   (iir_coef_writedata),                       //       .writedata
-		.byteenable  (iir_coef_byteenable),                      //       .byteenable
-		.reset       (rst_controller_reset_out_reset),           // reset1.reset
-		.reset_req   (rst_controller_reset_out_reset_req),       //       .reset_req
-		.address2    (mm_interconnect_0_iir_coef_s2_address),    //     s2.address
-		.chipselect2 (mm_interconnect_0_iir_coef_s2_chipselect), //       .chipselect
-		.clken2      (mm_interconnect_0_iir_coef_s2_clken),      //       .clken
-		.write2      (mm_interconnect_0_iir_coef_s2_write),      //       .write
-		.readdata2   (mm_interconnect_0_iir_coef_s2_readdata),   //       .readdata
-		.writedata2  (mm_interconnect_0_iir_coef_s2_writedata),  //       .writedata
-		.byteenable2 (mm_interconnect_0_iir_coef_s2_byteenable), //       .byteenable
-		.clk2        (clk_clk),                                  //   clk2.clk
-		.reset2      (rst_controller_reset_out_reset),           // reset2.reset
-		.reset_req2  (rst_controller_reset_out_reset_req),       //       .reset_req
-		.freeze      (1'b0)                                      // (terminated)
-	);
-
-	soc_system_conv1d_start iir_start (
-		.clk        (clk_clk),                                   //                 clk.clk
-		.reset_n    (~rst_controller_reset_out_reset),           //               reset.reset_n
-		.address    (mm_interconnect_0_iir_start_s1_address),    //                  s1.address
-		.write_n    (~mm_interconnect_0_iir_start_s1_write),     //                    .write_n
-		.writedata  (mm_interconnect_0_iir_start_s1_writedata),  //                    .writedata
-		.chipselect (mm_interconnect_0_iir_start_s1_chipselect), //                    .chipselect
-		.readdata   (mm_interconnect_0_iir_start_s1_readdata),   //                    .readdata
-		.out_port   (iir_start_export)                           // external_connection.export
-	);
-
-	soc_system_conv1d_done iir_done (
-		.clk      (clk_clk),                                //                 clk.clk
-		.reset_n  (~rst_controller_reset_out_reset),        //               reset.reset_n
-		.address  (mm_interconnect_0_iir_done_s1_address),  //                  s1.address
-		.readdata (mm_interconnect_0_iir_done_s1_readdata), //                    .readdata
-		.in_port  (iir_done_export)                         // external_connection.export
-	);
-
-	soc_system_conv1d_done iir_error (
-		.clk      (clk_clk),                                 //                 clk.clk
-		.reset_n  (~rst_controller_reset_out_reset),         //               reset.reset_n
-		.address  (mm_interconnect_0_iir_error_s1_address),  //                  s1.address
-		.readdata (mm_interconnect_0_iir_error_s1_readdata), //                    .readdata
-		.in_port  (iir_error_export)                         // external_connection.export
-	);
-
-	soc_system_iir_nsecoes iir_nsecoes (
-		.clk        (clk_clk),                                     //                 clk.clk
-		.reset_n    (~rst_controller_reset_out_reset),             //               reset.reset_n
-		.address    (mm_interconnect_0_iir_nsecoes_s1_address),    //                  s1.address
-		.write_n    (~mm_interconnect_0_iir_nsecoes_s1_write),     //                    .write_n
-		.writedata  (mm_interconnect_0_iir_nsecoes_s1_writedata),  //                    .writedata
-		.chipselect (mm_interconnect_0_iir_nsecoes_s1_chipselect), //                    .chipselect
-		.readdata   (mm_interconnect_0_iir_nsecoes_s1_readdata),   //                    .readdata
-		.out_port   (iir_nsecoes_export)                           // external_connection.export
-	);
-
 	soc_system_adc_buf adc_buf (
 		.clk         (clk_clk),                                 //   clk1.clk
 		.address     (adc_buf_address),                         //     s1.address
@@ -1256,7 +795,7 @@ module soc_system (
 		.freeze      (1'b0)                                     // (terminated)
 	);
 
-	soc_system_conv1d_start adc_start (
+	soc_system_fft_inverse adc_start (
 		.clk        (clk_clk),                                   //                 clk.clk
 		.reset_n    (~rst_controller_reset_out_reset),           //               reset.reset_n
 		.address    (mm_interconnect_0_adc_start_s1_address),    //                  s1.address
@@ -1267,7 +806,7 @@ module soc_system (
 		.out_port   (adc_start_export)                           // external_connection.export
 	);
 
-	soc_system_conv1d_done adc_done (
+	soc_system_fft_wrapper_done adc_done (
 		.clk      (clk_clk),                                //                 clk.clk
 		.reset_n  (~rst_controller_reset_out_reset),        //               reset.reset_n
 		.address  (mm_interconnect_0_adc_done_s1_address),  //                  s1.address
@@ -1432,34 +971,6 @@ module soc_system (
 		.adc_start_s1_readdata                                            (mm_interconnect_0_adc_start_s1_readdata),                   //                                                           .readdata
 		.adc_start_s1_writedata                                           (mm_interconnect_0_adc_start_s1_writedata),                  //                                                           .writedata
 		.adc_start_s1_chipselect                                          (mm_interconnect_0_adc_start_s1_chipselect),                 //                                                           .chipselect
-		.conv1d_done_s1_address                                           (mm_interconnect_0_conv1d_done_s1_address),                  //                                             conv1d_done_s1.address
-		.conv1d_done_s1_readdata                                          (mm_interconnect_0_conv1d_done_s1_readdata),                 //                                                           .readdata
-		.conv1d_hn_s2_address                                             (mm_interconnect_0_conv1d_hn_s2_address),                    //                                               conv1d_hn_s2.address
-		.conv1d_hn_s2_write                                               (mm_interconnect_0_conv1d_hn_s2_write),                      //                                                           .write
-		.conv1d_hn_s2_readdata                                            (mm_interconnect_0_conv1d_hn_s2_readdata),                   //                                                           .readdata
-		.conv1d_hn_s2_writedata                                           (mm_interconnect_0_conv1d_hn_s2_writedata),                  //                                                           .writedata
-		.conv1d_hn_s2_byteenable                                          (mm_interconnect_0_conv1d_hn_s2_byteenable),                 //                                                           .byteenable
-		.conv1d_hn_s2_chipselect                                          (mm_interconnect_0_conv1d_hn_s2_chipselect),                 //                                                           .chipselect
-		.conv1d_hn_s2_clken                                               (mm_interconnect_0_conv1d_hn_s2_clken),                      //                                                           .clken
-		.conv1d_start_s1_address                                          (mm_interconnect_0_conv1d_start_s1_address),                 //                                            conv1d_start_s1.address
-		.conv1d_start_s1_write                                            (mm_interconnect_0_conv1d_start_s1_write),                   //                                                           .write
-		.conv1d_start_s1_readdata                                         (mm_interconnect_0_conv1d_start_s1_readdata),                //                                                           .readdata
-		.conv1d_start_s1_writedata                                        (mm_interconnect_0_conv1d_start_s1_writedata),               //                                                           .writedata
-		.conv1d_start_s1_chipselect                                       (mm_interconnect_0_conv1d_start_s1_chipselect),              //                                                           .chipselect
-		.conv1d_xn_s2_address                                             (mm_interconnect_0_conv1d_xn_s2_address),                    //                                               conv1d_xn_s2.address
-		.conv1d_xn_s2_write                                               (mm_interconnect_0_conv1d_xn_s2_write),                      //                                                           .write
-		.conv1d_xn_s2_readdata                                            (mm_interconnect_0_conv1d_xn_s2_readdata),                   //                                                           .readdata
-		.conv1d_xn_s2_writedata                                           (mm_interconnect_0_conv1d_xn_s2_writedata),                  //                                                           .writedata
-		.conv1d_xn_s2_byteenable                                          (mm_interconnect_0_conv1d_xn_s2_byteenable),                 //                                                           .byteenable
-		.conv1d_xn_s2_chipselect                                          (mm_interconnect_0_conv1d_xn_s2_chipselect),                 //                                                           .chipselect
-		.conv1d_xn_s2_clken                                               (mm_interconnect_0_conv1d_xn_s2_clken),                      //                                                           .clken
-		.conv1d_yn_s2_address                                             (mm_interconnect_0_conv1d_yn_s2_address),                    //                                               conv1d_yn_s2.address
-		.conv1d_yn_s2_write                                               (mm_interconnect_0_conv1d_yn_s2_write),                      //                                                           .write
-		.conv1d_yn_s2_readdata                                            (mm_interconnect_0_conv1d_yn_s2_readdata),                   //                                                           .readdata
-		.conv1d_yn_s2_writedata                                           (mm_interconnect_0_conv1d_yn_s2_writedata),                  //                                                           .writedata
-		.conv1d_yn_s2_byteenable                                          (mm_interconnect_0_conv1d_yn_s2_byteenable),                 //                                                           .byteenable
-		.conv1d_yn_s2_chipselect                                          (mm_interconnect_0_conv1d_yn_s2_chipselect),                 //                                                           .chipselect
-		.conv1d_yn_s2_clken                                               (mm_interconnect_0_conv1d_yn_s2_clken),                      //                                                           .clken
 		.fft_bfp_exponent_s1_address                                      (mm_interconnect_0_fft_bfp_exponent_s1_address),             //                                        fft_bfp_exponent_s1.address
 		.fft_bfp_exponent_s1_readdata                                     (mm_interconnect_0_fft_bfp_exponent_s1_readdata),            //                                                           .readdata
 		.fft_inverse_s1_address                                           (mm_interconnect_0_fft_inverse_s1_address),                  //                                             fft_inverse_s1.address
@@ -1502,71 +1013,6 @@ module soc_system (
 		.fft_yn_re_s2_byteenable                                          (mm_interconnect_0_fft_yn_re_s2_byteenable),                 //                                                           .byteenable
 		.fft_yn_re_s2_chipselect                                          (mm_interconnect_0_fft_yn_re_s2_chipselect),                 //                                                           .chipselect
 		.fft_yn_re_s2_clken                                               (mm_interconnect_0_fft_yn_re_s2_clken),                      //                                                           .clken
-		.fir_done_s1_address                                              (mm_interconnect_0_fir_done_s1_address),                     //                                                fir_done_s1.address
-		.fir_done_s1_readdata                                             (mm_interconnect_0_fir_done_s1_readdata),                    //                                                           .readdata
-		.fir_error_s1_address                                             (mm_interconnect_0_fir_error_s1_address),                    //                                               fir_error_s1.address
-		.fir_error_s1_readdata                                            (mm_interconnect_0_fir_error_s1_readdata),                   //                                                           .readdata
-		.fir_hn_s2_address                                                (mm_interconnect_0_fir_hn_s2_address),                       //                                                  fir_hn_s2.address
-		.fir_hn_s2_write                                                  (mm_interconnect_0_fir_hn_s2_write),                         //                                                           .write
-		.fir_hn_s2_readdata                                               (mm_interconnect_0_fir_hn_s2_readdata),                      //                                                           .readdata
-		.fir_hn_s2_writedata                                              (mm_interconnect_0_fir_hn_s2_writedata),                     //                                                           .writedata
-		.fir_hn_s2_byteenable                                             (mm_interconnect_0_fir_hn_s2_byteenable),                    //                                                           .byteenable
-		.fir_hn_s2_chipselect                                             (mm_interconnect_0_fir_hn_s2_chipselect),                    //                                                           .chipselect
-		.fir_hn_s2_clken                                                  (mm_interconnect_0_fir_hn_s2_clken),                         //                                                           .clken
-		.fir_start_s1_address                                             (mm_interconnect_0_fir_start_s1_address),                    //                                               fir_start_s1.address
-		.fir_start_s1_write                                               (mm_interconnect_0_fir_start_s1_write),                      //                                                           .write
-		.fir_start_s1_readdata                                            (mm_interconnect_0_fir_start_s1_readdata),                   //                                                           .readdata
-		.fir_start_s1_writedata                                           (mm_interconnect_0_fir_start_s1_writedata),                  //                                                           .writedata
-		.fir_start_s1_chipselect                                          (mm_interconnect_0_fir_start_s1_chipselect),                 //                                                           .chipselect
-		.fir_xn_s2_address                                                (mm_interconnect_0_fir_xn_s2_address),                       //                                                  fir_xn_s2.address
-		.fir_xn_s2_write                                                  (mm_interconnect_0_fir_xn_s2_write),                         //                                                           .write
-		.fir_xn_s2_readdata                                               (mm_interconnect_0_fir_xn_s2_readdata),                      //                                                           .readdata
-		.fir_xn_s2_writedata                                              (mm_interconnect_0_fir_xn_s2_writedata),                     //                                                           .writedata
-		.fir_xn_s2_byteenable                                             (mm_interconnect_0_fir_xn_s2_byteenable),                    //                                                           .byteenable
-		.fir_xn_s2_chipselect                                             (mm_interconnect_0_fir_xn_s2_chipselect),                    //                                                           .chipselect
-		.fir_xn_s2_clken                                                  (mm_interconnect_0_fir_xn_s2_clken),                         //                                                           .clken
-		.fir_yn_s2_address                                                (mm_interconnect_0_fir_yn_s2_address),                       //                                                  fir_yn_s2.address
-		.fir_yn_s2_write                                                  (mm_interconnect_0_fir_yn_s2_write),                         //                                                           .write
-		.fir_yn_s2_readdata                                               (mm_interconnect_0_fir_yn_s2_readdata),                      //                                                           .readdata
-		.fir_yn_s2_writedata                                              (mm_interconnect_0_fir_yn_s2_writedata),                     //                                                           .writedata
-		.fir_yn_s2_byteenable                                             (mm_interconnect_0_fir_yn_s2_byteenable),                    //                                                           .byteenable
-		.fir_yn_s2_chipselect                                             (mm_interconnect_0_fir_yn_s2_chipselect),                    //                                                           .chipselect
-		.fir_yn_s2_clken                                                  (mm_interconnect_0_fir_yn_s2_clken),                         //                                                           .clken
-		.iir_coef_s2_address                                              (mm_interconnect_0_iir_coef_s2_address),                     //                                                iir_coef_s2.address
-		.iir_coef_s2_write                                                (mm_interconnect_0_iir_coef_s2_write),                       //                                                           .write
-		.iir_coef_s2_readdata                                             (mm_interconnect_0_iir_coef_s2_readdata),                    //                                                           .readdata
-		.iir_coef_s2_writedata                                            (mm_interconnect_0_iir_coef_s2_writedata),                   //                                                           .writedata
-		.iir_coef_s2_byteenable                                           (mm_interconnect_0_iir_coef_s2_byteenable),                  //                                                           .byteenable
-		.iir_coef_s2_chipselect                                           (mm_interconnect_0_iir_coef_s2_chipselect),                  //                                                           .chipselect
-		.iir_coef_s2_clken                                                (mm_interconnect_0_iir_coef_s2_clken),                       //                                                           .clken
-		.iir_done_s1_address                                              (mm_interconnect_0_iir_done_s1_address),                     //                                                iir_done_s1.address
-		.iir_done_s1_readdata                                             (mm_interconnect_0_iir_done_s1_readdata),                    //                                                           .readdata
-		.iir_error_s1_address                                             (mm_interconnect_0_iir_error_s1_address),                    //                                               iir_error_s1.address
-		.iir_error_s1_readdata                                            (mm_interconnect_0_iir_error_s1_readdata),                   //                                                           .readdata
-		.iir_nsecoes_s1_address                                           (mm_interconnect_0_iir_nsecoes_s1_address),                  //                                             iir_nsecoes_s1.address
-		.iir_nsecoes_s1_write                                             (mm_interconnect_0_iir_nsecoes_s1_write),                    //                                                           .write
-		.iir_nsecoes_s1_readdata                                          (mm_interconnect_0_iir_nsecoes_s1_readdata),                 //                                                           .readdata
-		.iir_nsecoes_s1_writedata                                         (mm_interconnect_0_iir_nsecoes_s1_writedata),                //                                                           .writedata
-		.iir_nsecoes_s1_chipselect                                        (mm_interconnect_0_iir_nsecoes_s1_chipselect),               //                                                           .chipselect
-		.iir_start_s1_address                                             (mm_interconnect_0_iir_start_s1_address),                    //                                               iir_start_s1.address
-		.iir_start_s1_write                                               (mm_interconnect_0_iir_start_s1_write),                      //                                                           .write
-		.iir_start_s1_readdata                                            (mm_interconnect_0_iir_start_s1_readdata),                   //                                                           .readdata
-		.iir_start_s1_writedata                                           (mm_interconnect_0_iir_start_s1_writedata),                  //                                                           .writedata
-		.iir_start_s1_chipselect                                          (mm_interconnect_0_iir_start_s1_chipselect),                 //                                                           .chipselect
-		.iir_xn_s2_address                                                (mm_interconnect_0_iir_xn_s2_address),                       //                                                  iir_xn_s2.address
-		.iir_xn_s2_write                                                  (mm_interconnect_0_iir_xn_s2_write),                         //                                                           .write
-		.iir_xn_s2_readdata                                               (mm_interconnect_0_iir_xn_s2_readdata),                      //                                                           .readdata
-		.iir_xn_s2_writedata                                              (mm_interconnect_0_iir_xn_s2_writedata),                     //                                                           .writedata
-		.iir_xn_s2_byteenable                                             (mm_interconnect_0_iir_xn_s2_byteenable),                    //                                                           .byteenable
-		.iir_xn_s2_chipselect                                             (mm_interconnect_0_iir_xn_s2_chipselect),                    //                                                           .chipselect
-		.iir_xn_s2_clken                                                  (mm_interconnect_0_iir_xn_s2_clken),                         //                                                           .clken
-		.iir_yn_s2_address                                                (mm_interconnect_0_iir_yn_s2_address),                       //                                                  iir_yn_s2.address
-		.iir_yn_s2_write                                                  (mm_interconnect_0_iir_yn_s2_write),                         //                                                           .write
-		.iir_yn_s2_readdata                                               (mm_interconnect_0_iir_yn_s2_readdata),                      //                                                           .readdata
-		.iir_yn_s2_writedata                                              (mm_interconnect_0_iir_yn_s2_writedata),                     //                                                           .writedata
-		.iir_yn_s2_byteenable                                             (mm_interconnect_0_iir_yn_s2_byteenable),                    //                                                           .byteenable
-		.iir_yn_s2_chipselect                                             (mm_interconnect_0_iir_yn_s2_chipselect),                    //                                                           .chipselect
-		.iir_yn_s2_clken                                                  (mm_interconnect_0_iir_yn_s2_clken),                         //                                                           .clken
 		.intr_capturer_0_avalon_slave_0_address                           (mm_interconnect_0_intr_capturer_0_avalon_slave_0_address),  //                             intr_capturer_0_avalon_slave_0.address
 		.intr_capturer_0_avalon_slave_0_read                              (mm_interconnect_0_intr_capturer_0_avalon_slave_0_read),     //                                                           .read
 		.intr_capturer_0_avalon_slave_0_readdata                          (mm_interconnect_0_intr_capturer_0_avalon_slave_0_readdata), //                                                           .readdata
