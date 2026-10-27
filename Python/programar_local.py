@@ -33,6 +33,7 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -45,9 +46,13 @@ SOF = os.path.join(RAIZ, "Quartus", "output_files", "soc_system_time_limited.sof
 DIR_TETHERS = os.path.join(RAIZ, ".morphe-estado", "tethers")
 
 # Dois aplicativos abertos ao mesmo tempo no mesmo PC (duas contas, ou dois
-# cliques) não podem programar o mesmo cabo juntos. Em /tmp, e não no clone:
-# vale para qualquer pasta.
-TRAVA = os.path.join(tempfile.gettempdir(), "morphe-programar.lock")
+# cliques) não podem programar o mesmo cabo juntos. Até 27/10/2026 a trava era
+# o arquivo /tmp/morphe-programar.lock; mas o Ubuntu (fs.protected_regular)
+# não deixa uma conta abrir com O_CREAT um arquivo de outra no /tmp, mesmo
+# 666, e a segunda conta a abrir o aplicativo desistia calada. Um soquete no
+# espaço abstrato do Linux não tem arquivo nem dono: vale para todas as contas
+# e some sozinho quando o processo termina.
+TRAVA = "\0morphe-programar-fpga"
 
 ESPERA_PROGRAMACAO_S = 60
 
@@ -55,7 +60,10 @@ ESPERA_PROGRAMACAO_S = 60
 @dataclass
 class Resultado:
     cabo: str
-    situacao: str          # "programada", "ja_programada" ou "falhou"
+    # "programada", "ja_programada" (tether vivo; detalhe = de quem), "falhou",
+    # ou, sem cabo nenhum para tentar: "sem_quartus", "sem_cabo", "ocupado"
+    # (outro aplicativo programando agora) e "nao_linux".
+    situacao: str
     detalhe: str = ""
 
 
@@ -138,12 +146,13 @@ def listar_cabos(bin_dir: str) -> List[str]:
     return ler_cabos(r.stdout + r.stderr)
 
 
-def cabo_em_uso(cabo: str) -> bool:
-    """Há um quartus_pgm aberto neste cabo, de qualquer conta? Lê o /proc,
-    que mostra o nome e a linha de comando dos processos de todas as contas
-    -- o mesmo que o 'pgrep -a quartus_pgm | grep cabo' do morphe-up.sh. O
-    nome (comm), e não o primeiro argumento: o quartus_pgm do bin/ é um
-    script, e o primeiro argumento pode ser o do interpretador."""
+def tethers_no_cabo(cabo: str) -> List[tuple]:
+    """(pid, uid) de cada quartus_pgm aberto neste cabo, de qualquer conta.
+    Lê o /proc, que mostra o nome e a linha de comando dos processos de todas
+    as contas -- o mesmo que o 'pgrep -a quartus_pgm | grep cabo' do
+    morphe-up.sh. O nome (comm), e não o primeiro argumento: o quartus_pgm do
+    bin/ é um script, e o primeiro argumento pode ser o do interpretador."""
+    achados = []
     for pasta in glob.glob("/proc/[0-9]*"):
         try:
             with open(os.path.join(pasta, "comm"), "rb") as f:
@@ -151,11 +160,44 @@ def cabo_em_uso(cabo: str) -> bool:
                     continue
             with open(os.path.join(pasta, "cmdline"), "rb") as f:
                 linha = f.read().replace(b"\0", b" ")
+            uid = os.stat(pasta).st_uid
         except OSError:
             continue
         if cabo.encode() in linha:
-            return True
-    return False
+            achados.append((int(os.path.basename(pasta)), uid))
+    return achados
+
+
+def cabo_em_uso(cabo: str) -> bool:
+    return bool(tethers_no_cabo(cabo))
+
+
+def _nome_conta(uid: int) -> str:
+    try:
+        import pwd
+        return pwd.getpwuid(uid).pw_name
+    except (ImportError, KeyError):
+        return str(uid)
+
+
+def _derrubar_tethers_meus(tethers: List[tuple]) -> None:
+    """Derruba o grupo (bash, sleep, quartus_pgm) de cada tether desta conta.
+    Os de outra conta o sistema não deixa, e nem deve."""
+    for pid, uid in tethers:
+        if uid != os.getuid():
+            continue
+        try:
+            os.killpg(os.getpgid(pid), 15)
+        except OSError:
+            pass
+    for _ in range(10):                 # o quartus_pgm solta o cabo em ~1 s
+        if not any(uid == os.getuid() for _p, uid in _ainda_vivos(tethers)):
+            return
+        time.sleep(0.5)
+
+
+def _ainda_vivos(tethers: List[tuple]) -> List[tuple]:
+    return [(p, u) for p, u in tethers if os.path.exists(f"/proc/{p}")]
 
 
 def chave_cabo(cabo: str) -> str:
@@ -265,36 +307,41 @@ def _encerrar(arq_pid: str) -> None:
         pass
 
 
-def programar_placas_locais(avisar: Callable[[str], None] = lambda _m: None
-                            ) -> List[Resultado]:
+def programar_placas_locais(avisar: Callable[[str], None] = lambda _m: None,
+                            forcar: bool = False) -> List[Resultado]:
     """Programa a FPGA de cada placa ligada pelo USB neste PC que ainda não
-    tem tether. Lista vazia quando não há o que fazer: outro sistema, sem
-    Quartus, sem cabo, ou outro aplicativo programando agora. Nunca levanta."""
-    if not sys.platform.startswith("linux") or not os.path.isfile(SOF):
-        return []
+    tem tether. Com forcar (o botão "Gravar a FPGA"), também a que tem tether
+    DESTA conta: ele é derrubado e a placa, gravada de novo; o de outra conta
+    fica, e o resultado diz de quem é. Sem nada para tentar, devolve um só
+    Resultado sem cabo, que diz por quê (sem_quartus, sem_cabo, ...). Nunca
+    levanta."""
+    if not sys.platform.startswith("linux"):
+        return [Resultado("", "nao_linux")]
+    if not os.path.isfile(SOF):
+        return [Resultado("", "falhou", f"não achei o bitstream em {SOF}")]
     if shutil.which("setsid") is None:
-        return []
-    try:
-        import fcntl
-        fd = os.open(TRAVA, os.O_RDWR | os.O_CREAT, 0o666)
-    except (ImportError, OSError):
-        return []
+        return [Resultado("", "falhou", "falta o comando setsid (pacote util-linux)")]
+    trava = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         try:
-            os.fchmod(fd, 0o666)
+            trava.bind(TRAVA)
         except OSError:
-            pass
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return []
+            return [Resultado("", "ocupado")]
         bin_dir = achar_quartus()
         if bin_dir is None:
-            return []
+            return [Resultado("", "sem_quartus")]
+        cabos = listar_cabos(bin_dir)
+        if not cabos:
+            return [Resultado("", "sem_cabo")]
         resultados = []
-        for cabo in listar_cabos(bin_dir):
-            if cabo_em_uso(cabo):
-                resultados.append(Resultado(cabo, "ja_programada"))
+        for cabo in cabos:
+            tethers = tethers_no_cabo(cabo)
+            if tethers and forcar:
+                _derrubar_tethers_meus(tethers)
+                tethers = tethers_no_cabo(cabo)
+            if tethers:
+                donos = sorted({_nome_conta(uid) for _pid, uid in tethers})
+                resultados.append(Resultado(cabo, "ja_programada", ", ".join(donos)))
                 continue
             avisar(f"Programando a FPGA da placa no cabo {cabo} (uns 10 s)...")
             resultados.append(programar_cabo(bin_dir, cabo))
@@ -302,9 +349,34 @@ def programar_placas_locais(avisar: Callable[[str], None] = lambda _m: None
     except Exception as e:          # o aplicativo abre de qualquer jeito
         return [Resultado("", "falhou", str(e))]
     finally:
-        os.close(fd)
+        trava.close()
+
+
+def descrever(r: Resultado) -> str:
+    """Uma frase para quem está na frente do PC: o painel e o terminal dizem
+    o mesmo."""
+    if r.situacao == "programada":
+        return f"FPGA gravada pelo cabo {r.cabo}, ligado neste PC."
+    if r.situacao == "ja_programada":
+        return (f"O cabo {r.cabo} já está com a FPGA gravada e a licença presa pela "
+                f"conta {r.detalhe}. Para gravar de novo por esta conta, feche o Morphe "
+                f"(ou rode ./morphe-up.sh --down) na conta {r.detalhe}.")
+    if r.situacao == "sem_quartus":
+        return ("Este PC não tem o Quartus (procurei em /opt/intelFPGA_lite e na pasta "
+                "da conta): rode o instala-quartus.sh nele.")
+    if r.situacao == "sem_cabo":
+        return ("O jtagconfig não viu nenhuma placa no USB deste PC. Confira o cabo: é o "
+                "mini-USB ao lado do botão de power, não o UART.")
+    if r.situacao == "ocupado":
+        return "Outro Morphe aberto neste PC está gravando a FPGA agora; espere uns 10 s."
+    if r.situacao == "nao_linux":
+        return "Gravar a FPGA pelo USB só funciona no Linux do laboratório."
+    alvo = f"no cabo {r.cabo}" if r.cabo else "neste PC"
+    return f"Não consegui gravar a FPGA {alvo}: {r.detalhe}"
 
 
 if __name__ == "__main__":
-    for r in programar_placas_locais(print):
-        print(f"{r.cabo}: {r.situacao} {r.detalhe}".rstrip())
+    forcar = "--forcar" in sys.argv[1:]
+    for r in programar_placas_locais(print, forcar=forcar):
+        print(f"{r.cabo or '-'}: {r.situacao} {r.detalhe}".rstrip())
+        print(f"  {descrever(r)}")

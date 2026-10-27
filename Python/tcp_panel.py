@@ -30,6 +30,7 @@ isso que não há nada a "desconectar" ao fechar a GUI.
 """
 from __future__ import annotations
 
+import getpass
 import os
 import socket
 import threading
@@ -235,6 +236,13 @@ class TcpConfigPanel(ttk.LabelFrame):
                                           style="Secondary.TButton",
                                           command=self._on_autoconnect)
         self.btn_autoconnect.pack(side="right")
+        # O "morphe-up" do aplicativo: grava de novo a FPGA da placa ligada
+        # pelo USB neste PC e procura. Sem SSH e sem estação (27/10/2026).
+        self._gravando = False
+        self.btn_gravar = ttk.Button(topo, text="Gravar a FPGA (USB)",
+                                     style="Secondary.TButton",
+                                     command=self._on_gravar_fpga)
+        self.btn_gravar.pack(side="right", padx=(0, 8))
 
         # --- uma linha por placa ---------------------------------------
         self._quadro_placas = tk.Frame(self, background=card)
@@ -494,11 +502,24 @@ class TcpConfigPanel(ttk.LabelFrame):
     # Placas ligadas pelo USB neste PC (desde 22/10/2026)
     # ==================================================================
 
-    def _programar_placas_locais(self):
+    def _on_gravar_fpga(self):
+        if self._gravando:
+            return
+        self._programar_placas_locais(manual=True)
+
+    def _programar_placas_locais(self, manual: bool = False):
         """Programa, em segundo plano, a FPGA das placas ligadas pelo USB
         neste computador (ver programar_local). O servidor da placa percebe
         sozinho, pela assinatura do bitstream; o painel só precisa procurar
-        de novo se ainda não tem placa."""
+        de novo se ainda não tem placa.
+
+        Ao abrir (manual=False), pula o cabo que já tem tether e fica calado
+        se o PC não tem Quartus ou placa: é o caso de quem só usa o gerador.
+        No botão (manual=True), grava de novo mesmo com tether desta conta e
+        sempre diz o que aconteceu."""
+        self._gravando = True
+        self.btn_gravar.configure(state="disabled", text="Gravando...")
+
         def avisar(texto: str):
             try:
                 self.after(0, self._mensagem, texto)
@@ -506,28 +527,38 @@ class TcpConfigPanel(ttk.LabelFrame):
                 pass
 
         def run():
-            resultados = programar_local.programar_placas_locais(avisar)
+            resultados = programar_local.programar_placas_locais(avisar, forcar=manual)
             try:
-                self.after(0, self._placas_locais_programadas, resultados)
+                self.after(0, self._placas_locais_programadas, resultados, manual)
             except RuntimeError:
                 pass
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _placas_locais_programadas(self, resultados):
-        programadas = [r.cabo for r in resultados if r.situacao == "programada"]
-        falhas = [r for r in resultados if r.situacao == "falhou"]
+    def _placas_locais_programadas(self, resultados, manual: bool = False):
+        self._gravando = False
+        self.btn_gravar.configure(state="normal", text="Gravar a FPGA (USB)")
+        programadas = [r for r in resultados if r.situacao == "programada"]
         if programadas:
             self._programou_local = True
+        # O que dizer: falha primeiro; depois o que foi gravado; o resto
+        # (tether de outra conta, sem cabo, sem Quartus) só no botão, ou ao
+        # abrir quando é o motivo de não ter gravado uma placa que está ali.
+        falhas = [r for r in resultados if r.situacao == "falhou"]
+        eu = getpass.getuser()
+        alheias = [r for r in resultados if r.situacao == "ja_programada"
+                   and r.detalhe and eu not in r.detalhe.split(", ")]
         if falhas:
-            self._mensagem("Não consegui programar a FPGA ligada neste PC ("
-                           + "; ".join(f"{r.cabo}: {r.detalhe}" if r.cabo else r.detalhe
-                                       for r in falhas)
-                           + "). Na estação, o ./morphe-up.sh resolve.", "aviso")
+            self._mensagem(" ".join(programar_local.descrever(r) for r in falhas), "aviso")
         elif programadas:
-            self._mensagem(f"FPGA programada pelo cabo {', '.join(programadas)}, "
-                           "ligado neste PC.", "ok")
-        if programadas and self._conectada is None:
+            self._mensagem(" ".join(programar_local.descrever(r) for r in programadas), "ok")
+        elif alheias and (manual or self._conectada is None):
+            self._mensagem(" ".join(programar_local.descrever(r) for r in alheias), "neutro")
+        elif manual:
+            texto = " ".join(programar_local.descrever(r) for r in resultados) \
+                or "Nada a gravar."
+            self._mensagem(texto, "neutro")
+        if programadas and (manual or self._conectada is None):
             # O servidor da placa lê a assinatura a cada pergunta: já
             # responde como preparada.
             self.after(500, self._procurar_depois_de_programar)
