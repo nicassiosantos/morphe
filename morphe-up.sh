@@ -13,6 +13,7 @@
 # Uso:
 #   ./morphe-up.sh                      # placa lembrada ou descoberta na rede
 #   ./morphe-up.sh --board 172.16.103.226
+#   ./morphe-up.sh --board de1soc-03    # pelo nome: o IP atual vem do broadcast
 #   ./morphe-up.sh --cable 'DE-SoC [1-2]'   # quando ha mais de uma placa na estacao
 #   ./morphe-up.sh --todas              # grava pelo USB as FPGAs ligadas nesta estacao e
 #                                       # prepara cada placa da lista, pelo nome
@@ -1210,6 +1211,22 @@ acao_todas() {
     for l in ${falhas[@]+"${falhas[@]}"}; do erro "$l -- veja a saida acima"; done
     (( ${#falhas[@]} == 0 ))
 }
+
+# --board aceita o hostname (de1soc-03) alem do IP: o IP vem do broadcast, como
+# no --todas e no aplicativo. O IP muda com o DHCP e com o ponto de rede; o
+# nome, nao (27/10/2026).
+if [[ -n "$PLACA" && ! "$PLACA" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    NOME_PEDIDO="$PLACA"
+    NA_REDE="$(placas_na_rede)"
+    PLACA="$(awk -v h="$NOME_PEDIDO" '$2 == h {print $1; exit}' <<< "$NA_REDE")"
+    if [[ -z "$PLACA" ]]; then
+        erro "nenhuma placa chamada $NOME_PEDIDO respondeu ao broadcast. As que responderam:"
+        printf '%s\n' "${NA_REDE:-(nenhuma)}" | sed 's/^/       /' >&2
+        morrer "confira o nome da placa e se ela esta na rede ha mais de um minuto" \
+               "(o servidor sobe sozinho no boot e e ele que responde)."
+    fi
+    ok "$NOME_PEDIDO esta em $PLACA"
+fi
 
 # Depois que todas as funcoes existem, e antes de qualquer ssh.
 montar_ssh_opts
