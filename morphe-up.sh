@@ -574,6 +574,11 @@ ip_da_placa_do_cabo() {
 # script.
 resolver_placa() {
     ALVO=""
+    # "pedida" (--board, $MORPHE_BOARD, o hostname do cabo) ou "deduzida" (a
+    # unica da rede, a lembrada, a varredura). Deduzida, o conferir_identidade
+    # pergunta antes de mexer no servidor: com as placas espalhadas pelo
+    # laboratorio, a unica que responde pode ser a de outro PC (27/10/2026).
+    ALVO_ORIGEM=pedida
     if [[ -n "$PLACA" ]]; then ALVO="$PLACA"; return 0; fi
     if [[ -n "${MORPHE_BOARD:-}" ]]; then ALVO="$MORPHE_BOARD"; return 0; fi
 
@@ -582,6 +587,7 @@ resolver_placa() {
         ALVO="$(ip_da_placa_do_cabo "$cabo")"
         [[ -n "$ALVO" ]] && return 0
     fi
+    ALVO_ORIGEM=deduzida
 
     local lembrada=""
     [[ -f "$CONF_PLACA" ]] && lembrada="$(cat "$CONF_PLACA")"
@@ -633,6 +639,31 @@ if achados:
 # ficaria recusando tudo com "FPGA nao preparada".
 conferir_identidade() {
     local cabo="${CABO:-$CABO_PEDIDO}"
+    if [[ "${ALVO_ORIGEM:-pedida}" == deduzida ]]; then
+        # A assinatura nao serve para isto: toda placa gravada com o Morphe a
+        # tem. Em 27/10/2026 a FPGA gravada foi a da placa 1, no USB do PC, e o
+        # servidor reiniciado (e depois parado pelo --down) foi o da placa 2,
+        # noutro PC -- a unica que respondeu ao broadcast.
+        local nome; nome="$(hostname_em "$ALVO")"
+        local qual="${nome:-sem nome} em $ALVO"
+        local doque="o servidor desta placa vai ser reiniciado"
+        (( FPGA_PROGRAMADA )) && doque="a FPGA gravada agora foi a do cabo $cabo; o servidor de $qual vai ser reiniciado"
+        if [[ ! -t 0 ]]; then
+            morrer "nao sei qual placa e a deste comando: achei $qual, mas por deducao." \
+                   "$doque, e ela pode ser a de outro computador." \
+                   "diga qual:  ./morphe-up.sh --board <nome da placa, ex. de1soc-02>"
+        fi
+        aviso "ninguem disse qual placa e: achei $qual, por deducao."
+        aviso "$doque."
+        local resp=""
+        read -r -p "    E essa mesma? [s/N] " resp || true
+        [[ "$resp" =~ ^[sS] ]] \
+            || morrer "nada foi mexido no servidor." \
+                      "diga qual:  ./morphe-up.sh --board <nome da placa, ex. de1soc-02>" \
+                      "o nome aparece no prompt do console serial (root@de1soc-02)."
+        ok "confirmado: $qual"
+        return 0
+    fi
     [[ -n "$cabo" ]] || return 0
     local esperado; esperado="$(hostname_do_cabo "$cabo")"
     [[ -n "$esperado" ]] || return 0
@@ -680,6 +711,22 @@ montar_ssh_opts() {
 }
 
 ssh_placa() { ssh "${SSH_OPTS[@]}" "$USUARIO_PLACA@$ALVO" "$@"; }
+
+# Sem a chave, cada ssh do script pede a senha do root de novo (tres ou quatro
+# vezes por execucao). Confere uma vez, antes do primeiro, e diz o que fazer.
+# A chave e por conta E por computador: a da estacao nao vale num PC do lab.
+verificar_chave() {
+    local saida
+    saida="$(ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$ALVO" true 2>&1)" && return 0
+    if grep -q 'Permission denied' <<< "$saida"; then
+        morrer "a conta $(id -un) deste computador ($(hostname)) nao tem a chave SSH da placa $ALVO;" \
+               "sem ela, a senha do root seria pedida a cada passo." \
+               "uma vez por conta e por placa:  ./morphe-up.sh --setup-ssh --board $ALVO" \
+               "num PC de aluno o morphe-up.sh nao e preciso: o aplicativo grava a FPGA pelo" \
+               "USB ao abrir (ou no botao 'Gravar a FPGA') e nao usa SSH."
+    fi
+    morrer "o SSH ate $ALVO falhou:" "$(head -3 <<< "$saida")"
+}
 
 # O erro cru do ssh ("No route to host") nao diz o que fazer, e a v1.2 existe
 # justamente para isso. A checagem tambem separa dois casos que se parecem: a
@@ -998,10 +1045,14 @@ escrever_bloco_ssh_config() {
 
 # Existe servico de boot instalado nesta placa? Muda o que o --down deve fazer.
 # Ecoa "systemd", "initd" ou nada.
+# systemd, initd, nenhum -- ou sem_acesso, quando o ssh nem entrou. "Nao
+# consegui perguntar" nao pode virar "nao tem autostart": foi o que fez o
+# --down de 27/10/2026 matar o servidor de uma placa com autostart.
 tipo_de_servico() {
     ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USUARIO_PLACA@$1" \
         "if [ -f /etc/systemd/system/morphe-server.service ]; then echo systemd; \
-         elif [ -f /etc/init.d/morphe-server ]; then echo initd; fi" 2>/dev/null || true
+         elif [ -f /etc/init.d/morphe-server ]; then echo initd; else echo nenhum; fi" \
+        2>/dev/null || echo sem_acesso
 }
 
 acao_down() {
@@ -1013,6 +1064,15 @@ acao_down() {
     [[ -f "$CONF_PLACA" ]] || { ok "pronto"; return 0; }
     local ip; ip="$(cat "$CONF_PLACA")"
     local servico; servico="$(tipo_de_servico "$ip")"
+
+    if [[ "$servico" == sem_acesso ]]; then
+        # Sem entrar na placa, nao da para saber se o servidor tem autostart;
+        # matar as cegas deixa uma placa com autostart fora da rede ate o boot.
+        aviso "nao entrei em $ip sem senha (esta conta nao tem a chave): o servidor fica como esta"
+        ok "pronto"
+        return 0
+    fi
+    [[ "$servico" == nenhum ]] && servico=""
 
     if [[ -n "$servico" && $PARAR_SERVIDOR -eq 0 ]]; then
         # Com autostart instalado, derrubar o servidor e inutil e enganoso: no
@@ -1140,6 +1200,7 @@ acao_up() {
     ok "placa: $ALVO"
     verificar_alcance
     conferir_identidade
+    verificar_chave
     lembrar_placa "$ALVO"
 
     if (( FORCA_DEPLOY )); then

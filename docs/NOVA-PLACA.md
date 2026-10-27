@@ -351,7 +351,12 @@ Na prática, para mudar uma placa de lugar:
 
    Sem cabo na lista (ou com `Unable to lock chain`), falta a regra udev do USB-Blaster
    ou o usuário não pode usar a porta — `instala-quartus.sh`.
-3. Abra o aplicativo. Ele grava a FPGA e conecta; a barra de status diz qual placa.
+3. Abra o aplicativo. Ele grava a FPGA e conecta; o painel "Placas do laboratório"
+   diz qual placa. Se ele não gravar, o painel diz por quê (sem Quartus, sem cabo, ou
+   a licença presa pela conta de outra pessoa). O botão **Gravar a FPGA (USB)** grava
+   de novo a qualquer momento, sem SSH e sem estação: é o `morphe-up.sh` do aluno.
+   Num PC de aluno o `morphe-up.sh` não é preciso, e sem a chave SSH da conta ele
+   para em vez de pedir a senha do root a cada passo.
 4. Se a placa não aparecer, o IP antigo da lista está velho e o broadcast não chegou
    (outra sub-rede). Descubra o IP novo (no console serial, `ip addr show eth0`) e
    corrija a linha dela no `placas.conf` ou no `placas.local.conf`.
