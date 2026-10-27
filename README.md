@@ -44,6 +44,11 @@ inclusive a instalação para uma turma inteira, está em `PREPARACAO.md`.
 O servidor atende um cliente por vez: dois alunos na mesma placa não recebem erro, um
 espera o outro. Com várias placas no `placas.conf`, o aplicativo escolhe a mais livre.
 
+Uma placa também pode ficar ao lado de qualquer computador, em qualquer ponto de rede:
+ao abrir, o aplicativo grava a FPGA das placas ligadas ao USB daquele computador, e cada
+placa reconhece o próprio bitstream e é achada pelo nome. Ver `docs/NOVA-PLACA.md`,
+"Trocar a placa de computador ou de ponto de rede".
+
 ## O que é cada pasta
 
 | pasta | o que é |

@@ -235,9 +235,11 @@ Medido em 21/09/2026, na placa 2. Tudo com a rootfs montada em `/mnt/cartao`:
   No boot o U-Boot carrega o `soc_system.rbf` de fábrica, em que os PIOs do Morphe não
   existem; o servidor antigo escrevia neles ao subir e **travava o barramento do HPS** —
   a placa some da rede, o login na serial congela, e nada disso aparece em log nenhum. O
-  servidor atual só toca a FPGA depois que o `morphe-up.sh` grava
-  `/var/run/morphe-fpga-preparada` (tmpfs, some no reboot). Ver
-  `C/autostart/instala-autostart.sh`.
+  servidor atual só toca a FPGA quando ela está **preparada**: desde 22/10/2026, quando
+  lê a assinatura `MRPH` que o bitstream do Morphe expõe ao HPS (seção "Trocar a placa
+  de computador ou de ponto de rede"); para um `.sof` anterior, quando o
+  `morphe-up.sh --marca` grava `/var/run/morphe-fpga-preparada` (tmpfs, some no
+  reboot). Ver `C/autostart/instala-autostart.sh`.
 
 ## Passo 3 — SSH na placa nova
 
@@ -288,11 +290,78 @@ ao reboot **desde que o servidor seja o de 21/09 ou posterior** (seção 2.4).
 
 ## Passo 6 — pôr em serviço
 
+Primeiro, a FPGA. Ela é gravada pelo cabo USB-Blaster ligado ao computador onde a placa
+está; o aplicativo faz isso sozinho ao abrir (seção seguinte). O `morphe-up.sh` envia o
+servidor deste ramo e o compila na placa:
+
 ```bash
-cd /opt/morphe && ./morphe-up.sh --board <ip da placa nova>
+cd /opt/morphe && ./morphe-up.sh --skip-fpga --board <ip da placa nova> --deploy
 ```
 
 Tem que fechar **4/4** no `morphe_ping`. Com isso a placa está pronta para a turma.
+
+**O servidor tem que ser o deste ramo.** O da versão completa (principal) espera os
+blocos de convolução, FIR e IIR, que o bitstream desta versão não tem, e vice-versa: a
+placa recusa as operações com "o bitstream na FPGA não é o deste servidor". Rode o
+`--deploy` de um clone (ou do `/opt/morphe`) no ramo `estagio/adc-fft`.
+
+Por fim, registre a placa para que os computadores a achem sem varrer a rede. Com
+acesso de escrita ao repositório, uma linha no `placas.conf`; sem ele, a mesma linha no
+`placas.local.conf` ao lado (fora do git), que o `atualizar-lab.sh` copia da estação
+para os computadores:
+
+```
+172.16.230.176    placa 3, de1soc-03, 02:00:00:6d:70:03
+```
+
+## Trocar a placa de computador ou de ponto de rede
+
+Desde 22/10/2026 uma placa pode mudar de mesa, de computador e de cabo de rede sem
+passar pela estação. Três coisas tornam isso possível:
+
+1. **O aplicativo grava a FPGA ao abrir** (`Python/programar_local.py`). No Linux, com
+   o Quartus 20.1 instalado, cada cabo `DE-SoC` que o `jtagconfig` mostrar e que não
+   tenha um `quartus_pgm` aberto (de nenhuma conta) recebe o `.sof` do clone, e o
+   tether da licença da FFT fica vivo enquanto a sessão durar. Cabo já com tether é
+   pulado: abrir o aplicativo de novo não reprograma nada.
+2. **A placa reconhece o próprio bitstream.** O `ghrd_top` liga a constante `MRPH`
+   (`0x4D525048`) no `h2f_gp_in` do HPS, e o servidor a lê no registrador GPI do FPGA
+   manager (`0xFF706014`), seguro de ler até com o bitstream de fábrica. Com a
+   assinatura, a placa se declara preparada sozinha — sem SSH, sem marca, sem reiniciar
+   o servidor. O `morphe-up.sh` só confere (`fpga_assinatura` no PING): se a placa
+   responder `0`, o cabo está noutra placa, e ele para sem marcar nada.
+3. **A placa é achada pelo nome, não pelo IP nem pelo cabo.** O `placas.conf` não tem
+   mais a coluna do cabo JTAG (o nome dele vinha da porta USB da estação e mudava a cada
+   troca). O aplicativo e o `morphe-up.sh` acham cada placa por broadcast, pelo
+   hostname, no IP que o DHCP der a ela no ponto de rede novo.
+
+Na prática, para mudar uma placa de lugar:
+
+1. Ligue a placa no ponto de rede novo e o USB-Blaster dela no computador ao lado.
+2. Nesse computador, confira que o `/opt/morphe` está no ramo `estagio/adc-fft`, que o
+   Quartus 20.1 existe e que o USB-Blaster aparece:
+
+   ```bash
+   git -C /opt/morphe branch --show-current
+   ```
+
+   ```bash
+   jtagconfig
+   ```
+
+   Sem cabo na lista (ou com `Unable to lock chain`), falta a regra udev do USB-Blaster
+   ou o usuário não pode usar a porta — `instala-quartus.sh`.
+3. Abra o aplicativo. Ele grava a FPGA e conecta; a barra de status diz qual placa.
+4. Se a placa não aparecer, o IP antigo da lista está velho e o broadcast não chegou
+   (outra sub-rede). Descubra o IP novo (no console serial, `ip addr show eth0`) e
+   corrija a linha dela no `placas.conf` ou no `placas.local.conf`.
+
+O tether é da sessão de quem abriu o aplicativo: no logout ele morre, e a FFT daquela
+placa passa a ter 1 hora de licença — até a próxima abertura do aplicativo naquele PC.
+
+O `./morphe-up.sh --todas`, na estação, faz o mesmo para todas as placas ligadas ao USB
+dela: grava as FPGAs pelo `programar_local.py` e prepara cada placa da lista pelo
+hostname, só pela rede.
 
 ---
 
@@ -312,19 +381,10 @@ saber exatamente onde está o limite hoje:
 - **Nada impede duas pessoas de usarem a MESMA placa** achando que cada uma tem a sua. O
   resultado sai certo — as requisições são atômicas —, mas o tempo de resposta dobra e
   ninguém sabe por quê.
-- **Preparar é global, e com duas placas isso vira um problema concreto.** O estado do
-  `morphe-up.sh` é um só por raiz: `.morphe-estado/tether.pid` e `.morphe-estado/placa`.
-  Preparar a placa 2 **derruba o tether da placa 1** ("já existe um tether vivo;
-  reprogramando e substituindo") e sobrescreve o IP que o cliente lê para abrir já
-  conectado. Na prática, hoje, a estação sustenta uma placa de cada vez — não por limite
-  de hardware, mas porque o estado não tem como guardar duas.
-  O que **já** está pronto para duas é a escolha do cabo: com mais de um cabo JTAG o
-  script se recusa a adivinhar e pede `--cable` (`morphe-up.sh:195`).
-- **O cliente escolhe a placa pelo arquivo, não pela disponibilidade.** Enquanto
-  `.morphe-estado/placa` guardar um endereço só, o aluno vai para a placa que o último
-  `morphe-up.sh` gravou, mesmo que ela esteja ocupada e a outra livre.
-- **A busca automática do cliente cobre três `/24` numa rede `/16`** (`INSTALACAO.md`
-  5.2). Com mais placas, a chance de uma cair fora da varredura cresce.
+- **Duas pessoas que cliquem no mesmo instante podem cair na mesma placa.** Com várias
+  placas na lista, o cliente fica com a que responde primeiro ao PING (a mais livre),
+  e o tether da licença é um por cabo (`.morphe-estado/tethers/<cabo>.pid`), então
+  preparar uma placa não derruba a outra. O que falta é a alocação.
 
 A v1.4 do plano é exatamente isto: um serviço que conhece as placas, aloca uma a cada
 aluno e impede o uso simultâneo. Este documento é o pré-requisito dela — sem MACs
