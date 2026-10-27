@@ -11,6 +11,12 @@
 #                                      cada computador (pede a senha de cada um)
 #   ./atualizar-lab.sh --so IP         so um computador (pode repetir)
 #   ./atualizar-lab.sh --usuario NOME  conta do SSH (padrao: coordenador)
+#   ./atualizar-lab.sh --ramo RAMO     troca o /opt/morphe de cada um para RAMO
+#                                      (ex.: estagio/adc-fft) e atualiza; recusa
+#                                      se houver arquivo mexido a mao
+#
+# O --status e o --ramo tambem conferem, em cada computador, o que o aplicativo
+# precisa para gravar a FPGA pelo USB: Quartus 20.1 e a regra udev do USB-Blaster.
 #
 # Antes da primeira vez, em cada computador (uma vez, na frente dele):
 #   sudo apt install -y openssh-server
@@ -28,6 +34,7 @@ LISTA="$DIR/computadores.conf"
 CHAVE="$HOME/.ssh/id_morphe_lab"
 USUARIO="coordenador"
 MODO="atualizar"
+RAMO_NOVO=""
 SO=()
 
 while [ $# -gt 0 ]; do
@@ -36,7 +43,8 @@ while [ $# -gt 0 ]; do
         --preparar) MODO="preparar" ;;
         --so)       shift; SO+=("${1:?--so precisa de um IP ou nome}") ;;
         --usuario)  shift; USUARIO="${1:?--usuario precisa de um nome}" ;;
-        -h|--help)  sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --ramo)     shift; RAMO_NOVO="${1:?--ramo precisa do nome do ramo}"; MODO="ramo" ;;
+        -h|--help)  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Opcao desconhecida: $1 (veja --help)"; exit 2 ;;
     esac
     shift
@@ -111,10 +119,38 @@ else
 fi
 ANTES=$(run git -C "$D" rev-parse --short HEAD 2>/dev/null) || { echo "RESULTADO sem_permissao $DONO"; exit 0; }
 RAMO=$(run git -C "$D" rev-parse --abbrev-ref HEAD)
+MEXIDOS=$(run git -C "$D" status --porcelain --untracked-files=no | wc -l)
+# O aplicativo grava a FPGA pelo USB deste computador: sem Quartus 20.1 ou sem
+# a regra udev, ele abre mas a placa fica "nao preparada".
+if [ "$MODO" != atualizar ]; then
+    [ -x /opt/intelFPGA_lite/20.1/quartus/bin/quartus_pgm ] \
+        || echo "    AVISO: sem Quartus 20.1 (rodar o instala-quartus.sh nele)"
+    grep -qs 09fb /etc/udev/rules.d/* \
+        || echo "    AVISO: sem a regra udev do USB-Blaster (rodar o instala-quartus.sh nele)"
+fi
 if [ "$MODO" = status ]; then
-    MEXIDOS=$(run git -C "$D" status --porcelain --untracked-files=no | wc -l)
     echo "RESULTADO status $ANTES $RAMO $MEXIDOS"
     exit 0
+fi
+if [ "$MODO" = ramo ] && [ "$RAMO" != "$3" ]; then
+    if [ "$MEXIDOS" != 0 ]; then
+        run git -C "$D" status --short --untracked-files=no | sed "s/^/    /"
+        echo "RESULTADO mexido $ANTES $MEXIDOS"
+        exit 0
+    fi
+    if ! SAIDA=$(run git -C "$D" fetch -q origin "+refs/heads/$3:refs/remotes/origin/$3" 2>&1); then
+        echo "$SAIDA" | sed "s/^/    /"
+        echo "RESULTADO sem_ramo $3"
+        exit 0
+    fi
+    if run git -C "$D" rev-parse -q --verify "refs/heads/$3" > /dev/null; then
+        SAIDA=$(run git -C "$D" checkout -q "$3" 2>&1)
+    else
+        SAIDA=$(run git -C "$D" checkout -q -b "$3" --track "origin/$3" 2>&1)
+    fi || { echo "$SAIDA" | sed "s/^/    /"; echo "RESULTADO falhou $ANTES"; exit 0; }
+    echo "    ramo trocado: $RAMO -> $3"
+    ORIGINAL=$ANTES   # o resumo mostra de onde saiu; a lista do que mudou, so o ramo novo
+    ANTES=$(run git -C "$D" rev-parse --short HEAD)
 fi
 if ! SAIDA=$(run git -C "$D" pull -q --ff-only 2>&1); then
     echo "$SAIDA" | sed "s/^/    /"
@@ -129,7 +165,7 @@ AGORA=$(run git -C "$D" rev-parse --short HEAD)
 if [ "$ANTES" != "$AGORA" ]; then
     run git -C "$D" log --oneline --no-decorate "$ANTES..$AGORA" | sed "s/^/    /"
 fi
-echo "RESULTADO ok $ANTES $AGORA"
+echo "RESULTADO ok ${ORIGINAL:-$ANTES} $AGORA"
 '
 
 # O placas.local.conf daqui (as placas acrescentadas sem commit) vai junto, em
@@ -140,18 +176,22 @@ LOCAL_B64=""
 SSH_OPCOES=(-o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new)
 [ -f "$CHAVE" ] && SSH_OPCOES+=(-i "$CHAVE")
 
-# A versao do GitHub, para o --status dizer quem esta atrasado.
-NOVA=""
-if RAMO_AQUI=$(git -C "$DIR" rev-parse --abbrev-ref HEAD 2>/dev/null); then
-    NOVA=$(git -C "$DIR" ls-remote origin "refs/heads/$RAMO_AQUI" 2>/dev/null | cut -c1-7)
-    [ -n "$NOVA" ] && echo "Versao mais nova no GitHub ($RAMO_AQUI): $NOVA"
-fi
+# A versao do GitHub de cada ramo, para o --status dizer quem esta atrasado.
+# Cada computador e comparado com o ramo em que ELE esta, nao com o daqui.
+declare -A NOVA_DO_RAMO=()
+nova_de() {   # poe em NOVA a versao do GitHub do ramo $1 (sem subshell: guarda o cache)
+    if [ -z "${NOVA_DO_RAMO[$1]+x}" ]; then
+        NOVA_DO_RAMO[$1]=$(git -C "$DIR" ls-remote origin "refs/heads/$1" 2>/dev/null | cut -c1-7)
+    fi
+    NOVA="${NOVA_DO_RAMO[$1]}"
+}
+[ "$MODO" = ramo ] && echo "Trocando cada computador para o ramo $RAMO_NOVO"
 
 RESUMO=()
 ERROS=0
 for alvo in "${ALVOS[@]}"; do
     echo "=== ${alvo#*@}"
-    SAIDA=$(ssh "${SSH_OPCOES[@]}" "$alvo" bash -s -- "$MODO" "$LOCAL_B64" <<< "$REMOTO" 2>&1)
+    SAIDA=$(ssh "${SSH_OPCOES[@]}" "$alvo" bash -s -- "$MODO" "$LOCAL_B64" "$RAMO_NOVO" <<< "$REMOTO" 2>&1)
     CODIGO=$?
     echo "$SAIDA" | grep -v '^RESULTADO ' | grep -v '^Warning: Permanently added'
     set -- $(echo "$SAIDA" | grep '^RESULTADO ' | tail -1)
@@ -161,8 +201,13 @@ for alvo in "${ALVOS[@]}"; do
             if [ "$2" = "$3" ]; then linha="ja estava em $3"; else linha="atualizado $2 -> $3"; fi ;;
         status)
             linha="em $2 (ramo $3)"
-            [ -n "$NOVA" ] && [ "$2" != "$NOVA" ] && linha="$linha  <-- ATRASADO"
+            nova_de "$3"
+            [ -n "$NOVA" ] && [ "$2" != "$NOVA" ] && linha="$linha  <-- ATRASADO (GitHub: $NOVA)"
             [ "$4" != 0 ] && linha="$linha  ($4 arquivo(s) mexido(s) a mao)" ;;
+        mexido)
+            linha="NAO TROCOU DE RAMO: $3 arquivo(s) mexido(s) a mao (lista acima)"; ERROS=$((ERROS+1)) ;;
+        sem_ramo)
+            linha="NAO TROCOU: o ramo $2 nao existe no GitHub (veja a mensagem acima)"; ERROS=$((ERROS+1)) ;;
         falhou)
             linha="FALHOU no git pull (em $2; veja a mensagem acima)"; ERROS=$((ERROS+1)) ;;
         sem_permissao)
@@ -188,7 +233,7 @@ done
 echo
 echo "=== Resumo (${#ALVOS[@]} computadores, $ERROS com problema)"
 printf '  %s\n' "${RESUMO[@]}"
-if [ "$MODO" = atualizar ]; then
+if [ "$MODO" = atualizar ] || [ "$MODO" = ramo ]; then
     echo
     echo "Este computador nao entra na lista; para ele: $DIR/atualizar.sh"
     echo "Quem estava com o Morphe aberto precisa fechar e abrir de novo."
