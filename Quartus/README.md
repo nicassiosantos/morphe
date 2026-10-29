@@ -41,4 +41,3 @@ O resto do `output_files/` é regenerado a cada compilação e não é versionad
 | `gen_hps_header.py` | gera o `C/hps_0.h` a partir do `.sopcinfo`; `--check` confere se estão iguais |
 | `relatorio_timing.tcl` | resume o caminho crítico depois de uma compilação |
 | `morphe_ping.py` | os quatro testes que o `morphe-up.sh` faz contra a placa: TCP, protocolo, captura do ADC, FFT de impulso |
-| `testbench/` | simulação em Icarus Verilog, sem Quartus nem placa: `roda_tb_adc.sh` (controlador do ADC contra um modelo do LTC2308) |
