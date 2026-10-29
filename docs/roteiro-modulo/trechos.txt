@@ -62,22 +62,7 @@ module soma_core #(
 endmodule
 
 ========================================================================
-[9] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
-========================================================================
-git show origin/estagio/modulo-soma-adc-fft:Quartus/testbench/tb_soma_core.v > Quartus/testbench/tb_soma_core.v
-
-========================================================================
-[10] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
-========================================================================
-git show origin/estagio/modulo-soma-adc-fft:Quartus/testbench/roda_tb_soma.sh > Quartus/testbench/roda_tb_soma.sh
-
-========================================================================
-[11] Parte A --- criar o módulo e testá-lo sozinho / A2 Escrever o soma_core.v
-========================================================================
-bash Quartus/testbench/roda_tb_soma.sh
-
-========================================================================
-[12] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
+[9] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
 ========================================================================
 // --- teste isolado do nucleo (roteiro, Parte A): tres PIOs de 32 bits ---
 wire [31:0] soma_teste_a;    // HPS -> FPGA
@@ -85,14 +70,14 @@ wire [31:0] soma_teste_b;    // HPS -> FPGA
 wire [31:0] soma_teste_y;    // FPGA -> HPS
 
 ========================================================================
-[13] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
+[10] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
 ========================================================================
     .soma_teste_a_export     (soma_teste_a),
     .soma_teste_b_export     (soma_teste_b),
     .soma_teste_y_export     (soma_teste_y),
 
 ========================================================================
-[14] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
+[11] Parte A --- criar o módulo e testá-lo sozinho / A4 Ligar o módulo no topo: ghrd_top.v
 ========================================================================
 soma_core #(
     .DATA_WIDTH (32)
@@ -103,37 +88,37 @@ soma_core #(
 );
 
 ========================================================================
-[15] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[12] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
 python3 gen_hps_header.py
 
 ========================================================================
-[16] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[13] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
 git checkout origin/estagio/modulo-soma-adc-fft -- C/devmem.c C/Makefile morphe-up.sh
 
 ========================================================================
-[17] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[14] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
 ./morphe-up.sh --cable 'CABO' --board PLACA --deploy
 
 ========================================================================
-[18] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[15] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
 jtagconfig
 
 ========================================================================
-[19] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[16] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
 ls /dev/ttyUSB*
 
 ========================================================================
-[20] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[17] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
 screen /dev/ttyUSB0 115200
 
 ========================================================================
-[21] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
+[18] Parte A --- criar o módulo e testá-lo sozinho / A5 Compilar, gerar o hps_0.h e gravar a placa
 ========================================================================
     ok   servidor compilado na placa
 ==> (re)iniciando o servidor
@@ -148,42 +133,42 @@ Todos os 4 testes passaram. Morphe está operacional.
     ok   os quatro testes passaram
 
 ========================================================================
-[22] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[19] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 screen /dev/ttyUSB0 115200
 
 ========================================================================
-[23] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[20] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 cd ~/morphe
 
 ========================================================================
-[24] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[21] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 ./devmem 0xFF200150 32 0x00018000
 
 ========================================================================
-[25] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[22] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 ./devmem 0xFF200160 32 0x00024000
 
 ========================================================================
-[26] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[23] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 ./devmem 0xFF200170
 
 ========================================================================
-[27] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[24] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 python3 -c "print(hex(round(1.5 * 65536) & 0xFFFFFFFF))"
 
 ========================================================================
-[28] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[25] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 python3 -c "v = 0xFFFF8000; print((v - 2**32 if v >> 31 else v) / 65536)"
 
 ========================================================================
-[29] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
+[26] Parte A --- criar o módulo e testá-lo sozinho / A6 Testar pela serial
 ========================================================================
 root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x00018000
 root@de1soc-02:~/morphe# ./devmem 0xFF200160 32 0x00024000
@@ -199,12 +184,12 @@ root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x8AD00000; ./devmem 0xFF200160 
 0x80000000
 
 ========================================================================
-[30] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
+[27] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
 ========================================================================
 git show origin/estagio/modulo-soma-adc-fft:Quartus/soma.v > Quartus/soma.v
 
 ========================================================================
-[31] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
+[28] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
 ========================================================================
 // =============================================================================
 // =============================================================================
@@ -422,7 +407,7 @@ module soma #(
 endmodule
 
 ========================================================================
-[32] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
+[29] Parte B --- integrar ao Morphe / B2 O circuito: soma.v
 ========================================================================
 wire [DATA_WIDTH-1:0] soma_sat;
 
@@ -433,7 +418,7 @@ soma_core #(.DATA_WIDTH(DATA_WIDTH)) u_conta (
 );
 
 ========================================================================
-[33] Parte B --- integrar ao Morphe / B4 O topo e a compilação
+[30] Parte B --- integrar ao Morphe / B4 O topo e a compilação
 ========================================================================
 // --- SOMA (modulo de exemplo do roteiro: y[n] = a[n] + b[n], soma.v) ---
 localparam SOMA_DATA_WIDTH = 32;
@@ -441,7 +426,7 @@ localparam SOMA_ADDR_WIDTH = 10;        // 1024 amostras
 localparam SOMA_N_SAMPLES  = 1024;
 
 ========================================================================
-[34] Parte B --- integrar ao Morphe / B4 O topo e a compilação
+[31] Parte B --- integrar ao Morphe / B4 O topo e a compilação
 ========================================================================
 // --- Controle (PIOs) ---
 wire                              soma_start;      // HPS -> FPGA
@@ -475,7 +460,7 @@ wire [SOMA_DATA_WIDTH-1:0]        soma_y_writedata;
 wire [3:0]                        soma_y_byteenable = 4'b1111;
 
 ========================================================================
-[35] Parte B --- integrar ao Morphe / B4 O topo e a compilação
+[32] Parte B --- integrar ao Morphe / B4 O topo e a compilação
 ========================================================================
     .soma_start_export       (soma_start),
     .soma_done_export        (soma_done),
@@ -505,7 +490,7 @@ wire [3:0]                        soma_y_byteenable = 4'b1111;
     .soma_y_byteenable       (soma_y_byteenable),
 
 ========================================================================
-[36] Parte B --- integrar ao Morphe / B4 O topo e a compilação
+[33] Parte B --- integrar ao Morphe / B4 O topo e a compilação
 ========================================================================
 soma #(
     .DATA_WIDTH  (SOMA_DATA_WIDTH),
@@ -542,17 +527,17 @@ soma #(
 );
 
 ========================================================================
-[37] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[34] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 git checkout origin/estagio/modulo-soma-adc-fft -- C/morphe_server.c C/morphe_protocol.h
 
 ========================================================================
-[38] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[35] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 git checkout origin/estagio/modulo-soma-adc-fft -- C/morphe_config.h C/address_map_arm.h
 
 ========================================================================
-[39] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[36] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 g_soma_a         = (int32_t *)((char *)g_fpga_virt + SOMA_A_BASE);              /* ponte larga */
 g_pio_soma_start = (volatile uint32_t *)((char *)g_lw_virt + SOMA_START_BASE);  /* ponte leve  */
@@ -561,12 +546,12 @@ g_soma_a[i] = valor;        /* escreve a palavra i da memoria */
 *g_pio_soma_start = 1;      /* liga o start */
 
 ========================================================================
-[40] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[37] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 #define MORPHE_OP_SOMA     9U   /* y = a + b (soma.v), modulo de exemplo do roteiro */
 
 ========================================================================
-[41] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[38] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
  *   SOMA     -> n_x amostras de a, seguidas de n_h amostras de b (int32
  *               Q15.16). n_x == n_h, de 1 a MORPHE_SOMA_N_MAX. A
@@ -574,7 +559,7 @@ g_soma_a[i] = valor;        /* escreve a palavra i da memoria */
  *               saturada em 32 bits.
 
 ========================================================================
-[42] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[39] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 /* ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ------------ */
 
@@ -584,14 +569,14 @@ g_soma_a[i] = valor;        /* escreve a palavra i da memoria */
 #define MORPHE_SOMA_N_MAX       1024
 
 ========================================================================
-[43] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[40] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 /* Ate 0x42FFF desde o modulo soma (soma_a/b/y em 0x40000-0x42FFF). Cresce
  * quando uma memoria nova passa do fim: o _Static_assert do servidor avisa. */
 #define FPGA_ONCHIP_SPAN       0x0004FFFF
 
 ========================================================================
-[44] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[41] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 /* A soma, como o ADC, so entra quando o hps_0.h foi gerado de um .sopcinfo
  * que a tem (tres memorias e dois PIOs). A protecao contra bitstream antigo
@@ -615,7 +600,7 @@ g_soma_a[i] = valor;        /* escreve a palavra i da memoria */
                      _MORPHE_PAGE_SIZE)
 
 ========================================================================
-[45] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[42] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 #if MORPHE_TEM_SOMA
 _Static_assert(SOMA_A_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
@@ -624,7 +609,7 @@ _Static_assert(SOMA_Y_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Er
 #endif
 
 ========================================================================
-[46] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[43] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 #if MORPHE_TEM_SOMA
 static int32_t           *g_soma_a          = NULL;
@@ -635,12 +620,12 @@ static volatile uint32_t *g_pio_soma_done   = NULL;
 #endif
 
 ========================================================================
-[47] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[44] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
         case MORPHE_OP_SOMA: return "soma";
 
 ========================================================================
-[48] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[45] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 #if MORPHE_TEM_SOMA
     /* memorias: janela da ponte h2f (FPGA_ONCHIP_BASE) + offset do hps_0.h;
@@ -653,14 +638,14 @@ static volatile uint32_t *g_pio_soma_done   = NULL;
 #endif
 
 ========================================================================
-[49] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[46] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 #if MORPHE_TEM_SOMA
         if (g_sysid[1] == SYSID_QSYS_TIMESTAMP) *g_pio_soma_start = 0;
 #endif
 
 ========================================================================
-[50] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[47] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 /* SOMA: y = a + b no soma.v. Payload: a (n_x palavras) e depois b (n_h
  * palavras), int32 Q15.16 big-endian. O hardware processa sempre
@@ -738,7 +723,7 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
 #endif
 
 ========================================================================
-[51] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[48] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
     int preparada = fpga_preparada();
     int adc_ok = 0, soma_ok = 0;
@@ -762,27 +747,27 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
         uptime_s, preparada, fpga_tem_assinatura());
 
 ========================================================================
-[52] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[49] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
         case MORPHE_OP_SOMA: handle_soma(sock, dtype, n_x, n_h); break;
 
 ========================================================================
-[53] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
+[50] Parte B --- integrar ao Morphe / B5 O servidor C, na placa
 ========================================================================
 ./morphe-up.sh --cable 'CABO' --board PLACA --deploy
 
 ========================================================================
-[54] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[51] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 git checkout origin/estagio/modulo-soma-adc-fft -- Python/morphe_protocol.py Python/morphe_config.py
 
 ========================================================================
-[55] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[52] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 git checkout origin/estagio/modulo-soma-adc-fft -- Python/soma_window.py Python/morphe_app.py
 
 ========================================================================
-[56] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[53] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 # ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ---------------
 # O bloco processa SEMPRE SOMA_N_MAX amostras; o servidor completa com zeros.
@@ -790,12 +775,12 @@ git checkout origin/estagio/modulo-soma-adc-fft -- Python/soma_window.py Python/
 SOMA_N_MAX: int = 1024
 
 ========================================================================
-[57] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[54] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 OP_SOMA = 9   # y = a + b (soma.v), modulo de exemplo do roteiro
 
 ========================================================================
-[58] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[55] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 def build_soma_request(a_q: np.ndarray, b_q: np.ndarray) -> bytes:
     """Pedido da SOMA: cabecalho com n_x = len(a) e n_h = len(b), depois as
@@ -821,24 +806,24 @@ def decode_soma_response(resp: Response) -> np.ndarray:
     return np.frombuffer(resp.payload, dtype=be, count=resp.n_out).astype(np.int64)
 
 ========================================================================
-[59] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[56] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 from soma_window import SomaWindow
 
 ========================================================================
-[60] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[57] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
             ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
 
 ========================================================================
-[61] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[58] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 
     def _open_soma(self):
         SomaWindow(self)
 
 ========================================================================
-[62] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[59] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 """
 soma_window.py -- janela da SOMA: y[n] = a[n] + b[n] calculada na FPGA.
@@ -1025,21 +1010,21 @@ class SomaWindow(tk.Toplevel):
         messagebox.showerror("Erro na soma", str(err))
 
 ========================================================================
-[63] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[60] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 python3 Python/morphe_app.py
 
 ========================================================================
-[64] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[61] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 ./morphe-up.sh --down
 
 ========================================================================
-[65] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[62] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 cd /opt/morphe
 
 ========================================================================
-[66] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
+[63] Parte B --- integrar ao Morphe / B6 O aplicativo, e o teste final
 ========================================================================
 ./morphe-up.sh --cable 'CABO' --board PLACA

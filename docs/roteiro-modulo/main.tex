@@ -239,7 +239,6 @@ git show origin/estagio/modulo-soma-adc-fft:docs/roteiro-modulo/trechos.txt
 .3 soc\_system/, soc\_system.sopcinfo\DTcomment{\gera{} A5}.
 .3 output\_files/soc\_system\_time\_limited.sof\DTcomment{\gera{} A5 (o bitstream)}.
 .3 gen\_hps\_header.py\DTcomment{script que gera o hps\_0.h}.
-.3 testbench/tb\_soma\_core.v\DTcomment{simulação do núcleo (opcional, A2)}.
 .2 C/\DTcomment{\textcolor{hps}{servidor que roda no ARM da placa}}.
 .3 hps\_0.h\DTcomment{\gera{} A5 --- endereços de tudo}.
 .3 morphe\_server.c e outros 3\DTcomment{\muda{} B5}.
@@ -387,24 +386,6 @@ para escolhê-lo, \nr{2} \menu{Add} e \nr{4} \menu{OK}.
 \tela[0.5\linewidth]{a03-add-remove-core}{os arquivos do projeto (esta é a
 lista do gabarito, que já tem também o \arq{soma.v} da Parte B)}
 \end{confira}
-
-\begin{pronto}
-\textbf{Opcional}: simular antes de compilar. Em um segundo você vê os casos
-da A6 passarem, contra 10 minutos de compilação. De dentro de
-\arq{~/meu-modulo}, traga do gabarito o testbench e o script que o roda:
-\begin{lstlisting}[style=sh]
-git show origin/estagio/modulo-soma-adc-fft:Quartus/testbench/tb_soma_core.v > Quartus/testbench/tb_soma_core.v
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-git show origin/estagio/modulo-soma-adc-fft:Quartus/testbench/roda_tb_soma.sh > Quartus/testbench/roda_tb_soma.sh
-\end{lstlisting}
-\begin{lstlisting}[style=sh]
-bash Quartus/testbench/roda_tb_soma.sh
-\end{lstlisting}
-A última linha deve ser \texttt{TUDO OK}. O script usa o Icarus Verilog se o
-computador tiver; senão, o ModelSim que vem com o Quartus 20.1 (é o caso das
-estações do laboratório).
-\end{pronto}
 
 \etapa{A3}{Três PIOs para conversar com o módulo}
 
