@@ -2,7 +2,7 @@
 % Roteiro pratico: como criar um modulo no Quartus e integra-lo ao Morphe
 % (exemplo: soma de dois sinais). Compila no Overleaf com pdfLaTeX: suba este
 % main.tex E a pasta prints/ (os prints das janelas).
-% O codigo completo esta na branch estagio/modulo-soma do repositorio.
+% O codigo completo esta na branch estagio/modulo-soma-adc-fft do repositorio.
 % =============================================================================
 \documentclass[11pt,a4paper,oneside]{article}
 
@@ -78,6 +78,7 @@
   literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
            {ã}{{\~a}}1 {õ}{{\~o}}1 {ç}{{\c c}}1 {→}{{$\rightarrow$}}1
            {Ã}{{\~A}}1 {Ç}{{\c C}}1 {à}{{\`a}}1 {ê}{{\^e}}1 {ô}{{\^o}}1 {—}{{---}}1
+           {δ}{{$\delta$}}1
 }
 \lstdefinestyle{sh}{language=bash,keywordstyle=\color{black}}
 
@@ -164,13 +165,14 @@ Na estação ou num computador do laboratório, num terminal. Digite
 comandos do Quartus não são encontrados.
 
 \begin{faca}
-Um clone \textbf{seu}, na sua pasta pessoal, a partir da branch principal.
+Um clone \textbf{seu}, na sua pasta pessoal, a partir da branch
+\arq{estagio/adc-fft} (a versão do Morphe só com o ADC e a FFT).
 Um comando por vez:
 \begin{lstlisting}[style=sh]
 cd ~
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-git clone -b estagio/v1.1-1024pontos https://github.com/nicassiosantos/morphe.git meu-modulo
+git clone -b estagio/adc-fft https://github.com/nicassiosantos/morphe.git meu-modulo
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
 cd meu-modulo
@@ -183,19 +185,20 @@ git switch -c modulo-soma-teste
 \begin{porque}
 O \arq{/opt/morphe} é a cópia que os alunos usam: mexer nela muda o Morphe de
 quem estiver na sala. O clone na sua pasta é só seu. A branch nova
-(\texttt{git switch -c}) guarda as suas mudanças separadas da principal.
+(\texttt{git switch -c}) guarda as suas mudanças separadas da
+\arq{estagio/adc-fft}.
 \end{porque}
 
 \begin{pronto}
 \label{pag:gabarito}
 O \textbf{gabarito} (a soma pronta) veio junto, na branch
-\arq{origin/estagio/modulo-soma}. Para ver o que ela muda num arquivo, ou
+\arq{origin/estagio/modulo-soma-adc-fft}. Para ver o que ela muda num arquivo, ou
 trazer um arquivo pronto:
 \begin{lstlisting}[style=sh]
-git diff estagio/v1.1-1024pontos origin/estagio/modulo-soma -- Quartus/ghrd_top.v
+git diff estagio/adc-fft origin/estagio/modulo-soma-adc-fft -- Quartus/ghrd_top.v
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-git show origin/estagio/modulo-soma:Quartus/soma_core.v > Quartus/soma_core.v
+git show origin/estagio/modulo-soma-adc-fft:Quartus/soma_core.v > Quartus/soma_core.v
 \end{lstlisting}
 \end{pronto}
 
@@ -205,7 +208,7 @@ PDF). Os mesmos trechos estão em texto puro no
 \arq{docs/roteiro-modulo/trechos.txt} do gabarito, na ordem em que aparecem
 aqui; copie de lá:
 \begin{lstlisting}[style=sh]
-git show origin/estagio/modulo-soma:docs/roteiro-modulo/trechos.txt
+git show origin/estagio/modulo-soma-adc-fft:docs/roteiro-modulo/trechos.txt
 \end{lstlisting}
 \end{cuidado}
 
@@ -224,9 +227,9 @@ git show origin/estagio/modulo-soma:docs/roteiro-modulo/trechos.txt
 .3 ghrd\_top.v\DTcomment{\muda{} A4 e B4}.
 .3 soc\_system.qsf\DTcomment{\muda{} A2 e B2 (lista de arquivos)}.
 .3 soc\_system/, soc\_system.sopcinfo\DTcomment{\gera{} A5}.
-.3 output\_files/soc\_system.sof\DTcomment{\gera{} A5 (o bitstream)}.
+.3 output\_files/soc\_system\_time\_limited.sof\DTcomment{\gera{} A5 (o bitstream)}.
 .3 gen\_hps\_header.py\DTcomment{script que gera o hps\_0.h}.
-.3 testbench/tb\_soma\_core.v\DTcomment{simulação do núcleo (opcional)}.
+.3 testbench/tb\_soma\_core.v\DTcomment{simulação do núcleo (opcional, A2)}.
 .2 C/\DTcomment{\textcolor{hps}{servidor que roda no ARM da placa}}.
 .3 hps\_0.h\DTcomment{\gera{} A5 --- endereços de tudo}.
 .3 morphe\_server.c e outros 3\DTcomment{\muda{} B5}.
@@ -246,8 +249,8 @@ próxima geração apaga --- ou pior, a placa e o servidor deixam de concordar.
 \begin{cuidado}
 \textbf{Sempre o Quartus 20.1}: no menu de aplicativos, \menu{Quartus Prime
 Lite 20.1}; ou, no terminal, \texttt{quartus \&}. Os prints deste roteiro
-são do Quartus 23.1 no Windows: os menus e as janelas são os mesmos, muda a
-moldura. Se aparecer a faixa amarela \emph{IP upgrade recommended} ou avisos
+são do Quartus 20.1 de uma estação do laboratório: é o que você vai ver. Se
+aparecer a faixa amarela \emph{IP upgrade recommended} ou avisos
 \emph{Used \ldots\ 23.1 (instead of 20.1)}, você abriu a versão errada: feche
 \textbf{sem salvar}.
 \end{cuidado}
@@ -371,24 +374,26 @@ Quartus (o do gabarito tem um cabeçalho de comentários)}
 \menu{Project}\seta\menu{Add/Remove Files in Project\ldots}: o
 \arq{soma_core.v} está na lista \nr{3}. Se não estiver, \nr{1} \menu{\ldots}
 para escolhê-lo, \nr{2} \menu{Add} e \nr{4} \menu{OK}.
-\tela[0.62\linewidth]{a03-add-remove-core}{os arquivos do projeto (esta é a
+\tela[0.5\linewidth]{a03-add-remove-core}{os arquivos do projeto (esta é a
 lista do gabarito, que já tem também o \arq{soma.v} da Parte B)}
 \end{confira}
 
 \begin{pronto}
-\textbf{Opcional, se o computador tiver o Icarus Verilog}: simular antes de
-compilar. Em um segundo você vê os casos da A6 passarem, contra 15 minutos de
-compilação. De dentro de \arq{Quartus/}, traga o testbench do gabarito e rode:
+\textbf{Opcional}: simular antes de compilar. Em um segundo você vê os casos
+da A6 passarem, contra 10 minutos de compilação. De dentro de
+\arq{~/meu-modulo}, traga do gabarito o testbench e o script que o roda:
 \begin{lstlisting}[style=sh]
-git show origin/estagio/modulo-soma:Quartus/testbench/tb_soma_core.v > testbench/tb_soma_core.v
+git show origin/estagio/modulo-soma-adc-fft:Quartus/testbench/tb_soma_core.v > Quartus/testbench/tb_soma_core.v
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-iverilog -o /tmp/tb.vvp testbench/tb_soma_core.v soma_core.v
+git show origin/estagio/modulo-soma-adc-fft:Quartus/testbench/roda_tb_soma.sh > Quartus/testbench/roda_tb_soma.sh
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-vvp /tmp/tb.vvp
+bash Quartus/testbench/roda_tb_soma.sh
 \end{lstlisting}
-A última linha deve ser \texttt{TUDO OK}.
+A última linha deve ser \texttt{TUDO OK}. O script usa o Icarus Verilog se o
+computador tiver; senão, o ModelSim que vem com o Quartus 20.1 (é o caso das
+estações do laboratório).
 \end{pronto}
 
 \etapa{A3}{Três PIOs para conversar com o módulo}
@@ -432,7 +437,7 @@ Com o projeto aberto: \menu{Tools}\seta\menu{Platform Designer}, e escolha
 
 \begin{center}
 \begin{minipage}[t]{0.44\linewidth}\centering
-\tela{q06-menu-tools}{\menu{Tools}\seta\menu{Platform Designer}}
+\tela[0.62\linewidth]{q06-menu-tools}{\menu{Tools}\seta\menu{Platform Designer}}
 \end{minipage}\hfill
 \begin{minipage}[t]{0.52\linewidth}\centering
 \tela{pd01-abrir-qsys}{escolha o \arq{soc_system.qsys}}
@@ -441,7 +446,7 @@ Com o projeto aberto: \menu{Tools}\seta\menu{Platform Designer}, e escolha
 
 \begin{porque}
 O Platform Designer desenha o \textbf{sistema} da placa: o HPS, as pontes e
-todos os componentes pendurados nelas (as memórias da convolução, da FFT, os
+todos os componentes pendurados nelas (as memórias da FFT e do ADC, os
 PIOs de cada bloco\ldots). Ele gera o Verilog que liga tudo isso e o arquivo
 \arq{.sopcinfo}, de onde sai o endereço de cada componente.
 \end{porque}
@@ -464,15 +469,10 @@ Para cada PIO:
 \end{enumerate}
 \end{faca}
 
-\begin{center}
-\begin{minipage}[c]{0.36\linewidth}\centering
-\tela{a04-catalogo-pio}{\menu{IP Catalog}}
-\end{minipage}\hfill
-\begin{minipage}[c]{0.6\linewidth}\centering
-\tela{a05-pios-teste-param}{\nr{1}\nr{2} \texttt{soma\_teste\_a} (e \texttt{\_b}):
+\tela[0.4\linewidth]{a04-catalogo-pio}{\menu{IP Catalog}}
+
+\tela[0.9\linewidth]{a05-pios-teste-param}{\nr{1}\nr{2} \texttt{soma\_teste\_a} (e \texttt{\_b}):
 32 bits, \emph{Output}; \nr{3}\nr{4} \texttt{soma\_teste\_y}: 32 bits, \emph{Input}}
-\end{minipage}
-\end{center}
 
 \subsubsection*{Ligar, exportar e dar endereço}
 
@@ -528,7 +528,7 @@ endereços novos se escolhem à mão, nos buracos livres (veja o
 \subsubsection*{Gerar}
 
 \begin{faca}
-\menu{Generate}\seta\menu{Generate HDL\ldots}\seta \nr{1} \emph{Verilog},
+\menu{Generate}\seta\menu{Generate HDL\ldots} (ou o botão \menu{Generate HDL\ldots} no canto de baixo)\seta \nr{1} \emph{Verilog},
 pasta de saída como está, \nr{2} \menu{Generate}. Espere \emph{Generate
 Completed} e feche com \menu{Finish}.
 \end{faca}
@@ -612,7 +612,7 @@ confira com
 \begin{faca}
 \begin{enumerate}
   \item No Quartus: \menu{Processing}\seta\menu{Start Compilation} (Ctrl+L).
-    Leva de 10 a 15 minutos.
+    Leva uns 10 minutos.
   \item No terminal, de dentro de \arq{~/meu-modulo/Quartus/}:
 \begin{lstlisting}[style=sh]
 python3 gen_hps_header.py
@@ -621,14 +621,15 @@ python3 gen_hps_header.py
     \texttt{make devmem} e o \arq{morphe-up.sh} que o envia à placa), de
     dentro de \arq{~/meu-modulo}:
 \begin{lstlisting}[style=sh]
-git checkout origin/estagio/modulo-soma -- C/devmem.c C/Makefile morphe-up.sh
+git checkout origin/estagio/modulo-soma-adc-fft -- C/devmem.c C/Makefile morphe-up.sh
 \end{lstlisting}
   \item Na \textbf{estação} (é onde estão os cabos das placas), de dentro de
     \arq{~/meu-modulo}, fora do horário de aula, grave a placa. No lugar de
-    \texttt{CABO}, o nome do cabo da \textbf{sua} placa (veja o quadro
-    abaixo), entre aspas simples:
+    \texttt{CABO}, o nome do cabo da \textbf{sua} placa, entre aspas
+    simples; no lugar de \texttt{PLACA}, o nome dela (os dois quadros
+    abaixo):
 \begin{lstlisting}[style=sh]
-./morphe-up.sh --cable 'CABO' --deploy
+./morphe-up.sh --cable 'CABO' --board PLACA --deploy
 \end{lstlisting}
 \end{enumerate}
 \end{faca}
@@ -650,10 +651,39 @@ jtagconfig
     \texttt{jtagconfig} de novo e veja qual nome sumiu: é o seu. Ligue o
     cabo de volta e confira que o nome voltou igual.
 \end{enumerate}
-O \arq{placas.conf}, na raiz do repositório, anota na última coluna o cabo
-de cada placa; serve de pista, mas pode estar velho se alguém mudou o cabo
-de porta. Se o cabo e a placa não baterem, o \arq{morphe-up.sh} recusa e diz
-qual placa encontrou --- nada é gravado na placa errada.
+Se o cabo não for o da placa do \texttt{-{}-board}, o \arq{morphe-up.sh}
+recusa e diz qual placa encontrou --- o servidor de outra placa não é
+mexido.
+\end{faca}
+
+\begin{faca}
+\textbf{Qual é a serial e o nome da sua placa.} A placa tem duas USB: a do
+USB-Blaster (o cabo, acima) e a marcada \textbf{UART}, que é a
+\textbf{serial} do ARM. Pela serial você vê o nome da placa, e na A6 vai
+usá-la para o teste.
+\begin{enumerate}
+  \item com o cabo UART \textbf{desligado} do computador, rode o comando
+    abaixo; ligue o cabo e rode de novo. Os nomes que apareceram
+    (\texttt{/dev/ttyUSB0}, \texttt{/dev/ttyUSB1}\ldots) são os da sua placa.
+    Algumas placas criam \textbf{dois} de uma vez: a serial é o de número
+    menor.
+\begin{lstlisting}[style=sh]
+ls /dev/ttyUSB*
+\end{lstlisting}
+  \item abra a serial, trocando \texttt{/dev/ttyUSB0} pelo nome que você achou:
+\begin{lstlisting}[style=sh]
+screen /dev/ttyUSB0 115200
+\end{lstlisting}
+  \item dê Enter. Aparece uma linha como \texttt{de1soc-02 login:}: o nome
+    da placa é o que vem antes de \texttt{login:} (aqui, \texttt{de1soc-02}).
+    É esse o \texttt{PLACA} do comando acima.
+  \item para sair do \texttt{screen}: Ctrl+A, depois K, depois y.
+\end{enumerate}
+Sem o \texttt{-{}-board}, o \arq{morphe-up.sh} grava a FPGA e para antes de
+mandar o servidor, com \emph{não sei qual placa é a deste comando}: ele
+acha uma placa na rede, mas não tem como saber se é a do seu cabo. Se ele
+disser que a placa \emph{está em uso}, alguém a usou no último minuto:
+espere, ou confira com quem está na sala.
 \end{faca}
 
 \tela[0.5\linewidth]{q07-menu-processing}{\menu{Processing}\seta\menu{Start Compilation}}
@@ -684,14 +714,27 @@ qual placa encontrou --- nada é gravado na placa errada.
 \end{confira}
 
 \tela[0.8\linewidth]{a08-relatorio-compilacao}{\menu{Processing}\seta\menu{Compilation
-Report} (Ctrl+R), \menu{Flow Summary}: \nr{1} \emph{Successful}; \nr{2} o
-projeto inteiro, com a soma, usa 45\,\% da lógica. O \emph{Timing Analyzer}
-em vermelho é só aviso (\emph{design not fully constrained}); o que importa é
-\emph{Slack} positivo no \texttt{clock\_50\_1}.}
+Report} (Ctrl+R), \menu{Flow Summary}: \nr{1} \emph{Successful}; \nr{2} a
+lógica usada: 25\,\% só com a Parte A, 29\,\% com a Parte B (este print).}
 
-\begin{falta}
-A saída do \arq{morphe-up.sh} terminando em 4/4.
-\end{falta}
+\begin{confira}
+Assim termina o \arq{morphe-up.sh} na placa 2 (29/10/2026). Os avisos
+\emph{setlocale} e \emph{Clock skew} são normais: a placa não tem relógio
+e acorda em 1970.
+\begin{lstlisting}[style=sh]
+    ok   servidor compilado na placa
+==> (re)iniciando o servidor
+    ok   servidor no ar na porta 5000
+    ok   a placa confirmou o bitstream (assinatura MRPH): o cabo DE-SoC [1-1] esta nela
+==> verificando a plataforma (morphe_ping)
+[1] TCP reachable
+[2] Protocolo Morphe respondendo
+[3] Captura do ADC (64 amostras do CH0 a 20 kHz)
+[4] FFT com impulso (x = δ[n] → |X[k]| constante)
+Todos os 4 testes passaram. Morphe está operacional.
+    ok   os quatro testes passaram
+\end{lstlisting}
+\end{confira}
 
 \etapa{A6}{Testar pela serial}
 
@@ -709,18 +752,13 @@ compilou na pasta \arq{~/morphe} da placa.
 \end{porque}
 
 \begin{faca}
-No computador ligado à USB marcada UART da placa, descubra o nome da serial:
-com o cabo UART \textbf{desligado}, rode o comando abaixo; ligue o cabo e
-rode de novo. O nome que apareceu (\texttt{/dev/ttyUSB0},
-\texttt{/dev/ttyUSB1}\ldots) é o da sua placa.
+Abra a serial que você achou na A5, trocando \texttt{/dev/ttyUSB0} pelo
+nome dela:
 \begin{lstlisting}[style=sh]
-ls /dev/ttyUSB*
+screen /dev/ttyUSB0 115200
 \end{lstlisting}
-Abra a serial, trocando \texttt{/dev/ttyUSB0} pelo nome que você achou:
-\begin{lstlisting}[style=sh]
-sudo screen /dev/ttyUSB0 115200
-\end{lstlisting}
-Dê Enter. No \texttt{login:}, \texttt{root} e a senha da placa. Para sair do
+Dê Enter. No \texttt{login:}, digite \texttt{root}; no \texttt{Password:}, a senha
+\texttt{morphe} (ela não aparece enquanto você digita). Para sair do
 \texttt{screen}: Ctrl+A, depois K, depois y.
 \end{faca}
 
@@ -789,7 +827,7 @@ nada no caminho.
 \end{cuidado}
 
 \begin{confira}
-Assim ficou o teste na placa 2, pela serial (5/10/2026):
+Assim ficou o teste na placa 2 (29/10/2026):
 \begin{lstlisting}[style=sh]
 root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x00018000
 root@de1soc-02:~/morphe# ./devmem 0xFF200160 32 0x00024000
@@ -816,8 +854,8 @@ root@de1soc-02:~/morphe# ./devmem 0xFF200150 32 0x8AD00000; ./devmem 0xFF200160 
 
 O \arq{soma_core} funciona. Mas, do jeito da Parte A, cada amostra custa
 três comandos digitados --- um sinal de 1024 amostras seriam mais de 3000.
-Integrar ao Morphe é fazer o caminho que todos os blocos dele (convolução,
-FIR, FFT, IIR) já fazem:
+Integrar ao Morphe é fazer o caminho que os blocos dele (a FFT e o ADC) já
+fazem:
 
 \begin{center}
 \begin{tikzpicture}[node distance=0.25cm]
@@ -879,7 +917,7 @@ PIOs \texttt{start}, \texttt{done} & 1 bit cada & \texttt{0x130}, \texttt{0x140}
   \draw[fpga,thick] (5,1.0) rectangle (9.8,5.6);
   \node[font=\scriptsize\bfseries,text=fpga,anchor=south] at (7.4,5.65) {memórias (grandes)};
   \node[font=\scriptsize,align=left,anchor=north west] at (5.1,5.5)
-    {\texttt{+0x00000}\ \ conv, FIR, FFT, IIR\\[1pt]
+    {\texttt{+0x18000}\ \ FFT (4 memórias)\\[1pt]
      \texttt{+0x20000}\ \ \texttt{adc\_buf}\\[1pt]
      \textbf{\texttt{+0x40000}\ \ \texttt{soma\_a}}\\
      \textbf{\texttt{+0x41000}\ \ \texttt{soma\_b}}\\
@@ -888,7 +926,7 @@ PIOs \texttt{start}, \texttt{done} & 1 bit cada & \texttt{0x130}, \texttt{0x140}
   \draw[fpga,thick] (5,7.6) rectangle (9.8,10.4);
   \node[font=\scriptsize\bfseries,text=fpga,anchor=south] at (7.4,10.45) {PIOs (pequenos)};
   \node[font=\scriptsize,align=left,anchor=north west] at (5.1,10.3)
-    {\texttt{+0x000}--\texttt{0x120}\ \ os existentes\\[1pt]
+    {\texttt{+0x050}--\texttt{0x120}\ \ FFT e ADC\\[1pt]
      \textbf{\texttt{+0x130}\ \ \texttt{soma\_start}}\\
      \textbf{\texttt{+0x140}\ \ \texttt{soma\_done}}\\
      \texttt{+0x150}--\texttt{170}\ \ teste (A3)};
@@ -918,7 +956,7 @@ amostra a amostra: troque o \arq{soma_core} por outra conta e o resto fica.
 Traga do gabarito e ponha no projeto (como na A2,
 \menu{Project}\seta\menu{Add/Remove Files}):
 \begin{lstlisting}[style=sh]
-git show origin/estagio/modulo-soma:Quartus/soma.v > Quartus/soma.v
+git show origin/estagio/modulo-soma-adc-fft:Quartus/soma.v > Quartus/soma.v
 \end{lstlisting}
 \end{faca}
 
@@ -929,6 +967,7 @@ copiar, use o \arq{trechos.txt} (página~\pageref{pag:gabarito}).
 \end{faca}
 
 \begin{lstlisting}[language=Verilog,basicstyle=\ttfamily\scriptsize]
+// =============================================================================
 // =============================================================================
 // soma.v -- soma de dois sinais, amostra a amostra: y[n] = a[n] + b[n].
 //
@@ -943,7 +982,7 @@ copiar, use o \arq{trechos.txt} (página~\pageref{pag:gabarito}).
 //     porta s2; este modulo usa a porta s1, exportada para o ghrd_top;
 //   - dois PIOs: soma_start (HPS -> FPGA) e soma_done (FPGA -> HPS).
 //
-// Protocolo de start/done, o mesmo do IIR e do conv1d:
+// Protocolo de start/done, o mesmo da FFT (fft_wrapper.v):
 //   1. o HPS escreve as entradas e poe start = 1 (borda de subida dispara);
 //   2. o modulo processa SEMPRE N_SAMPLES amostras (o servidor completa com
 //      zeros o que o cliente nao mandou) e entao poe done = 1;
@@ -953,7 +992,7 @@ copiar, use o \arq{trechos.txt} (página~\pageref{pag:gabarito}).
 // e b[n] das memorias, passa pelo nucleo e grava y[n].
 //
 // Leitura e escrita das memorias: os mesmos memory_read_controller e
-// memory_write_controller que o conv1d e o iir_cascade usam. Cada leitura
+// memory_write_controller que o fft_wrapper.v usa. Cada leitura
 // custa 6 ciclos e cada escrita 4, contando a ida e a volta pela maquina de
 // estados; a e b sao lidas em paralelo, por dois controladores. Uma amostra
 // custa 12 ciclos: 1024 amostras em 12 289 ciclos, ~0,25 ms a 50 MHz.
@@ -1092,7 +1131,7 @@ module soma #(
         end
     end
 
-    // --- controladores de memoria: os mesmos do conv1d e do iir_cascade ---
+    // --- controladores de memoria: os mesmos do fft_wrapper.v ---
     memory_read_controller #(
         .DATA_WIDTH         (DATA_WIDTH),
         .MEM_ADDRESS_N_BITS (ADDR_N_BITS)
@@ -1199,8 +1238,8 @@ soma_core #(.DATA_WIDTH(DATA_WIDTH)) u_conta (
 
 \begin{pronto}
 Ler e escrever as memórias já está feito: \arq{memory_read_controller.v} e
-\arq{memory_write_controller.v}, os mesmos do \arq{conv1d.v} e do
-\arq{iir_cascade.v}. Dá-se o endereço e um pulso em \texttt{start\_read}; o
+\arq{memory_write_controller.v}, os mesmos do \arq{fft_wrapper.v}.
+Dá-se o endereço e um pulso em \texttt{start\_read}; o
 dado volta em \texttt{data\_out} com um pulso em \texttt{read\_done}. A soma
 usa dois de leitura (\(a\) e \(b\) em paralelo) e um de escrita (\(y\)):
 1024 amostras em 12\,289 ciclos, cerca de 0,25\,ms.
@@ -1239,7 +1278,10 @@ circuito. Os dois usam a mesma memória ao mesmo tempo, sem disputa.
   \item \textbf{Ligar}: \texttt{s2} das memórias ao
     \texttt{h2f\_axi\_master}; \texttt{s1} dos PIOs ao
     \texttt{h2f\_lw\_axi\_master}; relógios em \texttt{clk\_0} e resets em
-    \texttt{clk\_0.clk\_reset}.
+    \texttt{clk\_0.clk\_reset}. Cada memória \emph{dual-port} tem
+    \textbf{dois} de cada (\texttt{clk1} e \texttt{clk2}, \texttt{reset1} e
+    \texttt{reset2}, um por porta): ligue os quatro, como nas memórias
+    \texttt{fft\_xn\_re}\ldots\ da FFT.
   \item \textbf{Exportar}: \texttt{s1} das memórias e
     \texttt{external\_connection} dos PIOs.
   \item \textbf{Endereços} da tabela da B1, travados. Salvar e gerar.
@@ -1420,8 +1462,8 @@ soma #(
 \end{lstlisting}
 \end{enumerate}
 Salve (Ctrl+S). Depois: compile, \texttt{python3 gen\_hps\_header.py} e
-\texttt{./morphe-up.sh -{}-cable 'CABO' -{}-deploy}, como na A5 (o mesmo
-cabo de lá; se mudou de porta, \texttt{jtagconfig} de novo).
+\texttt{./morphe-up.sh -{}-cable 'CABO' -{}-board PLACA -{}-deploy}, como na
+A5 (o mesmo cabo e a mesma placa de lá; se mudou de porta, \texttt{jtagconfig} de novo).
 \end{faca}
 
 \begin{porque}
@@ -1472,10 +1514,10 @@ ficam as memórias e os PIOs (do \arq{hps_0.h}) e o que fazer com o pedido.
 Duas formas, escolha uma. A rápida: traga os quatro arquivos prontos do
 gabarito (de \arq{~/meu-modulo}):
 \begin{lstlisting}[style=sh]
-git checkout origin/estagio/modulo-soma -- C/morphe_server.c C/morphe_protocol.h
+git checkout origin/estagio/modulo-soma-adc-fft -- C/morphe_server.c C/morphe_protocol.h
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-git checkout origin/estagio/modulo-soma -- C/morphe_config.h C/address_map_arm.h
+git checkout origin/estagio/modulo-soma-adc-fft -- C/morphe_config.h C/address_map_arm.h
 \end{lstlisting}
 Ou, para entender cada mudança, faça à mão com os trechos completos logo
 abaixo da tabela. Nos dois casos, o \arq{C/hps_0.h} \textbf{não} vem do
@@ -1494,7 +1536,7 @@ O que mudou em cada um, e por quê:
 \arq{address_map_arm.h} & \texttt{FPGA\_ONCHIP\_SPAN}: \texttt{0x3FFFF}\seta\texttt{0x4FFFF} & o servidor só enxerga a parte da ponte larga que mapeia; as memórias novas ficam depois de \texttt{0x40000} \\ \addlinespace
 \arq{morphe_server.c} & \texttt{MORPHE\_TEM\_SOMA} & a soma só é compilada se o \arq{hps_0.h} tem os endereços dela \\
  & 5 ponteiros em \texttt{fpga\_init()} & ``endereço da ponte + deslocamento do \arq{hps_0.h}'' para cada memória e PIO \\
- & \texttt{handle\_soma()} & o fluxograma acima; o molde foi a \texttt{handle\_fir()} \\
+ & \texttt{handle\_soma()} & o fluxograma acima; o molde foi a \texttt{handle\_fft()} \\
  & \texttt{case MORPHE\_OP\_SOMA} & o despacho: opcode 9 chama a \texttt{handle\_soma()} \\
 \bottomrule
 \end{tabularx}
@@ -1522,12 +1564,12 @@ Abra cada arquivo num editor de texto (\texttt{gedit}, por exemplo) e use Ctrl+F
 \begin{lstlisting}[language=C]
 #define MORPHE_OP_SOMA     9U   /* y = a + b (soma.v), modulo de exemplo do roteiro */
 \end{lstlisting}
-  \item (só documentação) no comentário do topo, a linha da lista de opcodes passa a terminar em \texttt{9=SOMA)}, e antes da linha \texttt{ADC\_CONTINUO -> igual ao ADC} entra:
+  \item (só documentação) no comentário do topo, a lista de opcodes passa a ter \texttt{8=ADC\_CONTINUO, 9=SOMA}, e antes da linha \texttt{ADC\_CONTINUO -> igual ao ADC} entra:
 \begin{lstlisting}[language=C]
  *   SOMA     -> n_x amostras de a, seguidas de n_h amostras de b (int32
- *               Q15.16, como na CONV). n_x == n_h, de 1 a
- *               MORPHE_SOMA_N_MAX. A resposta traz n_x amostras de
- *               y = a + b, saturada em 32 bits.
+ *               Q15.16). n_x == n_h, de 1 a MORPHE_SOMA_N_MAX. A
+ *               resposta traz n_x amostras de y = a + b (int32 Q15.16),
+ *               saturada em 32 bits.
 \end{lstlisting}
 \end{enumerate}
 \end{faca}
@@ -1562,7 +1604,7 @@ Abra cada arquivo num editor de texto (\texttt{gedit}, por exemplo) e use Ctrl+F
 \begin{faca}
 \textbf{\arq{C/morphe_server.c}}, em nove lugares:
 \begin{enumerate}
-  \item depois do bloco do ADC (o \texttt{\#endif} logo abaixo de \texttt{\#define \_MORPHE\_END\_ADC 0}), e \textbf{no lugar} do \texttt{\#define MORPHE\_ONCHIP\_MMAP\_SPAN} que vem em seguida (apague o antigo; o novo é o do fim deste trecho):
+  \item \textbf{no lugar} das duas linhas que começam em \texttt{\#define MORPHE\_ONCHIP\_MMAP\_SPAN} (logo depois do bloco do ADC, o \texttt{\#endif} abaixo de \texttt{\#define \_MORPHE\_END\_ADC 0}); apague as duas e cole:
 \begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
 /* A soma, como o ADC, so entra quando o hps_0.h foi gerado de um .sopcinfo
  * que a tem (tres memorias e dois PIOs). A protecao contra bitstream antigo
@@ -1582,10 +1624,8 @@ Abra cada arquivo num editor de texto (\texttt{gedit}, por exemplo) e use Ctrl+F
 #endif
 
 #define MORPHE_ONCHIP_MMAP_SPAN \
-    _MORPHE_ROUND_UP( \
-        _MORPHE_MAX3(_MORPHE_MAX4(_MORPHE_END_FFT, _MORPHE_END_CONV, _MORPHE_END_FIR, _MORPHE_END_IIR), \
-                     _MORPHE_END_ADC, _MORPHE_END_SOMA), \
-        _MORPHE_PAGE_SIZE)
+    _MORPHE_ROUND_UP(_MORPHE_MAX3(_MORPHE_END_FFT, _MORPHE_END_ADC, _MORPHE_END_SOMA), \
+                     _MORPHE_PAGE_SIZE)
 \end{lstlisting}
   \item antes da linha \texttt{\_Static\_assert(MORPHE\_ONCHIP\_MMAP\_SPAN}:
 \begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
@@ -1595,7 +1635,7 @@ _Static_assert(SOMA_B_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Er
 _Static_assert(SOMA_Y_SPAN      >= MORPHE_SOMA_N_MAX * (int)sizeof(int32_t), "Erro");
 #endif
 \end{lstlisting}
-  \item os ponteiros: logo depois da linha \texttt{g\_pio\_iir\_nsecoes = NULL;}:
+  \item os ponteiros: depois do \texttt{\#endif} que vem logo abaixo da linha \texttt{static volatile uint32\_t *g\_pio\_adc\_contador = NULL;}:
 \begin{lstlisting}[language=C]
 #if MORPHE_TEM_SOMA
 static int32_t           *g_soma_a          = NULL;
@@ -1630,9 +1670,9 @@ static volatile uint32_t *g_pio_soma_done   = NULL;
   \item a função que atende o pedido (o fluxograma acima): \textbf{antes} da linha \texttt{static int handle\_ping(int sock) \{}:
 \begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
 /* SOMA: y = a + b no soma.v. Payload: a (n_x palavras) e depois b (n_h
- * palavras), int32 Q15.16 -- o mesmo layout da CONV e do FIR, entao o
- * molde e o handle_fir. O hardware processa sempre MORPHE_SOMA_N_MAX
- * amostras: o que o cliente nao mandou vai como zero. */
+ * palavras), int32 Q15.16 big-endian. O hardware processa sempre
+ * MORPHE_SOMA_N_MAX amostras: o que o cliente nao mandou vai como zero.
+ * O molde e a handle_fft(): recebe, escreve nas memorias, dispara, le. */
 #if !MORPHE_TEM_SOMA
 static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
     (void) dtype; (void) n_a; (void) n_b;
@@ -1660,6 +1700,8 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
         return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_FPGA_NAO_PREPARADA, msg);
     }
 
+    if (dtype != MORPHE_DTYPE_INT32)
+        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_DTYPE, "SOMA: use int32 (Q15.16)");
     if (n_a == 0 || n_a > MORPHE_SOMA_N_MAX || n_b != n_a) {
         char msg[96];
         snprintf(msg, sizeof msg, "SOMA: a e b com o mesmo tamanho, de 1 a %d",
@@ -1669,20 +1711,14 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
     uint32_t n = n_a;
 
     /* 1. recebe a e b */
-    size_t payload_bytes = (size_t) 2 * n * 4;
-    static uint8_t rx_buf[RX_BUF_MAX];
-    if (payload_bytes > sizeof rx_buf)
-        return send_error(sock, MORPHE_OP_SOMA, MORPHE_STATUS_BAD_SIZE, "SOMA: payload excedido");
-    if (recv_exact(sock, rx_buf, payload_bytes) < 0) return -1;
-
-    static int32_t a_buf[MORPHE_SOMA_N_MAX];
-    static int32_t b_buf[MORPHE_SOMA_N_MAX];
-    decode_samples_to_i32(rx_buf,         n, dtype, a_buf);
-    decode_samples_to_i32(rx_buf + n * 4, n, dtype, b_buf);
+    static uint8_t rx_buf[2 * MORPHE_SOMA_N_MAX * 4];
+    if (recv_exact(sock, rx_buf, (size_t) 2 * n * 4) < 0) return -1;
 
     /* 2. escreve nas memorias da FPGA (porta s2), completando com zeros */
-    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++) g_soma_a[i] = (i < n) ? a_buf[i] : 0;
-    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++) g_soma_b[i] = (i < n) ? b_buf[i] : 0;
+    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++)
+        g_soma_a[i] = (i < n) ? i32_from_be(rx_buf + i * 4) : 0;
+    for (uint32_t i = 0; i < MORPHE_SOMA_N_MAX; i++)
+        g_soma_b[i] = (i < n) ? i32_from_be(rx_buf + (n + i) * 4) : 0;
 
     /* 3. dispara (borda de subida no start) e espera o done */
     *g_pio_soma_start = 0;
@@ -1694,22 +1730,12 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
     }
     *g_pio_soma_start = 0;      /* com start em 0, o soma.v volta ao repouso */
 
-    /* 4. le a saida */
-    static int32_t y_buf[MORPHE_SOMA_N_MAX];
-    for (uint32_t i = 0; i < n; i++) y_buf[i] = g_soma_y[i];
+    /* 4. le a saida e responde */
+    static uint8_t tx_buf[MORPHE_SOMA_N_MAX * 4];
+    for (uint32_t i = 0; i < n; i++) i32_to_be(tx_buf + i * 4, g_soma_y[i]);
 
-    /* o mesmo .mrph de depuracao da CONV: a no lugar de x, b no de h */
-    save_debug_bundle_conv("soma", dtype, n, a_buf, n, b_buf, n, y_buf);
-
-    /* 5. responde */
-    static uint8_t tx_buf[TX_BUF_MAX];
     uint8_t hdr[MORPHE_HEADER_SIZE];
-    build_resp_header(hdr, MORPHE_OP_SOMA, dtype, MORPHE_STATUS_OK, n);
-    if (dtype == MORPHE_DTYPE_INT32) {
-        for (uint32_t i = 0; i < n; i++) i32_to_be(tx_buf + i * 4, y_buf[i]);
-    } else {
-        for (uint32_t i = 0; i < n; i++) f32_to_be(tx_buf + i * 4, (float) y_buf[i]);
-    }
+    build_resp_header(hdr, MORPHE_OP_SOMA, MORPHE_DTYPE_INT32, MORPHE_STATUS_OK, n);
     if (send_all(sock, hdr, sizeof hdr) < 0) return -1;
     if (send_all(sock, tx_buf, (size_t) n * 4) < 0) return -1;
 
@@ -1718,7 +1744,7 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
 }
 #endif
 \end{lstlisting}
-  \item o PING passa a dizer se a soma está disponível: em \texttt{handle\_ping()}, \textbf{troque} tudo da linha \texttt{int preparada = fpga\_preparada();} até a linha \texttt{uptime\_s, preparada);} por:
+  \item o PING passa a dizer se a soma está disponível: em \texttt{handle\_ping()}, \textbf{troque} tudo da linha \texttt{int preparada = fpga\_preparada();} até a linha \texttt{uptime\_s, preparada, fpga\_tem\_assinatura());} por:
 \begin{lstlisting}[language=C,basicstyle=\ttfamily\scriptsize]
     int preparada = fpga_preparada();
     int adc_ok = 0, soma_ok = 0;
@@ -1732,16 +1758,14 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
     char body[512];
     int body_len = snprintf(body, sizeof body,
         "service=morphe\nversion=%u\nhostname=%s\nfft_n=%d\nfft_data_bits=%d\n"
-        "fft_frac_bits=%d\nconv_n_max=%d\nconv_y_max=%d\n"
-        "iir_n_max=%d\niir_secoes_max=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
-        "adc_fs_min=%d\nsoma_n_max=%d\nuptime_s=%ld\nfpga_preparada=%d\n",
+        "fft_frac_bits=%d\nadc_n_max=%d\nadc_fs_max=%d\n"
+        "adc_fs_min=%d\nsoma_n_max=%d\nuptime_s=%ld\nfpga_preparada=%d\nfpga_assinatura=%d\n",
         MORPHE_VERSION, g_hostname, MORPHE_FFT_N, MORPHE_FFT_DATA_BITS,
-        MORPHE_FFT_FRAC_BITS, MORPHE_CONV_N_MAX, MORPHE_CONV_Y_MAX,
-        MORPHE_IIR_N_MAX, MORPHE_IIR_SECOES_MAX,
+        MORPHE_FFT_FRAC_BITS,
         adc_ok ? MORPHE_ADC_N_MAX : 0,
         MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MIN, MORPHE_ADC_CLK_HZ / MORPHE_ADC_DIV_MAX,
         soma_ok ? MORPHE_SOMA_N_MAX : 0,
-        uptime_s, preparada);
+        uptime_s, preparada, fpga_tem_assinatura());
 \end{lstlisting}
   \item o despacho: em \texttt{serve\_connection()}, depois da linha \texttt{case MORPHE\_OP\_ADC\_CONTINUO: \ldots}:
 \begin{lstlisting}[language=C]
@@ -1749,7 +1773,6 @@ static int handle_soma(int sock, uint16_t dtype, uint32_t n_a, uint32_t n_b) {
 \end{lstlisting}
 \end{enumerate}
 \end{faca}
-
 
 \begin{cuidado}
 A conferência do \emph{bitstream} (\emph{sysid}) no topo do fluxograma não é
@@ -1761,9 +1784,9 @@ enfeite: se a placa estiver com um \arq{.sof} sem a soma, escrever em
 \textbf{Mande o servidor novo para a placa.} Até aqui você só mudou os
 arquivos no seu clone; a placa continua rodando o servidor antigo, que
 \textbf{não conhece} o opcode 9. Na estação, de dentro de
-\arq{~/meu-modulo}, com o mesmo \texttt{CABO} da A5:
+\arq{~/meu-modulo}, com o mesmo \texttt{CABO} e a mesma \texttt{PLACA} da A5:
 \begin{lstlisting}[style=sh]
-./morphe-up.sh --cable 'CABO' --deploy
+./morphe-up.sh --cable 'CABO' --board PLACA --deploy
 \end{lstlisting}
 \end{faca}
 
@@ -1794,7 +1817,7 @@ veja o IP em ``Placas do laboratório'' e clique em \menu{Usar} na sua.
 O aplicativo (\arq{Python/morphe_app.py}) é o que o aluno abre. Para a soma,
 ele precisa: montar o pedido com o opcode 9 e as amostras, entender a
 resposta, e uma janela para gerar \(a\) e \(b\) e mostrar \(y\). O pedido
-tem o mesmo formato da convolução, que também manda dois sinais:
+leva os dois sinais, um depois do outro:
 \end{porque}
 
 \begin{center}
@@ -1815,10 +1838,10 @@ tem o mesmo formato da convolução, que também manda dois sinais:
 Duas formas, escolha uma. A rápida: traga os quatro arquivos prontos do
 gabarito:
 \begin{lstlisting}[style=sh]
-git checkout origin/estagio/modulo-soma -- Python/morphe_protocol.py Python/morphe_config.py
+git checkout origin/estagio/modulo-soma-adc-fft -- Python/morphe_protocol.py Python/morphe_config.py
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-git checkout origin/estagio/modulo-soma -- Python/soma_window.py Python/morphe_app.py
+git checkout origin/estagio/modulo-soma-adc-fft -- Python/soma_window.py Python/morphe_app.py
 \end{lstlisting}
 Ou faça à mão com os trechos completos logo abaixo do quadro ``Já existe''.
 Em Python, a \textbf{indentação} (os espaços no começo da linha) faz parte
@@ -1840,10 +1863,11 @@ do código: cole cada trecho com os espaços que ele tem.
 
 \begin{pronto}
 A janela é curta porque quase tudo já existe: o painel de sinal
-(\texttt{SignalPanel}), o gráfico da convolução (\texttt{\_stem\_signal}), a
-conversão para Q15.16 (\texttt{float\_to\_q1516}, em \arq{dsp_core.py}) e o
-cliente já apontado para a placa escolhida
-(\texttt{self.master.tcp\_panel.make\_client()}).
+(\texttt{SignalPanel}), o gráfico de amostras da janela da FFT
+(\texttt{\_stem\_signal}, em \arq{fft_window.py}) e o cliente já apontado
+para a placa escolhida (\texttt{self.master.tcp\_panel.make\_client()}).
+Só a conversão para Q15.16 é nova, e cabe em três linhas
+(\texttt{para\_q1516}, no começo do \arq{soma_window.py}).
 \end{pronto}
 
 \subsubsection*{Os trechos completos, arquivo por arquivo}
@@ -1851,7 +1875,7 @@ cliente já apontado para a placa escolhida
 \begin{faca}
 \textbf{\arq{Python/morphe_config.py}}
 \begin{enumerate}
-  \item antes da linha \texttt{\# -{}-{}-{}- ADC (LTC2308}:
+  \item antes da linha \texttt{\# -{}-{}-{}- Rede}:
 \begin{lstlisting}[language=Python]
 # ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ---------------
 # O bloco processa SEMPRE SOMA_N_MAX amostras; o servidor completa com zeros.
@@ -1868,24 +1892,22 @@ SOMA_N_MAX: int = 1024
 \begin{lstlisting}[language=Python]
 OP_SOMA = 9   # y = a + b (soma.v), modulo de exemplo do roteiro
 \end{lstlisting}
-  \item o pedido: antes da linha \texttt{class TcpClient:}:
+  \item o pedido e a resposta: antes da linha \texttt{class TcpClient:}:
 \begin{lstlisting}[language=Python,basicstyle=\ttfamily\scriptsize]
-def build_soma_request(a_q: np.ndarray, b_q: np.ndarray,
-                       dtype_code: int = DTYPE_INT32) -> bytes:
-    """Pedido da SOMA: o mesmo layout da CONV -- cabecalho com n_x = len(a)
-    e n_h = len(b), depois as amostras de a e as de b. a e b ja em Q15.16
-    (inteiros) e com o mesmo tamanho, de 1 a SOMA_N_MAX."""
+def build_soma_request(a_q: np.ndarray, b_q: np.ndarray) -> bytes:
+    """Pedido da SOMA: cabecalho com n_x = len(a) e n_h = len(b), depois as
+    amostras de a e as de b. a e b ja em Q15.16 (inteiros) e com o mesmo
+    tamanho, de 1 a SOMA_N_MAX."""
     if len(a_q) != len(b_q):
         raise ValueError(f"a e b precisam do mesmo tamanho ({len(a_q)} != {len(b_q)})")
     hdr = struct.pack(
         ">IHHHHII",
-        MAGIC_REQ, VERSION, OP_SOMA, dtype_code, 0,
+        MAGIC_REQ, VERSION, OP_SOMA, DTYPE_INT32, 0,
         len(a_q), len(b_q),
     )
-    return hdr + pack_samples(a_q, dtype_code) + pack_samples(b_q, dtype_code)
-\end{lstlisting}
-  \item a resposta: antes da linha \texttt{def decode\_iir\_response}:
-\begin{lstlisting}[language=Python,basicstyle=\ttfamily\scriptsize]
+    return hdr + pack_samples(a_q, DTYPE_INT32) + pack_samples(b_q, DTYPE_INT32)
+
+
 def decode_soma_response(resp: Response) -> np.ndarray:
     """y = a + b em Q15.16 (inteiros), como a placa devolveu."""
     if not resp.ok:
@@ -1905,12 +1927,13 @@ def decode_soma_response(resp: Response) -> np.ndarray:
 \begin{lstlisting}[language=Python]
 from soma_window import SomaWindow
 \end{lstlisting}
-  \item o botão do menu: em \texttt{primary\_actions}, depois da linha do \texttt{"Filtro IIR  (FPGA)"}:
+  \item o botão do menu: em \texttt{primary\_actions}, depois da linha do \texttt{"FFT  (1 sinal → FPGA)"}:
 \begin{lstlisting}[language=Python]
             ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
 \end{lstlisting}
-  \item o que o botão faz: logo depois do método \texttt{\_open\_iir}:
+  \item o que o botão faz: logo depois do método \texttt{\_open\_fft} (as duas linhas dele):
 \begin{lstlisting}[language=Python]
+
     def _open_soma(self):
         SomaWindow(self)
 \end{lstlisting}
@@ -1925,13 +1948,12 @@ from soma_window import SomaWindow
 """
 soma_window.py -- janela da SOMA: y[n] = a[n] + b[n] calculada na FPGA.
 
-Modulo de exemplo do roteiro "Como adicionar um modulo ao Morphe"
-(docs/roteiro-modulo). Mostra o minimo que uma janela nova precisa, sempre
+Modulo de exemplo do roteiro "Como criar um modulo no Quartus e liga-lo ao
+Morphe" (docs/roteiro-modulo). Mostra o minimo que uma janela nova precisa,
 reaproveitando o que ja existe:
 
   - os dois sinais vem do SignalPanel, o mesmo de todas as janelas;
-  - o desenho e o _stem_signal da janela de convolucao;
-  - a conversao para Q15.16 e a volta sao as do dsp_core;
+  - o desenho e o _stem_signal da janela da FFT;
   - a placa e a do painel "Placas do laboratorio" (master.tcp_panel);
   - o pedido vai em uma thread, para a janela nao congelar esperando a rede.
 
@@ -1954,17 +1976,33 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 import dsp_core as dsp
 import morphe_theme as theme
-from conv_window import _stem_signal
+from fft_window import _stem_signal
 from morphe_config import SOMA_N_MAX
-from morphe_protocol import DTYPE_INT32, build_soma_request, decode_soma_response
+from morphe_protocol import build_soma_request, decode_soma_response
 from plot_toolbar import PlotToolbar
 from signal_panel import SignalPanel
+
+# Q15.16: o inteiro de 32 bits guardado e o valor vezes 2^16.
+Q1516_ESCALA = 1 << 16
+Q1516_MIN = -(1 << 31)
+Q1516_MAX = (1 << 31) - 1
+
+
+def para_q1516(x: np.ndarray) -> np.ndarray:
+    """Valores reais -> inteiros Q15.16 (arredonda e satura em 32 bits)."""
+    q = np.round(np.asarray(x, dtype=np.float64) * Q1516_ESCALA)
+    return np.clip(q, Q1516_MIN, Q1516_MAX).astype(np.int64)
+
+
+def de_q1516(q: np.ndarray) -> np.ndarray:
+    """Inteiros Q15.16 -> valores reais."""
+    return np.asarray(q, dtype=np.float64) / Q1516_ESCALA
 
 
 def soma_referencia(a_q: np.ndarray, b_q: np.ndarray) -> np.ndarray:
     """A conta do soma.v em NumPy: soma em 64 bits e satura na faixa de 32."""
     s = np.asarray(a_q, dtype=np.int64) + np.asarray(b_q, dtype=np.int64)
-    return np.clip(s, dsp.Q_MIN, dsp.Q_MAX)
+    return np.clip(s, Q1516_MIN, Q1516_MAX)
 
 
 class SomaWindow(tk.Toplevel):
@@ -2023,7 +2061,7 @@ class SomaWindow(tk.Toplevel):
 
     def _redraw(self):
         _stem_signal(self.ax_a, self.a_sig, "a[n]", dsp.COLOR_X)
-        _stem_signal(self.ax_b, self.b_sig, "b[n]", dsp.COLOR_H)
+        _stem_signal(self.ax_b, self.b_sig, "b[n]", dsp.COLOR_X)
         _stem_signal(self.ax_y, self.y_sig, "y[n] = a[n] + b[n] (FPGA)", dsp.COLOR_Y)
         self.fig.tight_layout()
         self.canvas.draw_idle()
@@ -2055,8 +2093,8 @@ class SomaWindow(tk.Toplevel):
 
         # mesmo tamanho para os dois; o indice n vem de a[n]
         n = max(self.a_sig.x.size, self.b_sig.x.size)
-        a_q = dsp.float_to_q1516(dsp.pad_zeros_to(self.a_sig.x, n))
-        b_q = dsp.float_to_q1516(dsp.pad_zeros_to(self.b_sig.x, n))
+        a_q = para_q1516(dsp.pad_zeros_to(self.a_sig.x, n))
+        b_q = para_q1516(dsp.pad_zeros_to(self.b_sig.x, n))
         n0 = int(self.a_sig.n[0]) if self.a_sig.n.size else 0
 
         self.btn.config(state="disabled")
@@ -2064,7 +2102,7 @@ class SomaWindow(tk.Toplevel):
 
         def worker():
             try:
-                resp = client.request(build_soma_request(a_q, b_q, DTYPE_INT32))
+                resp = client.request(build_soma_request(a_q, b_q))
                 y_q = decode_soma_response(resp)
                 self.after(0, lambda: self._on_resultado(y_q, a_q, b_q, n0))
             except Exception as e:
@@ -2076,7 +2114,7 @@ class SomaWindow(tk.Toplevel):
         ref = soma_referencia(a_q, b_q)
         iguais = int(np.sum(y_q == ref))
         n = y_q.size
-        self.y_sig = dsp.Signal(n=np.arange(n) + n0, x=dsp.q1516_to_float(y_q),
+        self.y_sig = dsp.Signal(n=np.arange(n) + n0, x=de_q1516(y_q),
                                 description=f"{n} amostras, Q15.16")
         self._redraw()
         self.btn.config(state="normal")
@@ -2098,19 +2136,32 @@ class SomaWindow(tk.Toplevel):
 \begin{lstlisting}[style=sh]
 python3 Python/morphe_app.py
 \end{lstlisting}
-No menu, \menu{Soma (a + b \(\rightarrow\) FPGA, exemplo do roteiro)}; gere
-os dois sinais e clique em \menu{Somar na FPGA}.
+Em \menu{Placas do laboratório}, confira que a sua placa está marcada
+\emph{conectado} (se não, clique em \menu{Usar} na linha dela). Depois:
+\begin{enumerate}
+  \item no menu, \nr{1} \menu{Soma (a + b \(\rightarrow\) FPGA, exemplo do roteiro)};
+  \item na janela que abre, \nr{1} \menu{Gerar} em \(a[n]\) e \nr{2}
+    \menu{Gerar} em \(b[n]\) (os tipos e tamanhos podem ficar como estão);
+  \item \nr{3} \menu{Somar na FPGA}, e leia a barra de baixo \nr{4}.
+\end{enumerate}
 \end{faca}
 
-\tela[0.82\linewidth]{app01-janela-soma}{o que você deve ver: a barra de
-baixo diz \emph{iguais, bit a bit} (placa 2, 5/10/2026)}
+\begin{center}
+\begin{minipage}[c]{0.3\linewidth}\centering
+\tela{app00-menu-soma}{o botão novo no menu}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.66\linewidth}\centering
+\tela{app01-janela-soma}{o que você deve ver: a barra de baixo diz
+\emph{iguais, bit a bit} (placa 2, 29/10/2026)}
+\end{minipage}
+\end{center}
 
 \begin{confira}
 \begin{itemize}
   \item a barra de baixo diz que as amostras são \textbf{iguais, bit a bit}
     à conta feita no NumPy;
   \item \(a = b = 30\,000\) dá \(32\,767{,}99998\) (saturou), como na A6;
-  \item as outras janelas (convolução, FFT, IIR) continuam funcionando;
+  \item as outras janelas (Aquisição, FFT, Comparador) continuam funcionando;
   \item numa placa com um \arq{.sof} antigo, a soma é \textbf{recusada} com
     mensagem --- e a placa não trava.
 \end{itemize}
@@ -2127,9 +2178,9 @@ e de \arq{/opt/morphe}:
 cd /opt/morphe
 \end{lstlisting}
 \begin{lstlisting}[style=sh]
-./morphe-up.sh --cable 'CABO'
+./morphe-up.sh --cable 'CABO' --board PLACA
 \end{lstlisting}
-com o mesmo \texttt{CABO} da A5.
+com o mesmo \texttt{CABO} e a mesma \texttt{PLACA} da A5.
 \end{faca}
 
 % =============================================================================
@@ -2168,7 +2219,9 @@ o aplicativo diz \emph{opcode desconhecido} & o servidor da placa é o antigo: f
 operações antigas param de funcionar & usou \emph{Assign Base Addresses}: os endereços mudaram \\ \addlinespace
 \texttt{\_Static\_assert} falha ao compilar o servidor & faltou o \texttt{FPGA\_ONCHIP\_SPAN} \\ \addlinespace
 a placa para depois de cerca de uma hora & sem a licença ativa; use o \arq{morphe-up.sh}, sem \texttt{sudo} \\ \addlinespace
-\texttt{qsys-generate} ou \texttt{quartus\_sh}: \emph{not found} & terminal em \texttt{ksh}; digite \texttt{bash} \\
+\texttt{qsys-generate} ou \texttt{quartus\_sh}: \emph{not found} & terminal em \texttt{ksh}; digite \texttt{bash} \\ \addlinespace
+\arq{morphe-up.sh}: \emph{não sei qual placa é a deste comando} & faltou o \texttt{-{}-board PLACA}, com o nome que aparece no \texttt{login:} da serial (A5) \\ \addlinespace
+\arq{morphe-up.sh}: \emph{placa em uso} & alguém mandou uma operação a ela no último minuto (pode ter sido você mesmo); espere um minuto e rode de novo \\
 \bottomrule
 \end{tabularx}
 \end{center}

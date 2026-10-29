@@ -79,8 +79,13 @@ test_wire: test_wire.c $(HEADERS_TEST)
 test: test_wire
 	./test_wire
 
+# devmem: le/escreve um endereco fisico, como o do busybox (a placa nao
+# tem). Teste isolado do roteiro do modulo, passo A6.
+devmem: devmem.c
+	$(CC) -O2 -Wall -std=gnu99 -o $@ devmem.c
+
 clean:
-	rm -f *.o $(TARGET) $(TESTSERVER) test_wire morphe_server.s
+	rm -f *.o $(TARGET) $(TESTSERVER) test_wire devmem morphe_server.s
 
 run: $(TARGET)
 	sudo ./$(TARGET)

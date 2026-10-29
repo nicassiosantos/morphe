@@ -249,6 +249,11 @@ localparam FFT_ADDRESS_WIDTH    = 10;
 localparam ADC_ADDR_WIDTH = 15;         // 32768 amostras na RAM adc_buf
 localparam ADC_DIV_MIN    = 250;        // 50 MHz / 250 = 200 kHz, a fs maxima
 
+// --- SOMA (modulo de exemplo do roteiro: y[n] = a[n] + b[n], soma.v) ---
+localparam SOMA_DATA_WIDTH = 32;
+localparam SOMA_ADDR_WIDTH = 10;        // 1024 amostras
+localparam SOMA_N_SAMPLES  = 1024;
+
 
 /* -------------------------------------------------------------------------------------------
  * 2. FFT PERIPHERAL SIGNALS
@@ -310,6 +315,41 @@ wire [6:0]                        adc_config;      // [5:0] palavra do LTC2308 (
 wire [31:0]                       adc_divisor;     // fs = 50 MHz / divisor
 wire [15:0]                       adc_namostras;
 wire [31:0]                       adc_contador;    // amostras ja na RAM (buffer circular no modo continuo)
+// --- teste isolado do nucleo (roteiro, Parte A): tres PIOs de 32 bits ---
+wire [31:0] soma_teste_a;    // HPS -> FPGA
+wire [31:0] soma_teste_b;    // HPS -> FPGA
+wire [31:0] soma_teste_y;    // FPGA -> HPS
+
+// --- Controle (PIOs) ---
+wire                              soma_start;      // HPS -> FPGA
+wire                              soma_done;       // FPGA -> HPS
+
+// --- SRAM a[n]: o HPS escreve, o soma.v le ---
+wire [SOMA_ADDR_WIDTH-1:0]        soma_a_address;
+wire                              soma_a_clken;
+wire                              soma_a_chipselect;
+wire                              soma_a_write;
+wire [SOMA_DATA_WIDTH-1:0]        soma_a_readdata;
+wire [SOMA_DATA_WIDTH-1:0]        soma_a_writedata;
+wire [3:0]                        soma_a_byteenable = 4'b1111;
+
+// --- SRAM b[n]: o HPS escreve, o soma.v le ---
+wire [SOMA_ADDR_WIDTH-1:0]        soma_b_address;
+wire                              soma_b_clken;
+wire                              soma_b_chipselect;
+wire                              soma_b_write;
+wire [SOMA_DATA_WIDTH-1:0]        soma_b_readdata;
+wire [SOMA_DATA_WIDTH-1:0]        soma_b_writedata;
+wire [3:0]                        soma_b_byteenable = 4'b1111;
+
+// --- SRAM y[n]: o soma.v escreve, o HPS le ---
+wire [SOMA_ADDR_WIDTH-1:0]        soma_y_address;
+wire                              soma_y_clken;
+wire                              soma_y_chipselect;
+wire                              soma_y_write;
+wire [SOMA_DATA_WIDTH-1:0]        soma_y_readdata;
+wire [SOMA_DATA_WIDTH-1:0]        soma_y_writedata;
+wire [3:0]                        soma_y_byteenable = 4'b1111;
 
 // --- SRAM de captura: o FPGA escreve, o HPS le ---
 wire [ADC_ADDR_WIDTH-1:0]         adc_buf_address;
@@ -499,6 +539,36 @@ soc_system u0 (
     .adc_divisor_export      (adc_divisor),
     .adc_namostras_export    (adc_namostras),
     .adc_contador_export     (adc_contador),
+    .soma_teste_a_export     (soma_teste_a),
+    .soma_teste_b_export     (soma_teste_b),
+    .soma_teste_y_export     (soma_teste_y),
+
+    .soma_start_export       (soma_start),
+    .soma_done_export        (soma_done),
+
+    .soma_a_address          (soma_a_address),
+    .soma_a_clken            (soma_a_clken),
+    .soma_a_chipselect       (soma_a_chipselect),
+    .soma_a_write            (soma_a_write),
+    .soma_a_readdata         (soma_a_readdata),
+    .soma_a_writedata        (soma_a_writedata),
+    .soma_a_byteenable       (soma_a_byteenable),
+
+    .soma_b_address          (soma_b_address),
+    .soma_b_clken            (soma_b_clken),
+    .soma_b_chipselect       (soma_b_chipselect),
+    .soma_b_write            (soma_b_write),
+    .soma_b_readdata         (soma_b_readdata),
+    .soma_b_writedata        (soma_b_writedata),
+    .soma_b_byteenable       (soma_b_byteenable),
+
+    .soma_y_address          (soma_y_address),
+    .soma_y_clken            (soma_y_clken),
+    .soma_y_chipselect       (soma_y_chipselect),
+    .soma_y_write            (soma_y_write),
+    .soma_y_readdata         (soma_y_readdata),
+    .soma_y_writedata        (soma_y_writedata),
+    .soma_y_byteenable       (soma_y_byteenable),
 
     .adc_buf_address         (adc_buf_address),
     .adc_buf_clken           (adc_buf_clken),
@@ -645,5 +715,47 @@ altera_edge_detector pulse_debug_reset (
 defparam pulse_debug_reset.PULSE_EXT = 32;
 defparam pulse_debug_reset.EDGE_TYPE = 1;
 defparam pulse_debug_reset.IGNORE_RST_WHILE_BUSY = 1;
+
+soma_core #(
+    .DATA_WIDTH (32)
+) soma_core_teste (
+    .a (soma_teste_a),
+    .b (soma_teste_b),
+    .y (soma_teste_y)
+);
+
+soma #(
+    .DATA_WIDTH  (SOMA_DATA_WIDTH),
+    .N_SAMPLES   (SOMA_N_SAMPLES),
+    .ADDR_N_BITS (SOMA_ADDR_WIDTH)
+) soma_inst (
+    .clk     (CLOCK_50),
+    .reset_n (hps_fpga_reset_n),
+
+    // PIOs de controle (Platform Designer)
+    .start   (soma_start),          // HPS -> FPGA
+    .done    (soma_done),           // FPGA -> HPS
+
+    // a[n]: porta s1 da memoria soma_a
+    .a_sram_readdata   (soma_a_readdata),
+    .a_sram_address    (soma_a_address),
+    .a_sram_chipselect (soma_a_chipselect),
+    .a_sram_clken      (soma_a_clken),
+    .a_sram_write      (soma_a_write),
+
+    // b[n]: porta s1 da memoria soma_b
+    .b_sram_readdata   (soma_b_readdata),
+    .b_sram_address    (soma_b_address),
+    .b_sram_chipselect (soma_b_chipselect),
+    .b_sram_clken      (soma_b_clken),
+    .b_sram_write      (soma_b_write),
+
+    // y[n]: porta s1 da memoria soma_y
+    .y_sram_address    (soma_y_address),
+    .y_sram_wdata      (soma_y_writedata),
+    .y_sram_chipselect (soma_y_chipselect),
+    .y_sram_clken      (soma_y_clken),
+    .y_sram_write      (soma_y_write)
+);
 
 endmodule

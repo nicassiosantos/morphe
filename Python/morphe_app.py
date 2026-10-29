@@ -18,6 +18,7 @@ from signal_generator_window import SignalGeneratorWindow
 from aquisicao_window import AquisicaoWindow
 from fft_window import FFTWindow
 from comparator_window import ComparatorWindow
+from soma_window import SomaWindow
 from tcp_panel import TcpConfigPanel
 
 # Créditos do rodapé, uma linha cada: (texto, perfil do LinkedIn ou ""). O
@@ -100,6 +101,7 @@ class MorpheMainWindow(tk.Tk):
             ("Gerador de Sinais",              self._open_generator),
             ("Aquisição  (ADC da placa)",      self._open_aquisicao),
             ("FFT  (1 sinal → FPGA)",          self._open_fft),
+            ("Soma  (a + b → FPGA, exemplo do roteiro)", self._open_soma),
         ]
         for label, cmd in primary_actions:
             ttk.Button(
@@ -209,6 +211,9 @@ class MorpheMainWindow(tk.Tk):
 
     def _open_fft(self):
         FFTWindow(self)
+
+    def _open_soma(self):
+        SomaWindow(self)
 
     def _open_comparator(self):
         ComparatorWindow(self)

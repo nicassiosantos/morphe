@@ -37,6 +37,11 @@ ADC_DIV_MAX: int = 50_000
 # modos (unipolar 0..4,095 V; bipolar -2,048..+2,047 V).
 ADC_LSB_V: float = 4.096 / 4096
 
+# ---- SOMA (modulo de exemplo do roteiro: y = a + b, soma.v) ---------------
+# O bloco processa SEMPRE SOMA_N_MAX amostras; o servidor completa com zeros.
+# Espelho do MORPHE_SOMA_N_MAX do morphe_config.h.
+SOMA_N_MAX: int = 1024
+
 # ---- Rede ----------------------------------------------------------------
 
 #: Porta TCP padrao do servidor (cliente pode sobrescrever).

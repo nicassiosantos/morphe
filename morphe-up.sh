@@ -51,7 +51,7 @@ PORTA_PADRAO=5000
 DIR_REMOTO=morphe
 USUARIO_PLACA="${MORPHE_USER:-root}"
 
-# Os seis arquivos que o servidor precisa. O morphe_config.h e o que o
+# Os arquivos que o servidor precisa (o devmem.c e do roteiro do modulo). O morphe_config.h e o que o
 # deploy.sh original esquecia, e sem ele a compilacao na placa falha.
 FONTES_SERVIDOR=(
     morphe_server.c
@@ -60,6 +60,7 @@ FONTES_SERVIDOR=(
     hps_0.h
     address_map_arm.h
     Makefile
+    devmem.c
 )
 
 # ---------------------------------------------------------------------------
@@ -791,6 +792,10 @@ enviar_servidor() {
     # novo foi enviado e o servidor continuou o antigo.
     # Nunca 'make clean' aqui: RESSALVAS item 9.
     ssh_placa "cd $DIR_REMOTO && make -B morphe_server"
+    # O devmem (teste isolado do roteiro do modulo) e opcional: se falhar,
+    # o servidor continua valendo.
+    ssh_placa "cd $DIR_REMOTO && make -B devmem" >/dev/null 2>&1 \
+        || aviso "nao compilei o devmem na placa (so o roteiro do modulo usa)"
     # A marca so e gravada depois do build dar certo.
     ssh_placa "printf '%s' '$(impressao_fontes)' > $DIR_REMOTO/.fontes.sha256"
     ok "servidor compilado na placa"

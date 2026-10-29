@@ -14,6 +14,7 @@ compilar: `docs/COMPILAR.md`.
 | `adc_captura.v` | o controlador próprio do ADC LTC2308 (captura a fs fixa, única ou contínua) |
 | `fft_wrapper.v` | envolve o núcleo de FFT da Intel (`fft_core/`) |
 | `memory_read_controller.v`, `memory_write_controller.v` | leitura e escrita nas memórias de porta dupla, usados pelo `fft_wrapper.v` |
+| `soma_core.v`, `soma.v` | y = a + b: o módulo de exemplo do roteiro `docs/roteiro-modulo` (só na branch `estagio/modulo-soma-adc-fft`) |
 | `soc_system.qsys` → `soc_system/` | o sistema do Platform Designer: HPS, pontes, memórias da FFT e do ADC, PIOs |
 | `fft_core.qsys` → `fft_core/` | o núcleo de FFT da Intel (IP licenciada, gera o `_time_limited.sof`) |
 | `ip/` | IPs pequenos do GHRD: reset do HPS, detector de borda, captura de interrupção |
