@@ -1,0 +1,87 @@
+% =============================================================================
+% Preambulo do documento "Como o Morphe funciona" (docs/como-funciona/). E o
+% mesmo dos guias e roteiros: caixas Por que / Faca / Confira / Cuidado e um
+% diagrama por parte. Compila no Overleaf com pdfLaTeX (suba os dois .tex)
+% ou com Tectonic.
+% =============================================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[brazilian]{babel}
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{microtype}
+\setlength{\emergencystretch}{3em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\setlist{itemsep=1pt,topsep=3pt}
+\usepackage[most]{tcolorbox}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,calc,shapes.geometric,backgrounds}
+\usepackage[hidelinks]{hyperref}
+
+% No pdfLaTeX (Overleaf), os espacos do codigo viram so distancia no PDF, e
+% copiar "git clone -b" cola "git clone-b". Isto grava um espaco de verdade
+% entre as palavras; o XeTeX (Tectonic) ja faz isso sozinho.
+\ifdefined\pdfinterwordspaceon
+  \input{glyphtounicode}\pdfgentounicode=1
+  \pdfinterwordspaceon
+\fi
+
+% --- cores: azul = computador/aplicativo, verde = placa (HPS), laranja = FPGA ---
+\definecolor{cli}{HTML}{2563EB}
+\definecolor{hps}{HTML}{15803D}
+\definecolor{fpga}{HTML}{C2410C}
+\definecolor{fundo}{HTML}{F3F4F6}
+\definecolor{cinza}{HTML}{6B7280}
+\definecolor{verm}{HTML}{DC2626}
+\definecolor{git}{HTML}{7C3AED}
+
+\newcommand{\arq}[1]{{\upshape\ttfamily\detokenize{#1}}}
+\newcommand{\opt}[1]{{\upshape\ttfamily -{}-\detokenize{#1}}}
+
+% --- caixas ---
+\newtcolorbox{porque}{colback=fpga!4,colframe=fpga!70!black,boxrule=0.4pt,arc=2pt,
+  title=Por quê,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{faca}{breakable,colback=white,colframe=black!60,boxrule=0.4pt,arc=2pt,
+  title=Faça,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{confira}{breakable,colback=green!5,colframe=green!45!black,boxrule=0.4pt,arc=2pt,
+  title=Confira,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{cuidado}{breakable,colback=orange!7,colframe=orange!75!black,boxrule=0.4pt,arc=2pt,
+  title=Cuidado,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{pronto}{colback=blue!4,colframe=blue!55!black,boxrule=0.4pt,arc=2pt,
+  title=Já está pronto,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+
+% --- codigo: um comando por bloco, sem barra invertida, para copiar e colar ---
+\lstset{
+  basicstyle=\ttfamily\footnotesize, backgroundcolor=\color{fundo},
+  commentstyle=\color{cinza}, frame=single, framerule=0pt, framesep=3pt,
+  xleftmargin=4pt, xrightmargin=4pt, breaklines=true, columns=fullflexible,
+  keepspaces=true, showstringspaces=false, upquote=true,
+  aboveskip=4pt, belowskip=4pt,
+  literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+           {ã}{{\~a}}1 {õ}{{\~o}}1 {ç}{{\c c}}1 {ê}{{\^e}}1 {ô}{{\^o}}1
+}
+
+% --- diagramas ---
+\tikzset{
+  bloco/.style={draw,rounded corners=2pt,align=center,font=\small,
+                minimum height=0.9cm,inner sep=4pt},
+  cli/.style={bloco,fill=cli!10,draw=cli},
+  hps/.style={bloco,fill=hps!10,draw=hps},
+  fpga/.style={bloco,fill=fpga!10,draw=fpga},
+  gitb/.style={bloco,fill=git!10,draw=git},
+  neutro/.style={bloco,fill=black!4,draw=black!50},
+  seta/.style={-{Stealth[length=2mm]},thick},
+  rot/.style={font=\scriptsize,midway,align=center},
+  passo/.style={rounded corners=2pt,fill=black,text=white,font=\bfseries\scriptsize,
+                inner sep=2pt,minimum size=5mm},
+}
+\newcommand{\passo}[1]{\tikz[baseline=-0.6ex]\node[passo]{#1};}
+\newcommand{\etapa}[2]{\subsection*{\passo{#1}\ \ #2}\addcontentsline{toc}{subsection}{#1\ \ #2}}

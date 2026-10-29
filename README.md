@@ -65,6 +65,7 @@ placa reconhece o próprio bitstream e é achada pelo nome. Ver `docs/NOVA-PLACA
 
 | arquivo | assunto |
 |---|---|
+| `docs/como-funciona/como-funciona.pdf` | como a plataforma funciona por dentro (FPGA, servidor, protocolo, aplicativo, infraestrutura) e o que mexer para acrescentar um módulo; para alunos |
 | `PREPARACAO.md` | preparar a placa, instalar para uma turma, Quartus nos computadores |
 | `docs/ADC.md` | o ADC da placa: pinagem do J15, faixas, como a captura funciona, o que foi medido, como ligar um microfone |
 | `docs/PRECISAO-NUMERICA.md` | o formato Q15.8 da FFT, a normalização, o teto de ~92 dB e o ENOB do ADC |
