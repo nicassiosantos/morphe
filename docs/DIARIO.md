@@ -16,6 +16,40 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 29/10/2026 — Versão completa revalidada na placa; roteiro do somador na adc-fft
+
+**Versão completa (principal, `2cd9583`) VALIDADA na placa 2** (`de1soc-02`,
+`172.16.230.52`), com o bitstream e o servidor gravados pelo `morphe-up.sh` de
+`/opt/morphe` na estação. É a primeira validação dela desde 19/10, depois de o
+aplicativo passar a gravar a FPGA ao abrir. Seis testes, nenhum falhou:
+
+| teste | resultado |
+|---|---|
+| `morphe_ping` | **4/4**; convolução com impulso, erro 0; FFT com impulso plana (variação 0,0 %) |
+| `testa_blocos --placa` | **TUDO OK**: convolução em blocos 89,0 dB (uma operação só: 71 dB), espectrograma 92,5 dB, FFT de 8192 pontos 92,9 dB, ida e volta pela IFFT 87,2 dB, FIR 89,0 dB, IIR com 0 amostras diferentes do modelo (5000 e 20 000 amostras) |
+| `testa_ifft_roundtrip` | 0 falhas; erro relativo 6,1·10⁻⁵, ganho 0,99995 |
+| `testa_iir_hw` | 0 falhas; os 4 casos bit a bit iguais ao modelo, saturação sinalizada |
+| `testa_adc basico` | **TUDO OK**; 32 768 amostras a 200 kHz; contínua com 2 000 000 de 2 000 000 amostras em 10 s |
+| `testa_codec tudo` | **TUDO OK**; captura a −68 dBFS (sem cabo de áudio); IIR ao vivo com 0 LSB de diferença, 0,7 ms por bloco de 13,3 ms |
+
+**Roteiro do somador refeito sobre a adc-fft** (`estagio/modulo-soma-adc-fft`,
+`ff6bc63`): seguido passo a passo na estação, com o Quartus 20.1 e a placa 2; texto
+corrigido onde não batia com a adc-fft, 21 prints refeitos no 20.1, gabarito novo
+(`soma_core.v`, `soma.v`, Platform Designer, topo, servidor com o opcode 9, janela
+Soma). PDF regerado (35 p.), sem a parte de simulação.
+
+**Documentação para alunos:** `docs/como-funciona/como-funciona.pdf` na adc-fft
+(13 p.): pontes HPS–FPGA, mapa de endereços, o combinado start/done, ADC, FFT,
+servidor, protocolo, aplicativo, infraestrutura e o que mexer para acrescentar um
+módulo. Escrito a partir do código da branch; não depende de placa.
+
+**Limpeza da adc-fft:** saíram de `Quartus/soc_system/` 94 arquivos do Platform
+Designer da versão completa, que o `.qip` não usa (`9ca1db2`; `PROVENIENCIA.sha256`
+e `gen_hps_header.py --check` conferem), e os testbenches (`50559fa`).
+
+Também resolvidos (relatado pelo Antonio): o teste das duas contas no LABPS-47722,
+com o botão "Gravar a FPGA (USB)", e os PC3 e PC4 de volta à rede.
+
 ## 27/10/2026 — Versão adc-fft compilada; placa trocada de PC e de ponto de rede
 
 **Branch `estagio/adc-fft` completa** (ADC e FFT): recebeu os commits da principal
