@@ -386,9 +386,7 @@ Dois detalhes do conversor que aparecem no código:
     (\arq{adc_codigo}).
 \end{itemize}
 
-O controlador tem um banco de testes que roda sem placa:
-\arq{Quartus/testbench/tb_adc_captura.v}, com \arq{roda_tb_adc.sh} (Icarus
-Verilog). A pinagem do J15, as faixas de tensão e o que foi medido estão em
+A pinagem do J15, as faixas de tensão e o que foi medido estão em
 \arq{docs/ADC.md}.
 
 \subsection{A FFT: \texttt{fft\_wrapper.v} e o IP \texttt{fft\_core}}
@@ -732,7 +730,6 @@ termina em ``o bitstream na FPGA não é o deste servidor'' ou em
 \arq{Quartus/morphe_ping.py} & 4 testes contra uma placa: conexão TCP, protocolo (PING), captura do ADC e FFT de um impulso. O \arq{morphe-up.sh} roda no fim (``4/4'') \\
 \arq{Python/ferramentas/testa_adc.py} & o ADC com multímetro e gerador de sinais (tensão, senoide, contínua, ENOB) \\
 \arq{Python/ferramentas/testa_blocos.py} & a FFT longa e a leitura de arquivos, contra a placa ou sem ela \\
-\arq{Quartus/testbench/roda_tb_adc.sh} & simulação do \arq{adc_captura.v} no Icarus, sem placa \\
 \arq{Python/ferramentas/estado_placas.py} & o que cada placa da rede está fazendo agora \\
 \bottomrule
 \end{tabularx}
@@ -749,7 +746,7 @@ travou no meio); e o \opt{check} do \arq{gen_hps_header.py}.
 
 Um bloco novo atravessa as mesmas camadas que o ADC e a FFT. A ordem abaixo é a
 que funciona: \textbf{cada camada é testada antes da próxima}, e o módulo é
-testado \textbf{sozinho} (simulação, depois pela serial) antes de ser ligado ao
+testado \textbf{sozinho}, pela serial, antes de ser ligado ao
 aplicativo.
 
 \newcommand{\pc}[2]{\tikz[baseline=-0.6ex]\node[passo,fill=#1]{#2};}
@@ -760,7 +757,7 @@ aplicativo.
 \toprule
  & \textbf{o que fazer} & \textbf{onde} \\
 \midrule
-\pc{fpga}{1} & o \textbf{módulo em Verilog} e o banco de testes & \arq{Quartus/}, \arq{Quartus/testbench/} \\
+\pc{fpga}{1} & o \textbf{módulo em Verilog} & \arq{Quartus/} \\
 \pc{fpga}{2} & \textbf{memórias e PIOs} no Platform Designer, e \emph{Generate HDL} & \arq{soc_system.qsys} \\
 \pc{fpga}{3} & \textbf{fios, instância e exports} no topo; o \arq{.v} novo no projeto & \arq{ghrd_top.v}, \arq{soc_system.qsf} \\
 \pc{fpga}{4} & \textbf{compilar} e regenerar os endereços & \arq{quartus_sh}, \arq{gen_hps_header.py} \\
@@ -776,7 +773,7 @@ aplicativo.
   \item \textbf{Verilog.} Copie o padrão dos blocos que existem: \arq{clk} e
     \arq{reset_n}, \arq{start} por borda, \arq{done} até o start baixar, e as
     portas de RAM iguais às do \arq{adc_captura.v} (\arq{address},
-    \arq{wdata}, \arq{write}). Simule antes de qualquer outra coisa.
+    \arq{wdata}, \arq{write}).
   \item \textbf{Platform Designer.} Para cada vetor, uma memória de duas
     portas (porta s2 na ponte h2f, s1 exportada). Para cada comando ou aviso,
     um PIO (de saída para o que o HPS manda, de entrada para o que o bloco
