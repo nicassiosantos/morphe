@@ -30,6 +30,16 @@
 \usepackage{dirtree}
 \usepackage[hidelinks]{hyperref}
 
+% No Tectonic (XeTeX) o literate do listings nao pega caracteres fora do
+% Latin-1, e a fonte mono nao tem estes: sem isto eles somem do PDF. O
+% pdfLaTeX do Overleaf nao passa por aqui (o literate resolve la).
+\ifdefined\XeTeXrevision
+  \usepackage{newunicodechar}
+  \newunicodechar{→}{\ensuremath{\rightarrow}}
+  \newunicodechar{δ}{\ensuremath{\delta}}
+  \newunicodechar{—}{{\rmfamily\textemdash}}
+\fi
+
 % --- cores: azul = aplicativo, verde = HPS, laranja = FPGA ---
 \definecolor{cli}{HTML}{2563EB}
 \definecolor{hps}{HTML}{15803D}
