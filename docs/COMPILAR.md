@@ -15,9 +15,9 @@ os da versão completa**: `soc_system.sopcinfo`, `soc_system/`, `C/hps_0.h`,
 - o `.sof` versionado ainda carrega os outros blocos, sem uso; o ADC e a FFT funcionam
   com ele normalmente, porque os endereços dos dois não mudaram;
 - o `C/hps_0.h` ainda lista os endereços dos outros blocos, e o servidor os ignora;
-- não há `PROVENIENCIA.sha256`: ele é gerado no passo 7.
+- não há `PROVENIENCIA.sha256`: ele é gerado no passo 6.
 
-Depois do passo 2, o `hps_0.h` muda e o sysid ganha um timestamp novo. A partir daí
+Depois do passo 1, o `hps_0.h` muda e o sysid ganha um timestamp novo. A partir daí
 o `.sof` **tem** que ser recompilado e gravado: o servidor novo recusa o ADC com o
 bitstream antigo (ver "Proteção", abaixo). É o comportamento desejado.
 
@@ -60,15 +60,7 @@ git clone -b estagio/adc-fft https://github.com/nicassiosantos/morphe.git ~/morp
 cd ~/morphe-adc-fft
 ```
 
-### 1. Simular o controlador do ADC (1 minuto, sem placa)
-
-```bash
-bash Quartus/testbench/roda_tb_adc.sh
-```
-
-Tem que terminar em `TUDO OK`.
-
-### 2. Gerar o sistema do Platform Designer
+### 1. Gerar o sistema do Platform Designer
 
 ```bash
 cd Quartus
@@ -78,7 +70,7 @@ cd Quartus
 qsys-generate soc_system.qsys --synthesis=VERILOG --family="Cyclone V" --part=5CSEMA5F31C6
 ```
 
-### 3. Regenerar o cabeçalho de endereços
+### 2. Regenerar o cabeçalho de endereços
 
 ```bash
 python3 gen_hps_header.py
@@ -94,9 +86,9 @@ Tem que dar **0**: os outros blocos saíram.
 grep -cE "ADC_(BUF|START|DONE|CONFIG|DIVISOR|NAMOSTRAS|CONTADOR)_BASE|FFT_(XN|YN)_(RE|IMAG)_BASE|SYSID_QSYS_TIMESTAMP" ../C/hps_0.h
 ```
 
-Tem que dar **12**. Se der menos, o Qsys não gerou algum módulo: volte ao passo 2.
+Tem que dar **12**. Se der menos, o Qsys não gerou algum módulo: volte ao passo 1.
 
-### 4. Compilar (~20 min)
+### 3. Compilar (~20 min)
 
 ```bash
 quartus_sh --flow compile soc_system.qpf
@@ -114,7 +106,7 @@ grep -A5 "Slow 1100mV 85C Model Fmax Summary" output_files/soc_system.sta.rpt
 
 Fmax acima de 50 MHz.
 
-### 5. Programar a placa e subir o servidor
+### 4. Programar a placa e subir o servidor
 
 ```bash
 cd ~/morphe-adc-fft
@@ -128,7 +120,7 @@ O `--deploy` reenvia e recompila o servidor na placa, com o `hps_0.h` novo. Tem 
 terminar com o `morphe_ping` 4/4 (TCP, protocolo, captura do ADC, FFT de impulso).
 Nunca use `sudo` com o `morphe-up.sh`.
 
-### 6. Testar
+### 5. Testar
 
 ```bash
 python3 Python/ferramentas/testa_blocos.py --placa 172.16.230.24
@@ -162,7 +154,7 @@ python3 morphe_app.py
 Abra **Aquisição (ADC da placa)** e capture. Depois abra a **FFT** com o tipo de sinal
 **Captura do ADC**.
 
-### 7. Registrar e versionar
+### 6. Registrar e versionar
 
 ```bash
 cd ~/morphe-adc-fft
