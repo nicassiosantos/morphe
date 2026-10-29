@@ -1,0 +1,880 @@
+% =============================================================================
+% Como o Morphe funciona (versao ADC e FFT, branch estagio/adc-fft).
+% Para o aluno que vai acrescentar um modulo ou uma funcao: o caminho de um
+% dado do computador ate a FPGA e de volta, cada arquivo que participa, e o
+% que mexer em cada camada. Tudo aqui foi conferido no codigo desta branch;
+% os nomes de arquivo, enderecos e numeros sao os de la.
+% =============================================================================
+\documentclass[11pt,a4paper,oneside]{article}
+\input{preambulo}
+
+\title{\textbf{Como o Morphe funciona}\\[3pt]
+  \large A lógica e a infraestrutura da versão ADC e FFT,\\
+  para quem vai acrescentar um módulo ou uma função}
+\author{Antonio Nicassio Santos Lima \quad
+  {\small Estágio LabPS/UEFS --- supervisão: Prof.\ Armando S.\ Sanca}}
+\date{outubro de 2026}
+
+\begin{document}
+\maketitle
+
+O Morphe é uma plataforma em que um sinal sai do computador, é processado em
+\textbf{hardware} na FPGA de uma placa DE1-SoC e volta ao computador, onde é
+comparado com o mesmo cálculo feito em software. Esta versão (branch
+\arq{estagio/adc-fft}) tem dois blocos de hardware: a \textbf{captura pelo ADC}
+da placa e a \textbf{FFT de 1024 pontos}.
+
+Este documento explica \textbf{como as peças se encaixam}. Ele não é um passo a
+passo: é o mapa que você precisa ter na cabeça antes de mexer. Quando o
+professor pedir um módulo novo (um filtro, uma operação, um medidor), você vai
+mexer nas mesmas camadas em que o ADC e a FFT estão, e na mesma ordem. A
+última parte (\ref{sec:novo}) junta essa lista. O exemplo completo, feito do
+começo ao fim, é o \textbf{roteiro do módulo de soma} (\arq{docs/roteiro-modulo/}).
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.3cm]
+  \node[cli,minimum width=3.1cm] (a) {\textbf{computador}\\\scriptsize aplicativo em Python\\\scriptsize \arq{Python/}};
+  \node[hps,right=of a,minimum width=3.1cm] (b) {\textbf{HPS (ARM)}\\\scriptsize servidor em C\\\scriptsize \arq{C/}};
+  \node[fpga,right=of b,minimum width=3.1cm] (c) {\textbf{FPGA}\\\scriptsize hardware em Verilog\\\scriptsize \arq{Quartus/}};
+  \draw[seta,<->] (a) -- node[above,rot]{rede\\TCP} (b);
+  \draw[seta,<->] (b) -- node[above,rot]{pontes\\AXI} (c);
+\end{tikzpicture}
+\end{center}
+
+As cores valem para o documento inteiro: \textcolor{cli}{\textbf{azul}} é o
+computador, \textcolor{hps}{\textbf{verde}} é o processador da placa (HPS) e
+\textcolor{fpga}{\textbf{laranja}} é a FPGA.
+
+\tableofcontents
+
+% =============================================================================
+\section{Visão geral: o caminho de um dado}
+% =============================================================================
+
+A DE1-SoC tem, no mesmo chip (Cyclone~V SoC), \textbf{dois mundos}: um
+processador ARM de dois núcleos que roda Linux, chamado \textbf{HPS} (\emph{Hard
+Processor System}), e a \textbf{FPGA}, onde fica o nosso hardware. Os dois se
+falam por \textbf{pontes} (barramentos AXI) dentro do chip. O computador do
+aluno fala com o HPS pela rede.
+
+Ninguém no computador toca a FPGA diretamente. O caminho é sempre o mesmo, e
+vale para a FFT, para o ADC e para qualquer bloco novo:
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.5cm and 0.6cm]
+  \node[cli,minimum width=3.4cm] (app) {\textbf{janela} do app\\\scriptsize \arq{fft_window.py}};
+  \node[cli,below=of app,minimum width=3.4cm] (prot) {\textbf{protocolo}\\\scriptsize \arq{morphe_protocol.py}};
+  \node[hps,right=1.4cm of prot,minimum width=3.4cm] (srv) {\textbf{servidor}\\\scriptsize \arq{morphe_server.c}};
+  \node[hps,above=of srv,minimum width=3.4cm] (mem) {memórias e PIOs\\\scriptsize vistos pelo HPS (\arq{mmap})};
+  \node[fpga,right=1.4cm of mem,minimum width=3.4cm] (blk) {\textbf{bloco}\\\scriptsize \arq{fft_wrapper.v}};
+  \node[fpga,below=of blk,minimum width=3.4cm] (ip) {IP da FFT\\\scriptsize \arq{fft_core}};
+  \draw[seta] (app) -- node[left,rot]{1}(prot);
+  \draw[seta] (prot) -- node[above,rot]{2 pedido}(srv);
+  \draw[seta] (srv) -- node[left,rot]{3}(mem);
+  \draw[seta] (mem) -- node[above,rot]{4 start}(blk);
+  \draw[seta,<->] (blk) -- node[right,rot]{5}(ip);
+  \draw[seta,dashed] (blk.south west) to[bend left=10] node[below,rot]{6 done}(mem.south east);
+  \draw[seta,dashed] (srv.south west) to[bend left=15] node[below,rot]{7 resposta}(prot.south east);
+\end{tikzpicture}
+\end{center}
+
+\begin{enumerate}
+  \item A janela pega o sinal (gerado, de arquivo ou capturado) e chama o
+    protocolo.
+  \item O protocolo monta um \textbf{pedido} binário (cabeçalho de 20 bytes +
+    amostras) e o manda por TCP, na porta 5000, ao servidor da placa.
+  \item O servidor escreve as amostras nas \textbf{memórias} da FPGA, que ele
+    enxerga como se fossem memória comum (\arq{mmap} de \arq{/dev/mem}).
+  \item O servidor sobe o bit \textbf{start} de um PIO (um registrador de 1
+    bit). O bloco da FPGA vê a borda de subida e começa.
+  \item O bloco lê as memórias, alimenta o IP da FFT e grava o resultado em
+    outras memórias.
+  \item O bloco sobe o bit \textbf{done}. O servidor, que estava esperando
+    por ele, lê o resultado.
+  \item O servidor monta a \textbf{resposta} e a manda de volta. A janela
+    mostra o resultado e pode salvá-lo para comparar com o NumPy.
+\end{enumerate}
+
+\begin{porque}
+Por que um servidor no meio, e não o computador falando direto com a FPGA? A
+FPGA não tem rede: quem tem placa de rede, Linux e TCP é o HPS. E o HPS
+alcança a FPGA sem custo, pelas pontes internas do chip. Assim o hardware fica
+simples (memórias e registradores), o servidor fica pequeno (copiar,
+disparar, esperar, devolver) e toda a conta \emph{difícil} de interface
+(gráficos, arquivos, comparação) fica no computador, em Python.
+\end{porque}
+
+% =============================================================================
+\section{A placa por dentro: HPS, FPGA e as pontes}
+% =============================================================================
+
+\subsection{As duas pontes}
+
+O HPS enxerga a FPGA por \textbf{duas janelas de endereço}. Cada uma é uma
+ponte AXI e tem um uso:
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.4cm]
+  \node[hps,minimum width=3.2cm,minimum height=3.6cm] (hps) {\textbf{HPS}\\ARM + Linux\\[4pt]\scriptsize \arq{morphe_server}};
+  \node[neutro,right=1.6cm of hps.north east,anchor=north west,minimum width=3.6cm] (h2f)
+     {\textbf{ponte h2f}\\\scriptsize \arq{0xC0000000}\\\scriptsize larga, para dados};
+  \node[neutro,right=1.6cm of hps.south east,anchor=south west,minimum width=3.6cm] (lw)
+     {\textbf{ponte lw} (leve)\\\scriptsize \arq{0xFF200000}\\\scriptsize estreita, para controle};
+  \node[fpga,right=0.9cm of h2f,minimum width=3.6cm] (mems) {\textbf{memórias}\\\scriptsize \arq{fft_xn_re}, \arq{adc_buf}\ldots};
+  \node[fpga,right=0.9cm of lw,minimum width=3.6cm] (pios) {\textbf{PIOs}\\\scriptsize \arq{fft_wrapper_start}\ldots};
+  \draw[seta] (hps.east |- h2f) -- (h2f);
+  \draw[seta] (hps.east |- lw) -- (lw);
+  \draw[seta] (h2f) -- (mems);
+  \draw[seta] (lw) -- (pios);
+  \node[fpga,below=0.5cm of pios,minimum width=3.6cm,fill=fpga!25] (blk) {nossos blocos\\\scriptsize \arq{adc_captura}, \arq{fft_wrapper}};
+  \draw[seta,<->] (pios) -- (blk);
+  \draw[seta,<->] (mems.east) -- ++(0.5,0) |- (blk.east);
+\end{tikzpicture}
+\end{center}
+
+\begin{itemize}
+  \item \textbf{h2f} (\emph{HPS-to-FPGA}), a partir de \arq{0xC0000000}: aqui
+    ficam as \textbf{memórias} (blocos de RAM on-chip). É por onde passam os
+    vetores de amostras.
+  \item \textbf{lw} (\emph{lightweight}), a partir de \arq{0xFF200000}: aqui
+    ficam os \textbf{PIOs}, registradores de 1 a 32 bits. É por onde passam os
+    comandos (start, configuração) e os avisos (done, contador).
+\end{itemize}
+
+O endereço que aparece no Platform Designer é \textbf{relativo} à ponte. O
+servidor soma a base: a memória \arq{fft_xn_re}, no endereço \arq{0x1a000} da
+ponte h2f, fica em \arq{0xC001A000} para o ARM. Os dois valores de base estão
+em \arq{C/address_map_arm.h} (\arq{FPGA_ONCHIP_BASE} e \arq{LW_BRIDGE_BASE}).
+
+\subsection{Memória de duas portas e PIO: as duas peças de toda interface}
+
+Todo bloco do Morphe conversa com o HPS usando só duas peças do Platform
+Designer:
+
+\begin{description}
+  \item[Memória on-chip de duas portas] (\arq{altera_avalon_onchip_memory2},
+    \arq{dualPort = true}). A porta \textbf{s2} fica ligada à ponte h2f: é
+    a que o HPS lê e escreve. A porta \textbf{s1} é \emph{exportada} para fora
+    do sistema e chega ao \arq{ghrd_top.v} como um punhado de fios (endereço,
+    dado, escrita): é a que o nosso bloco usa. Os dois lados acessam a mesma
+    RAM, cada um pela sua porta, sem se atrapalhar.
+  \item[PIO] (\arq{altera_avalon_pio}). Um registrador. Se é de
+    \textbf{saída} (\emph{Output}), o HPS escreve e o bloco lê os fios
+    exportados (ex.: \arq{fft_wrapper_start}). Se é de \textbf{entrada}
+    (\emph{Input}), o bloco põe o valor nos fios e o HPS lê (ex.:
+    \arq{fft_wrapper_done}).
+\end{description}
+
+\subsection{O mapa de endereços}
+
+Estes são os endereços desta versão, como saem do \arq{C/hps_0.h} (gerado,
+seção \ref{sec:gerados}). Os nomes são os dos componentes no
+\arq{Quartus/soc_system.qsys}.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lllX@{}}
+\toprule
+\textbf{ponte} & \textbf{componente} & \textbf{endereço} & \textbf{o que é} \\
+\midrule
+h2f & \arq{onchip_memory2_0} & \arq{0x00000}--\arq{0x0FFFF} & RAM do projeto de referência (não usada pelo Morphe) \\
+h2f & \arq{fft_yn_re} & \arq{0x18000} (4 KiB) & saída da FFT, parte real \\
+h2f & \arq{fft_yn_imag} & \arq{0x19000} (4 KiB) & saída da FFT, parte imaginária \\
+h2f & \arq{fft_xn_re} & \arq{0x1A000} (4 KiB) & entrada da FFT, parte real \\
+h2f & \arq{fft_xn_imag} & \arq{0x1B000} (4 KiB) & entrada da FFT, parte imaginária \\
+h2f & \arq{adc_buf} & \arq{0x20000} (128 KiB) & 32768 amostras do ADC \\
+\midrule
+lw & \arq{fft_bfp_exponent} & \arq{0x50} & entrada: expoente de bloco da FFT (6 bits) \\
+lw & \arq{fft_wrapper_done} & \arq{0x60} & entrada: FFT terminou \\
+lw & \arq{fft_inverse} & \arq{0x70} & saída: transformada inversa (só diagnóstico) \\
+lw & \arq{fft_wrapper_start} & \arq{0x80} & saída: dispara a FFT \\
+lw & \arq{adc_start} & \arq{0xD0} & saída: dispara a captura \\
+lw & \arq{adc_done} & \arq{0xE0} & entrada: captura terminou \\
+lw & \arq{adc_config} & \arq{0xF0} & saída: palavra do conversor (bits 5..0) e modo contínuo (bit 6) \\
+lw & \arq{adc_divisor} & \arq{0x100} & saída: período de amostragem, em ciclos de 50 MHz \\
+lw & \arq{adc_namostras} & \arq{0x110} & saída: quantas amostras (captura única) \\
+lw & \arq{adc_contador} & \arq{0x120} & entrada: amostras já gravadas na RAM \\
+lw & \arq{sysid_qsys} & \arq{0x10000} & identificador e \emph{timestamp} do sistema \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{cuidado}
+\textbf{Endereço sem ninguém trava a placa.} No Cyclone~V, um acesso do HPS a
+um endereço da ponte onde não existe componente \textbf{não dá erro}: trava o
+barramento inteiro, a placa some da rede e até a serial congela. É por isso
+que o servidor só toca a FPGA depois de confirmar que ela está com o bitstream
+do Morphe (seção \ref{sec:assinatura}), e é por isso que o \arq{hps_0.h}
+\textbf{nunca} é escrito à mão: ele tem que descrever exatamente o hardware que
+está gravado na FPGA.
+\end{cuidado}
+
+\subsection{Como o servidor sabe que a FPGA é a certa}\label{sec:assinatura}
+
+Quando a placa liga, a FPGA carrega um bitstream de fábrica que está no cartão
+SD, e nele os nossos PIOs não existem. Só depois que alguém grava o bitstream
+do Morphe pelo cabo USB (o aplicativo faz isso ao abrir, ou o
+\arq{morphe-up.sh}) é que os endereços passam a existir. O servidor tem dois
+jeitos de saber:
+
+\begin{enumerate}
+  \item \textbf{A assinatura} \arq{MRPH}. O \arq{ghrd_top.v} liga a constante
+    \arq{32'h4D525048} (``MRPH'' em ASCII) na entrada \arq{h2f_gp_in} do HPS:
+\begin{lstlisting}
+localparam MORPHE_ASSINATURA = 32'h4D525048;
+    .hps_0_h2f_gp_gp_in                    (MORPHE_ASSINATURA),
+\end{lstlisting}
+    Esse valor aparece num registrador do gerenciador da FPGA (GPI), que existe
+    sempre e pode ser lido sem risco. Se ele vale \arq{MRPH}, a FPGA tem o
+    nosso bitstream.
+  \item \textbf{O timestamp do sysid}. O componente \arq{sysid_qsys} guarda o
+    instante em que o sistema foi gerado. O \arq{hps_0.h} traz o mesmo número
+    (\arq{SYSID_QSYS_TIMESTAMP}). Antes do ADC, o servidor compara os dois: se
+    forem diferentes, o bitstream gravado não é o que este servidor conhece, e
+    a operação é recusada com uma mensagem, em vez de travar a placa.
+\end{enumerate}
+
+% =============================================================================
+\section{A FPGA (pasta \texttt{Quartus/})}
+% =============================================================================
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.35cm]
+  \node[fpga,minimum width=13cm,minimum height=5.4cm,fill=fpga!4] (top) {};
+  \node[anchor=north west,font=\small\bfseries] at (top.north west) {\ \arq{ghrd_top.v} (o topo)};
+  \node[neutro,minimum width=12.2cm,minimum height=1.1cm,anchor=north] (qsys) at ([yshift=-0.55cm]top.north)
+     {\arq{soc_system u0} --- o sistema do Platform Designer: HPS, pontes, memórias, PIOs, sysid};
+  \node[fpga,anchor=north west,minimum width=4.2cm] (adc) at ([xshift=0.4cm,yshift=-0.5cm]qsys.south west)
+     {\arq{adc_captura}\\\scriptsize \arq{adc_inst}};
+  \node[fpga,anchor=north east,minimum width=5.6cm] (fft) at ([xshift=-0.4cm,yshift=-0.5cm]qsys.south east)
+     {\arq{fft_wrapper} \scriptsize\arq{u_fft_wrapper}\\\scriptsize 2 $\times$ \arq{memory_read_controller}\\\scriptsize 2 $\times$ \arq{memory_write_controller}, \arq{fft_core}};
+  \draw[seta,<->] (adc.north) -- (adc.north |- qsys.south) node[rot,right,pos=0.5]{PIOs + RAM};
+  \draw[seta,<->] (fft.north) -- (fft.north |- qsys.south) node[rot,left,pos=0.5]{PIOs + 4 RAMs};
+  \node[neutro,below=0.9cm of adc,minimum width=3.4cm] (ltc) {LTC2308\\\scriptsize conector J15};
+  \draw[seta,<->] (adc) -- (ltc) node[rot,right,pos=0.4]{CONVST, SCLK, SDI, SDO};
+  \node[neutro,below=0.9cm of fft,minimum width=3.4cm] (led) {LEDR[3:0]};
+  \draw[seta] (fft) -- (led) node[rot,right,pos=0.4]{estado da FSM};
+\end{tikzpicture}
+\end{center}
+
+\subsection{O topo: \texttt{ghrd\_top.v}}
+
+É o arquivo que o Quartus compila como raiz do projeto. Ele faz três coisas, e
+um módulo novo mexe nas três:
+
+\begin{enumerate}
+  \item \textbf{declara os fios} que ligam o sistema do Platform Designer aos
+    nossos blocos (ex.: \arq{wire adc_start;}, \arq{wire [31:0] adc_divisor;});
+  \item \textbf{instancia os blocos} (\arq{adc_captura adc_inst (...)},
+    \arq{fft_wrapper u_fft_wrapper (...)}) ligando as portas deles a esses fios
+    e aos pinos da placa;
+  \item \textbf{instancia o sistema} \arq{soc_system u0 (...)} e liga cada
+    porta exportada a um fio. O nome da porta é o nome do componente seguido
+    do nome da interface exportada: o PIO \arq{adc_start} vira
+    \arq{.adc_start_export}, a porta s1 da RAM \arq{adc_buf} vira
+    \arq{.adc_buf_address}, \arq{.adc_buf_writedata}, e assim por diante.
+\end{enumerate}
+
+Nesta versão o topo também desliga o que não é usado: os displays \arq{HEX0}
+a \arq{HEX5} ficam apagados (\arq{7'h7F}), \arq{LEDR[9:4]} em zero, e os fios
+do I2C do codec de áudio em alta impedância (\arq{1'bz}). \arq{LEDR[3:0]}
+mostra o estado da máquina da FFT, útil para ver se ela travou.
+
+\subsection{O combinado entre o HPS e um bloco: start e done}\label{sec:startdone}
+
+Os dois blocos usam o \textbf{mesmo aperto de mão}, e um bloco novo deve usar
+também. Ele só precisa de dois PIOs de 1 bit:
+
+\begin{center}
+\begin{tikzpicture}[x=1cm,y=0.55cm,font=\scriptsize]
+  \node[anchor=east] at (0,3) {\arq{start} (HPS escreve)};
+  \node[anchor=east] at (0,1.5) {\arq{done} (FPGA escreve)};
+  \node[anchor=east] at (0,0) {bloco};
+  \draw[thick,hps] (0,2.6) -- (1,2.6) -- (1,3.4) -- (8,3.4) -- (8,2.6) -- (11,2.6);
+  \draw[thick,fpga] (0,1.1) -- (6.5,1.1) -- (6.5,1.9) -- (8.4,1.9) -- (8.4,1.1) -- (11,1.1);
+  \draw (0,-0.4) rectangle (1,0.4); \node at (0.5,0) {livre};
+  \draw[fill=fpga!15] (1,-0.4) rectangle (6.5,0.4); \node at (3.75,0) {trabalhando};
+  \draw (6.5,-0.4) rectangle (8.4,0.4); \node at (7.45,0) {espera};
+  \draw (8.4,-0.4) rectangle (11,0.4); \node at (9.7,0) {livre};
+  \node[below,text=gray] at (3.75,-0.5) {lê as RAMs, calcula, grava as RAMs};
+  \draw[seta,gray] (1,3.6) -- (1,4.3) node[above]{1. borda de subida: começa};
+  \draw[seta,gray] (6.5,2.1) -- (5.2,4.3) node[above]{2. terminou};
+  \draw[seta,gray] (8,3.6) -- (8.4,4.3) node[above right=-2pt]{3. HPS leu e baixa};
+\end{tikzpicture}
+\end{center}
+
+\begin{enumerate}
+  \item O HPS escreve os dados nas RAMs e a configuração nos PIOs. Então
+    escreve \arq{start = 0}, espera um instante e escreve \arq{start = 1}. O
+    bloco reage à \textbf{borda de subida}, não ao nível: guarda o valor
+    anterior num registrador e compara.
+\begin{lstlisting}
+reg start_d;
+always @(posedge clk or negedge reset_n)
+    if (!reset_n) start_d <= 1'b0;
+    else          start_d <= start;
+wire start_pulse = start & ~start_d;
+\end{lstlisting}
+  \item O bloco trabalha e, no fim, sobe \arq{done} e \textbf{fica parado}
+    esperando.
+  \item O servidor lê \arq{done} em laço (\arq{wait_done}, com prazo). Quando
+    vê 1, lê o resultado e baixa \arq{start}. O bloco vê \arq{start = 0},
+    baixa \arq{done} e volta a ficar livre.
+\end{enumerate}
+
+\begin{porque}
+Reagir à borda, e não ao nível, impede que o bloco rode duas vezes seguidas se
+o HPS demorar a baixar o start. Esperar o start baixar antes de baixar o done
+garante que o HPS \emph{viu} o done: sem isso, um done curto demais poderia
+passar entre duas leituras do laço e o servidor esperaria até o prazo
+estourar. É a mesma regra nos dois blocos: \arq{S_COMPLETE} do
+\arq{fft_wrapper.v} e \arq{S_DONE} do \arq{adc_captura.v}.
+\end{porque}
+
+\subsection{O ADC: \texttt{adc\_captura.v}}
+
+O conversor da placa é um \textbf{LTC2308}: 12 bits, 8 canais, no conector
+J15. Ele se comunica por uma interface serial de 4 fios: \arq{CONVST} (começa
+a conversão), \arq{SCLK} (relógio), \arq{SDI} (configuração, da FPGA para o
+conversor) e \arq{SDO} (o resultado, do conversor para a FPGA).
+
+O \arq{adc_captura.v} existe para que cada amostra seja tirada num instante
+\textbf{exato}: um contador de período (\arq{fase}) conta de 0 a
+\arq{divisor - 1} a 50 MHz, e cada conversão começa no ciclo em que ele zera.
+Assim \(f_s = 50\,\text{MHz} / \text{divisor}\), de 1 kHz
+(divisor 50000) a 200 kHz (divisor 250).
+
+\begin{center}
+\begin{tikzpicture}[x=0.95cm,y=0.5cm,font=\scriptsize]
+  \node[anchor=east] at (0,2) {\arq{CONVST}};
+  \node[anchor=east] at (0,0) {\arq{SCLK}};
+  \draw[thick] (0,1.6) -- (0.3,1.6) -- (0.3,2.4) -- (3,2.4) -- (3,1.6) -- (12,1.6) -- (12,2.4) -- (12.6,2.4);
+  \foreach \i in {0,...,11} { \draw[thick] ({3.3+\i*0.5},-0.4) -- ({3.3+\i*0.5},0.4) -- ({3.55+\i*0.5},0.4) -- ({3.55+\i*0.5},-0.4); }
+  \draw[thick] (0,-0.4) -- (3.3,-0.4); \draw[thick] (9.3,-0.4) -- (12.6,-0.4);
+  \draw[gray,dashed] (0.3,-1) -- (0.3,3); \node[below] at (0.3,-1) {fase 0};
+  \draw[gray,dashed] (3,-1) -- (3,3); \node[below] at (3,-1) {\arq{T_CONV}};
+  \draw[gray,dashed] (12,-1) -- (12,3); \node[below] at (12,-1) {\arq{divisor}};
+  \node[above] at (1.65,2.4) {converte};
+  \node at (6.4,1.0) {lê os 12 bits (\arq{SDO}) e envia a configuração (\arq{SDI})};
+  \node at (10.7,0.25) {grava na RAM};
+\end{tikzpicture}
+\end{center}
+
+\begin{description}
+  \item[Captura única] (\arq{adc_config[6] = 0}): o HPS escreve
+    \arq{adc_divisor}, \arq{adc_namostras} (até 32768) e \arq{adc_config}, sobe
+    \arq{adc_start}, e o bloco grava as amostras de \arq{adc_buf[0]} em diante.
+    No fim, \arq{done} sobe.
+  \item[Captura contínua] (\arq{adc_config[6] = 1}): a RAM vira um
+    \textbf{buffer circular} e a captura não para até o HPS baixar o start.
+    O PIO \arq{adc_contador} diz quantas amostras já foram gravadas; o servidor
+    copia as novas enquanto o hardware segue. Se o servidor atrasar mais que o
+    tamanho da RAM (164 ms a 200 kHz), ele percebe pelo contador e encerra com
+    ``perdeu amostras'', em vez de entregar um buraco escondido.
+\end{description}
+
+Dois detalhes do conversor que aparecem no código:
+
+\begin{itemize}
+  \item A palavra de configuração (6 bits: \arq{S/D O/S S1 S0 UNI SLP}: entrada
+    simples ou diferencial, canal, unipolar ou bipolar, \emph{sleep}) enviada
+    num quadro vale para a conversão do quadro \emph{seguinte}. Por isso o
+    \textbf{primeiro quadro é descartado}: são \(n+1\) conversões para \(n\)
+    amostras.
+  \item A RAM guarda o código cru, nos 12 bits baixos. No modo bipolar ele é
+    complemento de dois de 12 bits, e quem estende o sinal é o servidor
+    (\arq{adc_codigo}).
+\end{itemize}
+
+O controlador tem um banco de testes que roda sem placa:
+\arq{Quartus/testbench/tb_adc_captura.v}, com \arq{roda_tb_adc.sh} (Icarus
+Verilog). A pinagem do J15, as faixas de tensão e o que foi medido estão em
+\arq{docs/ADC.md}.
+
+\subsection{A FFT: \texttt{fft\_wrapper.v} e o IP \texttt{fft\_core}}
+
+O cálculo da FFT é feito por um \textbf{IP da Intel} (\arq{fft_core},
+configurado em \arq{Quartus/fft_core.qsys}): 1024 pontos, arquitetura
+\emph{Buffered Burst}, entrada de 24 bits e \textbf{ponto flutuante de bloco}
+(\emph{block floating point}, BFP). O IP não sabe ler memória: ele recebe e
+entrega amostras por \textbf{Avalon-ST}, um fluxo com sinais de mão
+(\arq{valid}/\arq{ready}) e marcas de início e fim de quadro
+(\arq{sop}/\arq{eop}). O \arq{fft_wrapper.v} é a cola entre as memórias e esse
+fluxo.
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.0cm and 2.0cm,font=\scriptsize]
+  \node[neutro] (s0) {\arq{S_IDLE}};
+  \node[fpga,right=of s0] (s1) {\arq{S_READ_START}\\\arq{S_READ_WAIT}};
+  \node[fpga,right=of s1] (s3) {\arq{S_FEED_FFT}};
+  \node[fpga,below=1.3cm of s3] (s4) {\arq{S_RECV_WAIT}};
+  \node[fpga,below=1.3cm of s1] (s5) {\arq{S_WRITE_START}\\\arq{S_WRITE_WAIT}};
+  \node[neutro,below=1.3cm of s0] (s7) {\arq{S_COMPLETE}};
+  \draw[seta] (s0) -- node[above,rot]{start}(s1);
+  \draw[seta] (s1) -- node[above,rot]{x[n] lido}(s3);
+  \draw[seta] (s3.north) to[bend right=30] node[above,rot]{IP aceitou, n < 1023: próxima amostra}(s1.north);
+  \draw[seta] (s3) -- node[right,rot]{n = 1023: todas entregues}(s4);
+  \draw[seta] (s4) -- node[above,rot]{X[k] chegou}(s5);
+  \draw[seta] (s5.south) to[bend right=30] node[below,rot]{k < 1023: próximo resultado}(s4.south);
+  \draw[seta] (s5) -- node[above,rot]{k = 1023}(s7);
+  \draw[seta] (s7) -- node[left,rot]{start baixou}(s0);
+\end{tikzpicture}
+\end{center}
+
+\begin{itemize}
+  \item \textbf{Alimentar}: para cada \(n\) de 0 a 1023, um
+    \arq{memory_read_controller} lê \arq{fft_xn_re[n]} e \arq{fft_xn_imag[n]}
+    (as duas leituras em paralelo), o wrapper põe os 24 bits baixos em
+    \arq{sink_real}/\arq{sink_imag} e espera o IP aceitar (\arq{sink_ready}).
+  \item \textbf{Receber}: o IP devolve \(X[k]\) e o expoente do bloco; um
+    \arq{memory_write_controller} grava em \arq{fft_yn_re[k]} e
+    \arq{fft_yn_imag[k]}, estendendo o sinal para 32 bits.
+  \item \textbf{Terminar}: o expoente vai para o PIO \arq{fft_bfp_exponent} e
+    \arq{done} sobe.
+\end{itemize}
+
+\textbf{O formato dos números: Q15.8.} Cada amostra da FFT é um inteiro de
+24 bits com 8 bits de fração: 1 bit de sinal, 15 de parte inteira, 8 de
+fração. O valor real é o inteiro dividido por \(2^8 = 256\), e a faixa vai de
+\(-32768\) a \(+32767{,}996\). Nas memórias de 32 bits, os 8 bits de cima são
+só a extensão do sinal. O IP, por sua vez, escala o resultado para não
+estourar e informa quanto escalou pelo expoente \(e\): o valor certo é
+\(y_{\text{bruto}} \cdot 2^{-e} / 256\). Essa conta é do servidor
+(\arq{fft_run_block}). Os números medidos (o teto de \(\sim\)92 dB, os
+6{,}02 dB por bit) estão em \arq{docs/PRECISAO-NUMERICA.md}.
+
+\begin{cuidado}
+\textbf{O IP da FFT é licenciado.} Sem licença paga, o Quartus compila o IP
+no modo de avaliação (\emph{OpenCore Plus}): o arquivo gerado é o
+\arq{soc_system_time_limited.sof}, e a FFT só funciona \textbf{enquanto o
+cabo USB estiver ligado com o programador aberto} (o ``tether''). Quem mantém
+o programador aberto é o aplicativo, ou o \arq{morphe-up.sh}. Desligou o
+cabo, ou derrubou o tether, a FFT para de responder até gravar de novo. Um
+bloco seu, escrito só em Verilog, não tem essa limitação.
+\end{cuidado}
+
+\subsection{O sistema do Platform Designer: \texttt{soc\_system.qsys}}
+
+É aberto no Platform Designer (\arq{Tools} \(\to\) \arq{Platform Designer} no
+Quartus 20.1). Nesta versão ele tem: o HPS (\arq{hps_0}), as 6 memórias da
+tabela acima, os 10 PIOs (4 da FFT, 6 do ADC), o \arq{sysid_qsys}, uma
+\arq{jtag_uart} e dois mestres JTAG de depuração. Cada memória e cada PIO tem
+duas ligações: a porta do lado do HPS ligada a uma ponte (memória \(\to\) h2f,
+PIO \(\to\) lw) e a outra \emph{exportada} para o \arq{ghrd_top.v}.
+
+\subsection{O que é gerado, e por quem}\label{sec:gerados}
+
+Três coisas no repositório \textbf{não se edita à mão}: elas saem de uma
+ferramenta, a partir de outra fonte.
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.0cm and 2.3cm,font=\scriptsize]
+  \node[fpga] (q) {\arq{soc_system.qsys}};
+  \node[neutro,right=of q] (g) {\arq{Quartus/soc_system/}\\\arq{soc_system.sopcinfo}};
+  \node[hps,right=3.2cm of g] (h) {\arq{C/hps_0.h}};
+  \node[fpga,below=of g] (s) {\arq{soc_system_time_limited.sof}};
+  \node[fpga,below=of q] (v) {\arq{ghrd_top.v} e os\\\arq{.v} dos blocos};
+  \draw[seta] (q) -- node[above,rot]{\arq{qsys-generate}}(g);
+  \draw[seta] (g) -- node[above,rot]{\arq{gen_hps_header.py}}(h);
+  \draw[seta] (g) -- node[right,rot]{\arq{quartus_sh}}(s);
+  \draw[seta] (v) -- (s);
+\end{tikzpicture}
+\end{center}
+
+\begin{description}
+  \item[\arq{Quartus/soc_system/}] O Verilog do sistema, gerado pelo
+    \arq{qsys-generate} (ou pelo botão \emph{Generate HDL} do Platform
+    Designer) a partir do \arq{.qsys}.
+  \item[\arq{C/hps_0.h}] Os endereços, gerados pelo
+    \arq{Quartus/gen_hps_header.py} a partir do \arq{.sopcinfo}. Se você muda o
+    Platform Designer e não regenera este arquivo, o servidor usa os
+    endereços velhos. \arq{python3 Quartus/gen_hps_header.py} \opt{check} confere
+    se os dois estão de acordo.
+  \item[\arq{.sof}] O bitstream, compilado pelo Quartus a partir de tudo
+    acima. Fica em \arq{Quartus/output_files/} e vai para o git, junto com o
+    \arq{PROVENIENCIA.sha256} (as impressões digitais das fontes de que ele
+    saiu). \arq{sha256sum -c PROVENIENCIA.sha256} confere um clone.
+\end{description}
+
+A sequência completa, com os comandos, está em \arq{docs/COMPILAR.md}.
+
+% =============================================================================
+\section{O servidor (pasta \texttt{C/})}
+% =============================================================================
+
+O \arq{morphe_server} é um programa em C que roda no Linux da placa, como
+\arq{root}, na pasta \arq{/root/morphe}. Ele é compilado \textbf{na própria
+placa} (\arq{make}), com os seis arquivos que o \arq{morphe-up.sh} envia:
+\arq{morphe_server.c}, \arq{morphe_protocol.h}, \arq{morphe_config.h},
+\arq{hps_0.h}, \arq{address_map_arm.h} e \arq{Makefile}.
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.32cm,font=\scriptsize]
+  \node[hps,minimum width=4cm] (a) {\arq{fpga_init}: \arq{mmap} das pontes};
+  \node[hps,below=of a,minimum width=4cm] (b) {\arq{accept}: espera um cliente};
+  \node[hps,below=of b,minimum width=4cm] (c) {\arq{serve_connection}: lê o cabeçalho};
+  \node[hps,below left=0.5cm and -0.6cm of c,minimum width=1.8cm] (f) {\arq{handle_fft}};
+  \node[hps,below=0.5cm of c,minimum width=1.8cm] (d) {\arq{handle_adc}\\\arq{handle_adc_continuo}};
+  \node[hps,below right=0.5cm and -0.6cm of c,minimum width=1.8cm] (p) {\arq{handle_ping}};
+  \draw[seta] (a) -- (b); \draw[seta] (b) -- (c);
+  \draw[seta] (c) -- (f); \draw[seta] (c) -- (d); \draw[seta] (c) -- (p);
+  \draw[seta] (d.south) -- ++(0,-0.4) -| ([xshift=-2.6cm]b.west) node[rot,left,pos=0.75]{fecha a\\conexão\\e volta} -- (b.west);
+  \node[hps,right=2.2cm of a,minimum width=3.4cm] (t) {\arq{thread_estado}\\porta UDP 5001};
+  \node[right=0.1cm of t,font=\scriptsize,align=left] {responde ``livre'' ou\\``ocupada'' na hora,\\sem tocar a FPGA};
+\end{tikzpicture}
+\end{center}
+
+\begin{description}
+  \item[\arq{fpga_init}] Abre \arq{/dev/mem} e mapeia as duas pontes. Depois
+    disso, \arq{g_fft_xn_re[i]} é a posição \arq{i} da memória da FPGA, e
+    \arq{*g_pio_fft_start = 1} escreve no PIO. Os ponteiros são montados a
+    partir do \arq{hps_0.h}:
+\begin{lstlisting}
+g_pio_fft_start   = (volatile uint32_t *)((char *)g_lw_virt + FFT_WRAPPER_START_BASE);
+\end{lstlisting}
+    O \arq{volatile} é obrigatório: diz ao compilador que o valor pode mudar
+    sozinho (é o hardware quem escreve) e que cada leitura tem que ir de fato
+    ao endereço.
+  \item[\arq{serve_connection}] Lê o cabeçalho de 20 bytes, confere a
+    assinatura \arq{MRPM} e a versão, e escolhe o tratador pelo
+    \textbf{opcode}, num \arq{switch}. Um módulo novo ganha um \arq{case} aqui.
+  \item[\arq{handle_fft}] Recebe 1024 amostras Q15.8, escreve em
+    \arq{fft_xn_re} (e zeros em \arq{fft_xn_imag}), dispara com o aperto de
+    mão da seção \ref{sec:startdone}, lê \arq{fft_yn_re}/\arq{fft_yn_imag},
+    aplica a escala do expoente e devolve 1024 complexos em \arq{float32}.
+  \item[\arq{handle_adc}] Confere a fs, o tamanho e a configuração, escreve
+    os PIOs do ADC, dispara, espera (o prazo sai da duração da captura) e
+    devolve os códigos do conversor.
+  \item[\arq{handle_ping}] Responde um texto \arq{chave=valor} com o nome da
+    placa, os limites do hardware e se a FPGA está preparada. É o que o
+    aplicativo usa para achar e conhecer a placa.
+  \item[\arq{thread_estado}] Uma linha de execução à parte que responde, por
+    UDP na porta 5001, se a placa está livre ou ocupada. Também atende o
+    \emph{broadcast} com que o aplicativo acha todas as placas da rede.
+\end{description}
+
+\textbf{Um cliente por vez.} O laço principal atende uma conexão, responde e
+fecha. Se dois alunos usam a mesma placa, o segundo espera o primeiro
+terminar; ninguém recebe erro. O aplicativo usa a porta de estado para
+escolher a placa mais livre.
+
+\textbf{Arquivos de depuração.} Cada FFT grava um \arq{.mrph} em
+\arq{/root/morphe} com a entrada, a saída bruta e a saída escalada (os 100
+mais recentes ficam; a variável \arq{MORPHE_DUMP_MAX} muda o limite).
+
+\textbf{Os limites ficam num lugar só.} Tamanhos do hardware (1024 pontos,
+32768 amostras, faixa do divisor, porta) estão em \arq{C/morphe_config.h}, e o
+espelho deles para o cliente em \arq{Python/morphe_config.py}. Se mudar um,
+mude o outro.
+
+% =============================================================================
+\section{O protocolo (\texttt{morphe\_protocol.h} e \texttt{.py})}
+% =============================================================================
+
+Cliente e servidor trocam mensagens binárias pela conexão TCP. Todos os
+números são \textbf{big-endian} (o byte mais significativo primeiro, a
+``ordem da rede''). Os dois arquivos, o \arq{.h} do servidor e o \arq{.py} do
+cliente, descrevem o mesmo formato e têm que concordar byte a byte.
+
+\begin{center}
+\begin{tikzpicture}[x=0.62cm,y=0.8cm,font=\scriptsize]
+  \foreach \x/\w/\t in {0/4/magic, 4/2/version, 6/2/opcode, 8/2/dtype, 10/2/flags, 12/4/n\_x, 16/4/n\_h} {
+    \draw[fill=cli!10,draw=cli] (\x,0) rectangle ++(\w,1);
+    \node at ({\x+\w/2},0.5) {\t};
+    \node[below] at (\x,0) {\x};
+  }
+  \node[below] at (20,0) {20};
+  \draw[fill=black!4,draw=black!50] (20,0) rectangle (24,1); \node at (22,0.5) {amostras\ldots};
+  \node[anchor=west] at (0,1.5) {\textbf{pedido} (cliente \(\to\) placa): \arq{magic} = \arq{MRPM}};
+\end{tikzpicture}
+
+\vspace{4pt}
+\begin{tikzpicture}[x=0.62cm,y=0.8cm,font=\scriptsize]
+  \foreach \x/\w/\t in {0/4/magic, 4/2/version, 6/2/opcode, 8/2/dtype, 10/2/status, 12/4/n\_out, 16/4/extra} {
+    \draw[fill=hps!10,draw=hps] (\x,0) rectangle ++(\w,1);
+    \node at ({\x+\w/2},0.5) {\t};
+    \node[below] at (\x,0) {\x};
+  }
+  \node[below] at (20,0) {20};
+  \draw[fill=black!4,draw=black!50] (20,0) rectangle (24,1); \node at (22,0.5) {resultado\ldots};
+  \node[anchor=west] at (0,1.5) {\textbf{resposta} (placa \(\to\) cliente): \arq{magic} = \arq{MRPN}};
+\end{tikzpicture}
+\end{center}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}clX@{}}
+\toprule
+\textbf{opcode} & \textbf{nome} & \textbf{pedido \(\to\) resposta} \\
+\midrule
+2 & \arq{FFT} & 1024 amostras \arq{int32} em Q15.8 \(\to\) 1024 complexos \arq{float32} (re e im intercalados) \\
+3 & \arq{PING} & só o cabeçalho \(\to\) texto \arq{chave=valor} com os dados da placa \\
+7 & \arq{ADC} & só o cabeçalho; \arq{n_x} = amostras, \arq{n_h} = divisor, \arq{flags} = configuração \(\to\) \arq{n_x} códigos \arq{int32} \\
+8 & \arq{ADC_CONTINUO} & como o ADC, \arq{n_x = 0} = até o cliente parar \(\to\) uma sequência de blocos \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Os números 1, 4, 5 e 6 eram de blocos da versão completa (convolução, FIR,
+IFFT, IIR) que esta versão não tem; o 9 já é usado pelo módulo de soma do
+roteiro (e, na versão completa, pelo áudio). \textbf{Um módulo novo usa um número que ninguém usa}, nos dois
+arquivos ao mesmo tempo.
+
+Se algo dá errado, a resposta vem com \arq{status} diferente de 0 e uma
+mensagem em texto no lugar do resultado. Os códigos estão no
+\arq{morphe_protocol.h}; os mais comuns são \arq{BAD_OPCODE} (3: o servidor não
+conhece aquela operação), \arq{BAD_SIZE} (5), \arq{FPGA_TIMEOUT} (6: o done
+não subiu no prazo) e \arq{FPGA_NAO_PREPARADA} (8: a FPGA não está com o
+bitstream do Morphe).
+
+% =============================================================================
+\section{O aplicativo (pasta \texttt{Python/})}
+% =============================================================================
+
+O aplicativo é aberto com \arq{python3 morphe_app.py}, de dentro de
+\arq{Python/}. Ele é organizado em camadas, e é bom manter essa separação num
+módulo novo: \textbf{a janela não monta bytes, e o protocolo não desenha nada}.
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.25cm,font=\scriptsize]
+  \node[cli,text width=12cm,align=left] (j) {\textbf{janelas (Tk)}\quad \arq{morphe_app.py} (o menu principal), \arq{signal_generator_window.py}, \arq{aquisicao_window.py}, \arq{fft_window.py}, \arq{comparator_window.py}};
+  \node[cli,below=of j,text width=12cm,align=left] (c) {\textbf{contas, sem tela}\quad \arq{aquisicao.py} (ADC: fs, volts, métricas), \arq{blocos.py} (FFT longa), \arq{dsp_core.py} (sinais, Q15.8, \arq{.mrph})};
+  \node[cli,below=of c,text width=12cm,align=left] (p) {\textbf{fio}\quad \arq{morphe_protocol.py} (monta pedidos, lê respostas, \arq{TcpClient}, descoberta)\quad \arq{morphe_config.py} (limites)};
+  \node[cli,below=of p,text width=12cm,align=left] (i) {\textbf{infraestrutura}\quad \arq{tcp_panel.py} (painel de conexão, escolha da placa), \arq{discovery_window.py}, \arq{programar_local.py} (grava a FPGA pelo USB)};
+\end{tikzpicture}
+\end{center}
+
+\begin{description}
+  \item[\arq{morphe_protocol.py}] Para cada opcode, uma função
+    \arq{build_..._request} (monta os bytes) e uma \arq{decode_..._response}
+    (devolve um \arq{numpy.ndarray}). O \arq{TcpClient} abre a conexão, manda,
+    lê a resposta inteira e fecha.
+  \item[A normalização da FFT] Antes de converter para Q15.8,
+    \arq{build_fft_request} multiplica o sinal para que o pico encoste perto do
+    teto da faixa, e \arq{decode_fft_response} desfaz a escala na volta. Como
+    a FFT é linear, o resultado é o mesmo; o que muda é que o erro de
+    quantização fica o menor possível.
+  \item[A FFT longa] A placa só faz 1024 pontos. \arq{blocos.py} calcula uma
+    FFT de \(1024 \cdot M\) pontos pelo algoritmo de quatro passos: \(M\) FFTs
+    de 1024 na placa, ligadas no computador por fatores de giro. É exata, não
+    uma aproximação.
+  \item[\arq{.mrph}] O formato de arquivo do Morphe: texto, com seções
+    (entrada, saída\ldots). A janela da FFT salva um; o Comparador o abre e
+    compara a saída da FPGA com o \arq{numpy.fft}.
+  \item[Achar a placa] Ao abrir, o painel manda um \emph{broadcast} UDP
+    (\arq{descobrir_placas}) e cada servidor responde com nome e IP. Por isso o
+    IP da placa pode mudar (DHCP) sem que ninguém precise saber dele.
+  \item[Gravar a FPGA] \arq{programar_local.py} procura, com o
+    \arq{jtagconfig} do Quartus, as placas ligadas pelo USB \emph{deste}
+    computador e grava o \arq{.sof} nelas, mantendo o tether aberto.
+\end{description}
+
+% =============================================================================
+\section{A infraestrutura: como tudo chega à placa e aos computadores}
+% =============================================================================
+
+\begin{center}
+\begin{tikzpicture}[node distance=1.6cm and 2.4cm,font=\scriptsize]
+  \node[gitb,minimum width=3cm] (git) {\textbf{GitHub}\\fontes + \arq{.sof}};
+  \node[neutro,right=of git,minimum width=3.4cm] (est) {\textbf{estação}\\compila no Quartus 20.1\\\arq{docs/COMPILAR.md}};
+  \node[cli,below=of git,minimum width=3cm] (pc) {\textbf{PCs do lab}\\\arq{/opt/morphe}};
+  \node[fpga,below=of est,minimum width=3.4cm] (fpga) {\textbf{FPGA} da placa\\\arq{.sof} pelo USB};
+  \node[hps,right=1.2cm of fpga,minimum width=3.2cm] (srv) {\textbf{HPS} da placa\\servidor em \arq{/root/morphe}\\sobe sozinho no boot};
+  \draw[seta,<->] (est) -- node[above,rot]{push / pull}(git);
+  \draw[seta] (git) -- node[left,rot]{\arq{atualizar.sh}\\\arq{atualizar-lab.sh}}(pc);
+  \draw[seta] (pc) -- node[below,rot]{app, ao abrir}(fpga);
+  \draw[seta] (est) -- node[left,rot]{\arq{morphe-up.sh}}(fpga);
+  \draw[seta] (est.east) -| node[right,rot,pos=0.75]{\arq{morphe-up.sh}\\\opt{deploy}}(srv.north);
+\end{tikzpicture}
+\end{center}
+
+\begin{description}
+  \item[Compilar] Só na estação, com o Quartus 20.1: \arq{qsys-generate},
+    \arq{gen_hps_header.py}, \arq{quartus_sh}, gravar, testar e só então pôr o
+    \arq{.sof} no git com a proveniência (\arq{docs/COMPILAR.md}).
+  \item[\arq{morphe-up.sh}] Deixa uma placa pronta em um comando, nesta
+    ordem: acha o Quartus, descobre o cabo (\arq{jtagconfig}), grava a FPGA e
+    mantém o tether, acha a placa na rede, envia e compila o servidor se as
+    fontes mudaram (\opt{deploy} força), reinicia o servidor e confere com o
+    \arq{morphe_ping}. \opt{down} encerra os tethers; \opt{status} mostra o
+    que está no ar. Roda na conta normal, nunca com \arq{sudo}.
+  \item[Autostart] Cada placa tem o servidor no boot
+    (\arq{C/autostart/instala-autostart.sh}). Ele sobe antes de a FPGA estar
+    gravada e espera, respondendo ao ping com \arq{fpga_preparada=0}.
+  \item[Computadores] O aplicativo é instalado em \arq{/opt/morphe}
+    (\arq{instala-morphe.sh}), um clone do git. \arq{atualizar.sh} atualiza um
+    computador; \arq{atualizar-lab.sh}, rodado na estação, atualiza todos por
+    SSH (a lista está em \arq{computadores.conf}).
+  \item[As placas] \arq{placas.conf} lista as placas do laboratório; o nome
+    (\emph{hostname}) é o que identifica cada uma. Placa nova: \arq{docs/NOVA-PLACA.md}.
+\end{description}
+
+\begin{cuidado}
+\textbf{Servidor e bitstream andam juntos.} O servidor é compilado com o
+\arq{hps_0.h} de um bitstream. Se você grava um bitstream com componentes
+novos, a placa precisa também do servidor novo (\arq{morphe-up.sh}
+\opt{deploy}), e vice-versa. Servidor de uma versão com bitstream de outra
+termina em ``o bitstream na FPGA não é o deste servidor'' ou em
+\arq{BAD_OPCODE}. Para experimentar, use um \textbf{clone seu}
+(\arq{~/meu-modulo}): o \arq{/opt/morphe} é o dos alunos e não se mexe.
+\end{cuidado}
+
+% =============================================================================
+\section{Testes que já existem}
+% =============================================================================
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{teste} & \textbf{o que confere} \\
+\midrule
+\arq{Quartus/morphe_ping.py} & 4 testes contra uma placa: conexão TCP, protocolo (PING), captura do ADC e FFT de um impulso. O \arq{morphe-up.sh} roda no fim (``4/4'') \\
+\arq{Python/ferramentas/testa_adc.py} & o ADC com multímetro e gerador de sinais (tensão, senoide, contínua, ENOB) \\
+\arq{Python/ferramentas/testa_blocos.py} & a FFT longa e a leitura de arquivos, contra a placa ou sem ela \\
+\arq{Quartus/testbench/roda_tb_adc.sh} & simulação do \arq{adc_captura.v} no Icarus, sem placa \\
+\arq{Python/ferramentas/estado_placas.py} & o que cada placa da rede está fazendo agora \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Quando algo falha, olhe nesta ordem: a mensagem do aplicativo (ela traz o
+\arq{status} e o texto do servidor); o log do servidor; os
+\arq{LEDR[3:0]} (estado da FFT parado num número diferente de 0 = a máquina
+travou no meio); e o \opt{check} do \arq{gen_hps_header.py}.
+
+% =============================================================================
+\section{Acrescentar um módulo: o que mexer, camada por camada}\label{sec:novo}
+% =============================================================================
+
+Um bloco novo atravessa as mesmas camadas que o ADC e a FFT. A ordem abaixo é a
+que funciona: \textbf{cada camada é testada antes da próxima}, e o módulo é
+testado \textbf{sozinho} (simulação, depois pela serial) antes de ser ligado ao
+aplicativo.
+
+\newcommand{\pc}[2]{\tikz[baseline=-0.6ex]\node[passo,fill=#1]{#2};}
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\linewidth}{@{}cXl@{}}
+\toprule
+ & \textbf{o que fazer} & \textbf{onde} \\
+\midrule
+\pc{fpga}{1} & o \textbf{módulo em Verilog} e o banco de testes & \arq{Quartus/}, \arq{Quartus/testbench/} \\
+\pc{fpga}{2} & \textbf{memórias e PIOs} no Platform Designer, e \emph{Generate HDL} & \arq{soc_system.qsys} \\
+\pc{fpga}{3} & \textbf{fios, instância e exports} no topo; o \arq{.v} novo no projeto & \arq{ghrd_top.v}, \arq{soc_system.qsf} \\
+\pc{fpga}{4} & \textbf{compilar} e regenerar os endereços & \arq{quartus_sh}, \arq{gen_hps_header.py} \\
+\pc{hps}{5} & \textbf{testar sozinho pela serial}, lendo e escrevendo os endereços & \arq{devmem} (vem com o roteiro) \\
+\pc{hps}{6} & \textbf{opcode e tratador} no servidor & \arq{morphe_protocol.h}, \arq{morphe_server.c} \\
+\pc{cli}{7} & \textbf{pedido, resposta e janela} no aplicativo & \arq{morphe_protocol.py}, \arq{*_window.py} \\
+\pc{black}{8} & \textbf{gravar, enviar o servidor e comparar} com o Python & \arq{morphe-up.sh} \opt{deploy} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{enumerate}
+  \item \textbf{Verilog.} Copie o padrão dos blocos que existem: \arq{clk} e
+    \arq{reset_n}, \arq{start} por borda, \arq{done} até o start baixar, e as
+    portas de RAM iguais às do \arq{adc_captura.v} (\arq{address},
+    \arq{wdata}, \arq{write}). Simule antes de qualquer outra coisa.
+  \item \textbf{Platform Designer.} Para cada vetor, uma memória de duas
+    portas (porta s2 na ponte h2f, s1 exportada). Para cada comando ou aviso,
+    um PIO (de saída para o que o HPS manda, de entrada para o que o bloco
+    devolve), na ponte lw. Escolha endereços livres (abaixo) e gere o HDL.
+  \item \textbf{Topo.} Declare os fios, instancie o bloco e ligue as portas
+    exportadas no \arq{soc_system u0}. O arquivo \arq{.v} novo entra no
+    projeto (\arq{Project} \(\to\) \arq{Add/Remove Files}, que grava no
+    \arq{soc_system.qsf}).
+  \item \textbf{Compilar} na estação e rodar o \arq{gen_hps_header.py}. Os
+    endereços novos aparecem no \arq{C/hps_0.h}.
+  \item \textbf{Serial.} Com a placa gravada, escreva nos PIOs e leia as
+    memórias pelos endereços absolutos (\arq{0xFF200000} + endereço lw,
+    \arq{0xC0000000} + endereço h2f). Se o número certo aparece, o hardware
+    está pronto; o resto é software.
+  \item \textbf{Servidor.} Um \texttt{\#define MORPHE\_OP\_\ldots} novo no
+    \arq{morphe_protocol.h}; os ponteiros no \arq{fpga_init}; uma função
+    \arq{handle_...} que copia, dispara, espera e devolve (a \arq{handle_fft} é
+    o modelo); e o \arq{case} no \arq{serve_connection}.
+  \item \textbf{Aplicativo.} O mesmo opcode no \arq{morphe_protocol.py}, um
+    \arq{build_..._request} e um \arq{decode_..._response}; uma janela que chama
+    os dois e mostra o resultado ao lado do cálculo em NumPy; e um botão no
+    \arq{morphe_app.py}.
+  \item \textbf{Placa.} \arq{morphe-up.sh} \opt{deploy} do seu clone grava o
+    \arq{.sof} novo e manda o servidor novo. No fim, \opt{down} no seu clone e
+    \arq{morphe-up.sh} do \arq{/opt/morphe} devolvem a placa como estava.
+\end{enumerate}
+
+\subsection*{Endereços livres}
+
+\begin{itemize}
+  \item \textbf{Ponte lw (PIOs):} os PIOs desta versão ocupam de \arq{0x50} a
+    \arq{0x12F}. O servidor mapeia a ponte lw até \arq{0x4FFF}
+    (\arq{LW_BRIDGE_SPAN} no \arq{address_map_arm.h}), então um PIO novo vai
+    entre \arq{0x130} e \arq{0x4FF0}, de 16 em 16 (cada PIO ocupa 16 bytes).
+  \item \textbf{Ponte h2f (memórias):} estão livres de \arq{0x10000} a
+    \arq{0x17FFF} (32 KiB) e de \arq{0x1C000} a \arq{0x1FFFF} (16 KiB). Uma
+    RAM de 1024 palavras de 32 bits ocupa 4 KiB.
+\end{itemize}
+
+\begin{cuidado}
+\textbf{O servidor só mapeia o que ele conhece.} O tamanho da janela h2f que o
+servidor mapeia (\arq{MORPHE_ONCHIP_MMAP_SPAN}, no começo do
+\arq{morphe_server.c}) é calculado a partir do fim das memórias da FFT e do
+ADC, e não pode passar de \arq{FPGA_ONCHIP_SPAN} (\arq{0x3FFFF}). Uma memória
+nos buracos acima já está dentro da janela. Uma memória depois de
+\arq{0x40000} exige aumentar \arq{FPGA_ONCHIP_SPAN} e incluir a memória nova
+no cálculo; sem isso, o ponteiro aponta para fora do que foi mapeado.
+\end{cuidado}
+
+\subsection*{O que tem que ser igual dos dois lados}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}XX@{}}
+\toprule
+\textbf{aqui} & \textbf{tem que bater com} \\
+\midrule
+nome e tipo de cada PIO e memória no \arq{.qsys} & as portas \arq{.nome_export} do \arq{soc_system u0} no \arq{ghrd_top.v} \\
+o \arq{.sof} gravado & o \arq{hps_0.h} com que o servidor foi compilado (sysid) \\
+\arq{MORPHE_OP_...} no \arq{morphe_protocol.h} & \arq{OP_...} no \arq{morphe_protocol.py} \\
+limites no \arq{morphe_config.h} & os mesmos no \arq{morphe_config.py} \\
+o formato dos números no Verilog (ex.: Q15.16) & a conversão no Python e a referência em NumPy \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{pronto}
+O \textbf{roteiro do módulo de soma} (\arq{docs/roteiro-modulo/}) faz todo este
+caminho com um bloco pequeno: um somador saturado de dois vetores. Ele traz o
+código completo de cada camada, os prints do Quartus e do Platform Designer e
+um teste em cada etapa. Comece por ele antes do seu módulo.
+\end{pronto}
+
+% =============================================================================
+\section*{Glossário}
+\addcontentsline{toc}{section}{Glossário}
+% =============================================================================
+
+\begin{description}[itemsep=0pt]
+  \item[Avalon-ST] Interface de fluxo da Intel: dados com \arq{valid},
+    \arq{ready} e marcas de início/fim de quadro. É como o IP da FFT recebe e
+    entrega amostras.
+  \item[BFP] \emph{Block floating point}: um expoente só para o bloco inteiro
+    de 1024 resultados, que diz quanto o IP escalou para não estourar.
+  \item[bitstream (\arq{.sof})] O arquivo que configura a FPGA. Gravado pelo
+    cabo USB (JTAG); se perde ao desligar a placa.
+  \item[HPS] \emph{Hard Processor System}: o ARM de dois núcleos do Cyclone~V
+    SoC, onde roda o Linux e o servidor.
+  \item[\arq{mmap}] Chamada do Linux que faz um trecho de endereços físicos
+    (aqui, as pontes) aparecer como memória comum para o programa.
+  \item[PIO] \emph{Parallel I/O}: um registrador de até 32 bits no Platform
+    Designer, ligado ao HPS de um lado e a fios do nosso bloco do outro.
+  \item[Platform Designer] A ferramenta do Quartus (antigo Qsys) que monta o
+    sistema: HPS, pontes, memórias, PIOs e os endereços de cada um.
+  \item[Q15.8, Q15.16] Inteiros com fração fixa: 15 bits de parte inteira e 8
+    (ou 16) de fração. O valor é o inteiro dividido por \(2^8\) (ou \(2^{16}\)).
+  \item[tether] O programador do Quartus que fica aberto depois de gravar, e
+    sem o qual o IP licenciado da FFT para.
+\end{description}
+
+\end{document}
