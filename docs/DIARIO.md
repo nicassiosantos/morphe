@@ -29,6 +29,13 @@ roteiros de operação, manual em dia e um levantamento das mensagens de falha.
 `--board <nome da placa>` (ver a medição de 29/10 abaixo). Na adc-fft, o "Estado desta
 versão" ainda dizia que o bitstream ADC+FFT faltava compilar; foi compilado em 27/10.
 
+**PCs do laboratório na adc-fft `3efe08e`** (`atualizar-lab.sh --ramo estagio/adc-fft`
+da estação, depois do `atualizar.sh` dela, que foi a `a1e2d4a`): 7 de 10 atualizados e
+conferidos com `--status` — `.101.233`, `.230.4`, `.101.235`, `.101.236`, `.101.234`,
+`.230.168` e `.230.170`. Sem SSH ("No route to host"): `.101.230` (PC 3), `.101.231`
+(PC 4) e `.230.80` (PC 6, LABPS-47806, que respondia em 28/10): desligados ou com IP
+novo.
+
 ## 29/10/2026 — Versão completa revalidada na placa; roteiro do somador na adc-fft
 
 **Versão completa (principal, `2cd9583`) VALIDADA na placa 2** (`de1soc-02`,
