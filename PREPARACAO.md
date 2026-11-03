@@ -3,7 +3,7 @@
 Colocar a plataforma em operação são dois comandos:
 
 ```
-./morphe-up.sh
+./morphe-up.sh --board de1soc-02
 ```
 
 ```
@@ -29,8 +29,13 @@ Na ordem, e parando com mensagem clara no primeiro problema:
    própria, com o PGID guardado para o `--down`. **Um script que programasse a FPGA e
    simplesmente retornasse mataria a FFT em uma hora** — é a razão de esta parte não
    ser trivial.
-4. **Acha a placa**: `--board`, `$MORPHE_BOARD`, descoberta pela rede, ou a placa
-   lembrada da última vez. Informada uma vez, fica lembrada.
+4. **Acha a placa**: `--board` (o IP ou o nome, como `de1soc-02`; pelo nome, o IP de
+   hoje vem do broadcast) ou `$MORPHE_BOARD`. Sem nenhum dos dois, só consegue
+   *deduzir* — a única placa da rede, a lembrada, a varredura — e então pergunta se é
+   aquela mesma; sem terminal, ou com várias placas na rede, para pedindo o `--board`.
+   Por isso, desde 22/10/2026 (o `placas.conf` não liga mais cabo a placa), **o
+   `--board` vai sempre**: um script que adivinhasse reiniciaria o servidor da placa
+   de outro computador.
 5. **Envia e compila o servidor**, se o binário não estiver lá ou com `--deploy`.
    Os seis arquivos incluem o `morphe_config.h`, que o `deploy.sh` esquecia.
 6. **Reinicia o servidor — sempre depois da FPGA.** Um servidor que subiu antes da
@@ -195,7 +200,7 @@ Se houver arquivos copiados a mao por cima, o `git pull` recusa; descarte-os pri
 Coordenador, uma vez por dia de aula — **de dentro de `/opt/morphe`**:
 
 ```bash
-cd /opt/morphe && ./morphe-up.sh
+cd /opt/morphe && ./morphe-up.sh --board <nome da placa, ex. de1soc-02>
 ```
 
 Aluno:
@@ -234,7 +239,7 @@ pgrep -af quartus_pgm
 
 Não imprimiu nada? O tether caiu, e **qualquer** operação errada a partir daí é
 consequência disso, não defeito de quem está usando. A correção é sempre a mesma:
-`cd /opt/morphe && ./morphe-up.sh`.
+`cd /opt/morphe && ./morphe-up.sh --board <nome da placa>`.
 
 O `linger` **não** sobrevive a desligar a estação: depois de cada boot, alguém roda o
 `morphe-up.sh` uma vez. "Alguém", agora, inclui o aluno.
@@ -262,7 +267,7 @@ Uma vez, na conta do aluno — cada conta precisa da sua chave para a placa:
 cd /opt/morphe && ./morphe-up.sh --setup-ssh --board <ip da placa>
 ```
 
-A partir daí o aluno roda `cd /opt/morphe && ./morphe-up.sh` e prepara tudo sozinho.
+A partir daí o aluno roda `cd /opt/morphe && ./morphe-up.sh --board <nome da placa>` e prepara tudo sozinho.
 **Validado em 17/09/2026**: da conta `alunopds`, com o Quartus de `/opt`, o script achou
 o cabo, reprogramou, levantou o tether, reiniciou o servidor e fechou 4/4 — depois de um
 desligamento completo da estação, sem o coordenador entrar.
@@ -299,7 +304,7 @@ estação em outro IP, `--origem coordenador@<ip>`; de um HD externo, `--origem 
 só conferir, `--verificar`. Quem estiver logado precisa sair e entrar de novo.
 
 **Cuidado:** gravar um projeto próprio numa placa que está servindo o Morphe substitui o
-bitstream da plataforma para a turma inteira; depois, `./morphe-up.sh` restaura.
+bitstream da plataforma para a turma inteira; depois, `./morphe-up.sh --board <nome da placa>` restaura.
 
 ### O que já foi verificado, e o que falta
 
@@ -391,6 +396,12 @@ diante): um `./morphe-up.sh` sem argumento nenhum acha a placa, programa a FPGA,
 e reinicia o servidor e fecha com o `morphe_ping` 4/4, com a FFT de 1024 pontos
 devolvendo espectro plano em ~21 ms. O cliente abre já conectado, sem endereço digitado.
 
+**Isso mudou em 22/10/2026:** o `placas.conf` deixou de ligar cabo a placa, e o
+`morphe-up.sh` sem argumento passou a só *deduzir* a placa e a parar pedindo o
+`--board`. A rotina agora é `./morphe-up.sh --board <nome da placa>`. Na estação, em
+29/10/2026, preparar a placa 2 a frio pelo caminho do aluno (abrir o aplicativo, que
+grava a FPGA e conecta) levou **2 passos**; pelo `morphe-up.sh --board`, **3**.
+
 Nesta branch o terceiro teste do `morphe_ping` é a captura do ADC. O
-bitstream só com ADC e FFT ainda tem de ser compilado na estação: ver
-`docs/COMPILAR.md`.
+bitstream só com ADC e FFT foi compilado e validado em 27/10/2026 (24 % dos ALMs,
+76,27 MHz); para compilar de novo, `docs/COMPILAR.md`.

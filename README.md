@@ -30,12 +30,22 @@ No aplicativo:
 Na estação do laboratório, com a placa ligada ao USB-Blaster:
 
 ```bash
-./morphe-up.sh
+./morphe-up.sh --board de1soc-02
 ```
 
 ```bash
 cd Python && python3 morphe_app.py
 ```
+
+O `--board` diz qual placa preparar, pelo nome que ela tem no `placas.conf` e no prompt
+do console serial (`root@de1soc-02`); a placa 1 é `de1soclinux`, o nome de fábrica. O IP
+de hoje vem sozinho da rede. **Não deixe o `--board` de fora:** desde 22/10/2026 o
+`placas.conf` não diz qual cabo é de qual placa, e sem ele o script só consegue
+*deduzir* a placa — pergunta se é aquela mesma e, com mais de uma placa na rede ou sem
+terminal, para pedindo o `--board` (visto na estação em 29/10/2026).
+
+Num computador de aluno não há este passo: basta abrir o aplicativo (menu → Morphe), que
+grava a FPGA da placa ligada ao USB e conecta sozinho.
 
 O primeiro prepara a placa (programa a FPGA e sobe o servidor) e termina com o
 `morphe_ping` 4/4; o segundo abre o aplicativo, já conectado. O passo a passo completo,
