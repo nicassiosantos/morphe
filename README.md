@@ -73,6 +73,7 @@ compilação falha.
 | `docs/ADC.md` | como o ADC da placa funciona e as etapas para capturar sinais com ele |
 | `docs/RESSALVAS.md` | o que foi corrigido no projeto original, e por quê |
 | `docs/LINHA-DE-BASE-PASSOS.md` | a medição de usabilidade antes das mudanças |
+| `docs/REQUISITOS.md` | requisitos de usabilidade e de recursos, cada um com a origem e o estado |
 | `docs/DIARIO.md` | o diário do estágio: o que foi feito, medido e validado, dia a dia |
 
 ## Conferir um clone

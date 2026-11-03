@@ -16,6 +16,19 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 03/11/2026 — Documento de requisitos; README e PREPARACAO com `--board`
+
+**`docs/REQUISITOS.md`** (atividade 2 do cronograma): perfis de usuário, o problema de
+partida (40 / 9 / 4 passos e os sete pontos tácitos), 19 requisitos de usabilidade,
+16 de recursos (placas, computadores, rede, FPGA e licença) e 4 de qualidade, cada um
+com a origem, a forma de verificar e o estado, com a evidência. Vale para a versão
+completa e para a adc-fft. Fica em aberto: cenários A e C, imagem de cartão (v1.5),
+roteiros de operação, manual em dia e um levantamento das mensagens de falha.
+
+**README e PREPARACAO.md**, nas duas versões: o `morphe-up.sh` vai sempre com
+`--board <nome da placa>` (ver a medição de 29/10 abaixo). Na adc-fft, o "Estado desta
+versão" ainda dizia que o bitstream ADC+FFT faltava compilar; foi compilado em 27/10.
+
 ## 29/10/2026 — Versão completa revalidada na placa; roteiro do somador na adc-fft
 
 **Versão completa (principal, `2cd9583`) VALIDADA na placa 2** (`de1soc-02`,
@@ -49,6 +62,23 @@ e `gen_hps_header.py --check` conferem), e os testbenches (`50559fa`).
 
 Também resolvidos (relatado pelo Antonio): o teste das duas contas no LABPS-47722,
 com o botão "Gravar a FPGA (USB)", e os PC3 e PC4 de volta à rede.
+
+**Medição de usabilidade, cenário B (rotina do dia, tudo instalado).** Na estação, com
+a placa 2 de volta na adc-fft (`morphe-up.sh --deploy`, 4/4) e partindo a frio, contado
+pela regra da `LINHA-DE-BASE-PASSOS.md`:
+
+| caminho | passos | quais |
+|---|---|---|
+| do aluno | **2** | abrir o aplicativo (ele grava a FPGA e conecta sozinho); executar a operação (FFT, pico em k = 80, correto) |
+| do `morphe-up.sh` | **3** | `./morphe-up.sh --board <placa>`; abrir o aplicativo; executar a operação |
+
+Linha de base: **9** (14/09, antes); depois da v1.2: **3** (14/09). Pelo caminho do
+aluno a preparação sumiu: dos 2 passos, um é a operação em si.
+
+Na mesma medição apareceu um erro de documentação: o README e o PREPARACAO.md mandavam
+rodar `./morphe-up.sh` **sem argumento**, e ele para pedindo o `--board`. Desde 22/10
+o `placas.conf` não liga cabo a placa, e sem o `--board` o script só deduz a placa.
+Corrigido em 03/11.
 
 ## 27/10/2026 — Versão adc-fft compilada; placa trocada de PC e de ponto de rede
 
