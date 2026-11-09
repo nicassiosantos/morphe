@@ -57,7 +57,7 @@ Os requisitos de usabilidade abaixo saem desses números e desses sete pontos.
 | **RU-03** | Nenhum dos **sete pontos tácitos** fica com o usuário | linha de base | cada ponto é tratado ou verificado com mensagem própria | **atendido** 14/09 (`morphe-up.sh`, `morphe_ping`) |
 | **RU-04** | A licença do IP da FFT **não depende de um terminal aberto** | ponto tácito 5; sem tether o bitstream inteiro para em ~1 h (medido 17/09) | fechar o terminal e operar depois de 1 h | **atendido**: tether em segundo plano, um por cabo; sobrevive ao logout com `linger` |
 | **RU-05** | A conta do aluno, **sem `sudo`**, prepara e usa a placa sozinha | o aluno não tem `sudo`; a aula não pode depender da sessão do coordenador | da conta `alunopds`, partida a frio | **atendido** 17/09 (Quartus em `/opt`); 27/10 a segunda conta passou a gravar (`protected_regular`) |
-| **RU-06** | **Abrir o aplicativo basta**: ele grava a FPGA da placa no USB e conecta | cenário C é o alvo; a placa junto de cada PC (22/10) | contar os passos do cenário B pelo caminho do aluno | **atendido** 22/10 (placa 1); 29/10 cenário B = **2 passos** (placa 2, estação) |
+| **RU-06** | **Abrir o aplicativo basta**: ele grava a FPGA da placa no USB e conecta | cenário C é o alvo; a placa junto de cada PC (22/10) | contar os passos do cenário B pelo caminho do aluno | **atendido** 22/10 (placa 1); 29/10 cenário B = **2 passos** (placa 2, estação); 09/11 cenário C = **2 passos** (PC de aluno, `alunopds`) |
 | **RU-07** | A placa funciona **junto de qualquer PC, em qualquer ponto de rede** | uma placa por PC, sem passar pela estação | levar a placa a outro PC e ponto de rede | **atendido** 27/10 (placa 2, app do aluno gravou e ADC+FFT ok) |
 | **RU-08** | Todo resultado da placa aparece **ao lado da referência em software**, com o erro medido | objetivo geral; critério numérico do plano | comparar FPGA × NumPy/float64 em cada operação | **atendido**: Comparador e janelas das operações; conv/FIR 0,5 LSB, IIR 0 LSB × modelo, FFT 8192 pontos 92,9 dB (`testa_blocos`) |
 | **RU-09** | Os **limites do hardware ficam escondidos**: sinal maior que 1024 amostras, formato Q, escala | objetivo (c) | mandar sinal de N > 1024 e ver o resultado inteiro | **atendido**: FFT de 1024·M em quatro passos, convolução, FIR e IIR por blocos (`blocos.py`) |
@@ -125,8 +125,8 @@ causou.
 
 ## 6. O que falta verificar
 
-1. **Cenário A** (primeira vez) e **cenário C** (PC de aluno, menu → Morphe): remedir
-   pela regra da linha de base. Só o B foi remedido (14/09: 3 passos; 29/10: 2).
+1. **Cenário A** (primeira vez): remedir pela regra da linha de base. O B foi remedido
+   (14/09: 3 passos; 29/10: 2) e o C também (09/11: 4 → 2).
 2. **RU-15 e RU-16**: a imagem de cartão (v1.5) e a contagem do cenário A.
 3. **RU-17 e RU-18**: roteiros de operação (ADC e FFT primeiro) e manual em dia.
 4. **RU-10**: listar as mensagens de falha e conferir cada uma contra a causa.

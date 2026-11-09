@@ -129,6 +129,24 @@ do cliente) é a etapa que o ataca; medir antes disso só registraria o mesmo 40
 único cenário que o aluno vê, fazendo o serviço de gerenciamento executar o cenário B
 no lugar dele.
 
+## Medição de 29/10 e 09/11/2026 — aplicativo que grava a FPGA ao abrir
+
+Mesma regra. Desde 22/10 o aplicativo grava a FPGA da placa ligada no USB e conecta
+sozinho.
+
+**Cenário B — de 9 (antes) e 3 (v1.2) para 2 passos** (29/10, estação, placa 2):
+abrir o aplicativo; executar a operação. Pelo `morphe-up.sh --board <placa>` continuam 3.
+
+**Cenário C — de 4 para 2 passos** (09/11, PC de aluno, conta `alunopds`):
+
+1. abrir o aplicativo (grava a FPGA e conecta; esperar não é passo)
+2. escolher a operação, carregar o sinal, executar (FFT, resultado correto)
+
+Sumiram o `cd`, o comando de terminal e o painel de conexão. Dos 2 passos, um é a
+operação em si.
+
+**Cenário A:** ainda não remedido.
+
 ## Como remedir depois
 
 Contar de novo, pela mesma regra, sobre o procedimento vigente na época. A comparação

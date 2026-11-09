@@ -16,6 +16,29 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 09/11/2026 — Cenário C medido: 2 passos; os 8 PCs da sala na adc-fft
+
+**Medição de usabilidade, cenário C (PC de aluno, placa já preparada).** Num PC do
+laboratório com a placa no USB, na conta `alunopds`, partindo com a FPGA por gravar,
+contado pela regra da `LINHA-DE-BASE-PASSOS.md`:
+
+| passo | o que o aluno faz |
+|---|---|
+| 1 | abrir o aplicativo (ele grava a FPGA e conecta sozinho; esperar não é passo) |
+| 2 | escolher a FFT, carregar o sinal, executar — resultado correto |
+
+Linha de base: **4** (14/09). O aluno não abre mais terminal nem escolhe placa ou
+endereço. Com o B (2 passos, 29/10), os dois cenários do dia a dia terminam no mesmo
+caminho: abrir o aplicativo e operar. O PC usado não foi anotado — qualquer PC da sala
+tem a mesma instalação (abaixo), então a contagem não depende dele.
+
+**A sala tem 8 PCs mais a estação** (`172.16.101.237`), conferido com `hostname -I` em
+todas as máquinas. O PC 3 e o PC 4 não tinham sumido: são o `.230.168` (LABPS-47721) e
+o `.230.170` (LABPS-47722), que haviam entrado no `computadores.conf` como máquinas
+novas. Arquivo corrigido nos dois ramos (principal `0d27dfa`, adc-fft `3ccd4d5`).
+`atualizar-lab.sh --ramo estagio/adc-fft` e `--status`: **8 de 8 em `3ccd4d5`**, 0 com
+problema (o PC 6, `.230.80`, estava em `50559fa`).
+
 ## 03/11/2026 — Documento de requisitos; README e PREPARACAO com `--board`
 
 **`docs/REQUISITOS.md`** (atividade 2 do cronograma): perfis de usuário, o problema de
