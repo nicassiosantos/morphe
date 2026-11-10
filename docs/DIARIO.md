@@ -16,6 +16,28 @@ Plataforma: Morphe (TCC de Carlos Valadão) · DE1-SoC · Fork: `nicassiosantos/
 
 ---
 
+## 10/11/2026 — Roteiro do somador e "como funciona" na Área de Trabalho dos alunos; trabalho sem placa
+
+**Material à mostra nos PCs.** O roteiro do somador (`roteiro-modulo.pdf`) só existia
+na branch `estagio/modulo-soma-adc-fft`, que não vai aos PCs; o PDF e o `trechos.txt`
+passaram para a `estagio/adc-fft` (16d8dbd), ao lado do `docs/como-funciona/`.
+O `atualizar-lab.sh` ganhou o `--atalhos` (7b43403 na adc-fft, e55d294 na principal):
+com `--usuario alunopds`, cria na Área de Trabalho dessa conta, em cada PC, links para
+os dois PDFs do `/opt/morphe` — links, e não cópias, para o PDF corrigido chegar com o
+próximo `atualizar-lab`. **Validado no laboratório:** `atualizar-lab` levou os 8 PCs a
+7b43403; `--preparar --usuario alunopds` instalou a chave da estação nas 8 contas de
+aluno; `--atalhos --usuario alunopds` criou os 2 atalhos nos 8 (5 em "Área de Trabalho",
+3 em "Desktop": o script segue o `xdg-user-dir` de cada PC).
+
+**Trabalhar sem placa.** Não há placa para cada PC. O roteiro do somador (e396bd7)
+ganhou a seção "Sem placa no seu computador": Verilog, Platform Designer, compilação e
+o código do servidor e do aplicativo são feitos em qualquer PC; o clone vai num
+`.tar.gz` (sem `db/`, `incremental_db/` e `.morphe-estado/`), por pendrive ou `scp`, para
+`~/grupoN` no PC da placa, onde se grava, testa e devolve — duas idas por grupo, em
+fila. A5, B5, B6 e a devolução dizem "computador da placa" em vez de "estação".
+Gravar pela conta `alunopds` de um PC de aluno (`--setup-ssh` + `--deploy`) ainda não
+foi testado: o estagiário vai seguir o roteiro num PC sem placa para conferir.
+
 ## 09/11/2026 — Cenário C medido: 2 passos; os 8 PCs da sala na adc-fft
 
 **Medição de usabilidade, cenário C (PC de aluno, placa já preparada).** Num PC do
