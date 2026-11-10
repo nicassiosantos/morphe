@@ -73,6 +73,8 @@
   title=Cuidado,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
 \newtcolorbox{pronto}{colback=blue!4,colframe=blue!55!black,boxrule=0.4pt,arc=2pt,
   title=Já existe: reaproveite,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
+\newtcolorbox{exemplo}{breakable,colback=cli!4,colframe=cli!70!black,boxrule=0.4pt,arc=2pt,
+  title=Exemplo: o comando com nomes reais,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt}
 \newtcolorbox{falta}{colback=yellow!10,colframe=yellow!45!black,boxrule=0.4pt,arc=2pt,
   title=Print a tirar na estação,fonttitle=\bfseries\small,fontupper=\small,left=4pt,right=4pt,
   borderline={0.6pt}{0pt}{yellow!45!black,dashed}}
@@ -324,7 +326,8 @@ pacote novo é desempacotado por cima do antigo.
 \textbf{4. Só na primeira vez em cada computador da placa}: instale a chave
 SSH, para o \arq{morphe-up.sh} entrar na placa sem pedir a senha do
 \texttt{root} várias vezes (ela é pedida uma vez aqui; pergunte ao
-professor). \texttt{PLACA} é o nome da placa (A5):
+professor). \texttt{PLACA} é o nome da placa, como \texttt{de1soc-02}
+(a A5 mostra como achá-lo pela serial):
 \begin{lstlisting}[style=sh]
 ./morphe-up.sh --setup-ssh --board PLACA
 \end{lstlisting}
@@ -723,7 +726,8 @@ git checkout origin/estagio/modulo-soma-adc-fft -- C/devmem.c C/Makefile morphe-
     computador}), de dentro do seu clone, grave a placa. No lugar de
     \texttt{CABO}, o nome do cabo da \textbf{sua} placa, entre aspas
     simples; no lugar de \texttt{PLACA}, o nome dela (os dois quadros
-    abaixo):
+    abaixo dizem como achar cada um, e o quadro \emph{Exemplo} logo depois
+    deles mostra o comando pronto):
 \begin{lstlisting}[style=sh]
 ./morphe-up.sh --cable 'CABO' --board PLACA --deploy
 \end{lstlisting}
@@ -781,6 +785,40 @@ acha uma placa na rede, mas não tem como saber se é a do seu cabo. Se ele
 disser que a placa \emph{está em uso}, alguém a usou no último minuto:
 espere, ou confira com quem está na sala.
 \end{faca}
+
+\begin{exemplo}
+\textbf{CABO e PLACA são duas coisas diferentes}, e cada uma vem de um
+lugar:
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lXl@{}}
+\toprule
+ & \textbf{o que apareceu na tela} & \textbf{o que vai no comando} \\
+\midrule
+\texttt{CABO} & no \texttt{jtagconfig}: \texttt{1) DE-SoC [1-2]} & \texttt{'DE-SoC [1-2]'} (tudo depois do \texttt{1)}, entre aspas) \\ \addlinespace
+\texttt{PLACA} & na serial: \texttt{de1soc-02 login:} & \texttt{de1soc-02} (tudo antes do \texttt{login:}) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Com esses dois, o comando fica:
+\begin{lstlisting}[style=sh]
+./morphe-up.sh --cable 'DE-SoC [1-2]' --board de1soc-02 --deploy
+\end{lstlisting}
+Troque pelo que apareceu na \textbf{sua} tela: o número entre colchetes
+e o número da placa mudam de um computador para outro.
+
+\textbf{Errado}, e o que o \arq{morphe-up.sh} responde:
+\begin{itemize}
+  \item \texttt{-{}-board [1-2]} (o cabo no lugar da placa): \emph{nenhuma
+    placa chamada [1-2] respondeu ao broadcast}, seguido da lista das placas
+    da rede (\texttt{de1soc-02}, \texttt{de1soclinux}\ldots);
+  \item \texttt{-{}-board DE-SoC [1-2]}, sem aspas: \emph{opção
+    desconhecida: [1-2]} --- o espaço partiu o nome em dois;
+  \item \texttt{-{}-cable 'CABO'}, com a palavra \texttt{CABO} mesmo: ela é
+    só o lugar onde vai o nome do cabo.
+\end{itemize}
+\end{exemplo}
 
 \tela[0.5\linewidth]{q07-menu-processing}{\menu{Processing}\seta\menu{Start Compilation}}
 
@@ -2317,6 +2355,8 @@ operações antigas param de funcionar & usou \emph{Assign Base Addresses}: os e
 \texttt{\_Static\_assert} falha ao compilar o servidor & faltou o \texttt{FPGA\_ONCHIP\_SPAN} \\ \addlinespace
 a placa para depois de cerca de uma hora & sem a licença ativa; use o \arq{morphe-up.sh}, sem \texttt{sudo} \\ \addlinespace
 \texttt{qsys-generate} ou \texttt{quartus\_sh}: \emph{not found} & terminal em \texttt{ksh}; digite \texttt{bash} \\ \addlinespace
+\arq{morphe-up.sh}: \emph{nenhuma placa chamada [1-2] respondeu} & pôs o nome do cabo no \texttt{-{}-board}; o \texttt{-{}-board} leva o nome da placa (\texttt{de1soc-02}), e o cabo vai no \texttt{-{}-cable} (quadro \emph{Exemplo} da A5) \\ \addlinespace
+\arq{morphe-up.sh}: \emph{opção desconhecida: [1-2]} & o nome do cabo sem aspas: \texttt{-{}-cable 'DE-SoC [1-2]'} \\ \addlinespace
 \arq{morphe-up.sh}: \emph{não sei qual placa é a deste comando} & faltou o \texttt{-{}-board PLACA}, com o nome que aparece no \texttt{login:} da serial (A5) \\ \addlinespace
 \arq{morphe-up.sh}: \emph{placa em uso} & alguém mandou uma operação a ela no último minuto (pode ter sido você mesmo); espere um minuto e rode de novo \\ \addlinespace
 o \arq{morphe-up.sh} pede a senha do \texttt{root} várias vezes & a chave SSH não foi instalada neste computador: \texttt{./morphe-up.sh -{}-setup-ssh -{}-board PLACA} (quadro \emph{Sem placa no seu computador}, passo 4) \\ \addlinespace
