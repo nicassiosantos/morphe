@@ -118,7 +118,7 @@
   \large Roteiro prático --- exemplo: a soma de dois sinais}
 \author{Antonio Nicassio Santos Lima \quad
   {\small Estágio LabPS/UEFS --- supervisão: Prof.\ Armando S.\ Sanca}}
-\date{outubro de 2026}
+\date{novembro de 2026}
 
 \begin{document}
 \maketitle
@@ -170,7 +170,8 @@ para qualquer acelerador. Ele tem duas partes:
 
 \subsection*{O código}
 
-Na estação ou num computador do laboratório, num terminal. Digite
+Num computador do laboratório, com placa ou sem (veja o quadro
+\emph{Sem placa no seu computador}, adiante), num terminal. Digite
 \texttt{bash} primeiro: alguns terminais abrem em \texttt{ksh}, e nele os
 comandos do Quartus não são encontrados.
 
@@ -252,6 +253,109 @@ git show origin/estagio/modulo-soma-adc-fft:docs/roteiro-modulo/trechos.txt
 
 O que está marcado \gera{} sai das ferramentas: se for editado à mão, a
 próxima geração apaga --- ou pior, a placa e o servidor deixam de concordar.
+
+\subsection*{Sem placa no seu computador}
+
+Não há placa para cada computador. Quase todo o roteiro, porém, \textbf{não
+precisa dela}: escrever o Verilog, mexer no Platform Designer, compilar e
+escrever o código do servidor e do aplicativo. A placa só entra para
+\textbf{gravar}, \textbf{testar} e \textbf{devolver}. Então: trabalhe no seu
+computador e leve o seu clone ao computador da placa só nessas horas.
+
+\begin{center}
+\begin{tikzpicture}[node distance=0.5cm,
+    c/.style={bloco,minimum width=5.6cm,align=left,font=\scriptsize}]
+  \node[c,fill=black!4] (dev) {\textbf{No seu computador} (sem placa)\\[2pt]
+    A1--A4: Verilog e Platform Designer\\
+    A5, itens 1 a 3: compilar, \arq{hps_0.h}, \texttt{devmem}\\
+    B1--B4: circuito, memórias, compilar\\
+    B5 e B6: escrever o código (C e Python)};
+  \node[c,fill=hps!10,draw=hps,right=2.4cm of dev] (fpga) {\textbf{No computador da placa}\\[2pt]
+    A5, item 4: gravar (\texttt{morphe-up.sh})\\
+    A6: testar pela serial\\
+    fim da B5: \texttt{morphe-up.sh -{}-deploy}\\
+    B6: teste final no aplicativo, e devolver};
+  \draw[seta] ([yshift=3mm]dev.east) -- node[above,font=\scriptsize]{pacote}
+    node[below,font=\scriptsize]{\texttt{.tar.gz}} ([yshift=3mm]fpga.west);
+\end{tikzpicture}
+\end{center}
+
+São \textbf{duas idas} ao computador da placa: uma no fim da Parte A (A5,
+item 4, e A6) e outra no fim da Parte B (B5 e B6). Combine uma fila com a
+turma: cada ida leva uns 15 minutos.
+
+\begin{faca}
+\textbf{1. Empacotar}, no seu computador, depois de compilar. Troque
+\texttt{grupo1} pelo nome do seu grupo em todos os comandos deste quadro
+(todos usam a mesma conta \texttt{alunopds}: com o mesmo nome, um grupo
+apagaria o trabalho do outro).
+\begin{lstlisting}[style=sh]
+cd ~
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+tar czf grupo1.tar.gz --exclude=db --exclude=incremental_db --exclude=.morphe-estado meu-modulo
+\end{lstlisting}
+
+\textbf{2. Levar} o \arq{grupo1.tar.gz} ao computador da placa: num pendrive,
+ou pela rede. Para a rede, descubra o IP dele \textbf{no} computador da placa:
+\begin{lstlisting}[style=sh]
+hostname -I
+\end{lstlisting}
+e, do seu computador, trocando \texttt{IP} pelo primeiro número que apareceu
+(pede a senha da conta \texttt{alunopds}):
+\begin{lstlisting}[style=sh]
+scp ~/grupo1.tar.gz alunopds@IP:~/
+\end{lstlisting}
+
+\textbf{3. Desempacotar}, no computador da placa:
+\begin{lstlisting}[style=sh]
+mkdir -p ~/grupo1
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+tar xzf ~/grupo1.tar.gz -C ~/grupo1
+\end{lstlisting}
+\begin{lstlisting}[style=sh]
+cd ~/grupo1/meu-modulo
+\end{lstlisting}
+Daqui em diante, \arq{~/grupo1/meu-modulo} faz o papel do
+\arq{~/meu-modulo} do roteiro. Na segunda ida, repita os três passos: o
+pacote novo é desempacotado por cima do antigo.
+
+\textbf{4. Só na primeira vez em cada computador da placa}: instale a chave
+SSH, para o \arq{morphe-up.sh} entrar na placa sem pedir a senha do
+\texttt{root} várias vezes (ela é pedida uma vez aqui; pergunte ao
+professor). \texttt{PLACA} é o nome da placa (A5):
+\begin{lstlisting}[style=sh]
+./morphe-up.sh --setup-ssh --board PLACA
+\end{lstlisting}
+\end{faca}
+
+\begin{porque}
+\begin{itemize}
+  \item As pastas \arq{db/} e \arq{incremental_db/} são o rascunho do
+    Quartus: grandes e desnecessárias para gravar. O que a placa precisa
+    (o \arq{.sof}, o \arq{C/hps_0.h} e as fontes de \arq{C/}) vai no pacote.
+  \item A \arq{.morphe-estado/} é a memória do \arq{morphe-up.sh}
+    \textbf{daquele} computador (qual cabo, qual placa); a do computador da
+    placa não deve ser substituída pela do seu.
+  \item A pasta \arq{.git} vai junto: no computador da placa, os
+    \texttt{git show} e \texttt{git checkout} do gabarito continuam
+    funcionando.
+\end{itemize}
+\end{porque}
+
+\begin{confira}
+No computador da placa, de dentro de \arq{~/grupo1/meu-modulo}:
+\texttt{ls Quartus/output\_files/*.sof} mostra o
+\arq{soc_system_time_limited.sof} e \texttt{git status} mostra as suas
+mudanças, iguais às do seu computador.
+\end{confira}
+
+\begin{cuidado}
+Compile \textbf{antes} de empacotar. Se você mudar algo no computador da
+placa, a mudança fica só lá: corrija no seu computador, compile e leve o
+pacote de novo, para não ter duas versões diferentes do mesmo trabalho.
+\end{cuidado}
 
 \subsection*{Abrir o projeto no Quartus}
 
@@ -614,8 +718,9 @@ python3 gen_hps_header.py
 \begin{lstlisting}[style=sh]
 git checkout origin/estagio/modulo-soma-adc-fft -- C/devmem.c C/Makefile morphe-up.sh
 \end{lstlisting}
-  \item Na \textbf{estação} (é onde estão os cabos das placas), de dentro de
-    \arq{~/meu-modulo}, fora do horário de aula, grave a placa. No lugar de
+  \item No \textbf{computador da placa} (o que tem o cabo USB dela; se você
+    trabalhou noutro, leve o seu clone antes: quadro \emph{Sem placa no seu
+    computador}), de dentro do seu clone, grave a placa. No lugar de
     \texttt{CABO}, o nome do cabo da \textbf{sua} placa, entre aspas
     simples; no lugar de \texttt{PLACA}, o nome dela (os dois quadros
     abaixo):
@@ -628,16 +733,16 @@ git checkout origin/estagio/modulo-soma-adc-fft -- C/devmem.c C/Makefile morphe-
 \begin{faca}
 \textbf{Qual é o cabo da sua placa.} Cada placa tem o seu USB-Blaster, e o
 Quartus dá a cada um o nome \texttt{DE-SoC [1-N]}. O número entre colchetes
-é a porta USB da estação: \textbf{muda} se o cabo trocar de porta. Por isso
+é a porta USB do computador: \textbf{muda} se o cabo trocar de porta. Por isso
 não há um nome fixo para copiar. Para descobrir:
 \begin{enumerate}
-  \item liste os cabos que a estação enxerga:
+  \item liste os cabos que o computador enxerga:
 \begin{lstlisting}[style=sh]
 jtagconfig
 \end{lstlisting}
     Cada cabo aparece numa linha como \texttt{1) DE-SoC [1-2]}; o nome é o
     que vem depois do \texttt{1)}, com os colchetes.
-  \item se houver mais de um, \textbf{desconecte da estação} o USB-Blaster
+  \item se houver mais de um, \textbf{desconecte do computador} o USB-Blaster
     da sua placa (a USB que \emph{não} é a marcada UART), rode
     \texttt{jtagconfig} de novo e veja qual nome sumiu: é o seu. Ligue o
     cabo de volta e confira que o nome voltou igual.
@@ -1774,8 +1879,9 @@ enfeite: se a placa estiver com um \arq{.sof} sem a soma, escrever em
 \begin{faca}
 \textbf{Mande o servidor novo para a placa.} Até aqui você só mudou os
 arquivos no seu clone; a placa continua rodando o servidor antigo, que
-\textbf{não conhece} o opcode 9. Na estação, de dentro de
-\arq{~/meu-modulo}, com o mesmo \texttt{CABO} e a mesma \texttt{PLACA} da A5:
+\textbf{não conhece} o opcode 9. No computador da placa (leve o clone de
+novo: quadro \emph{Sem placa no seu computador}), de dentro do seu clone,
+com o mesmo \texttt{CABO} e a mesma \texttt{PLACA} da A5:
 \begin{lstlisting}[style=sh]
 ./morphe-up.sh --cable 'CABO' --board PLACA --deploy
 \end{lstlisting}
@@ -2123,7 +2229,7 @@ class SomaWindow(tk.Toplevel):
 
 
 \begin{faca}
-\textbf{O teste final.} De \arq{~/meu-modulo}, num computador do laboratório:
+\textbf{O teste final.} No computador da placa, de dentro do seu clone:
 \begin{lstlisting}[style=sh]
 python3 Python/morphe_app.py
 \end{lstlisting}
@@ -2159,8 +2265,8 @@ Em \menu{Placas do laboratório}, confira que a sua placa está marcada
 \end{confira}
 
 \begin{faca}
-\textbf{Devolver a placa à turma}, sempre, ao terminar. Na estação, de
-\arq{~/meu-modulo}:
+\textbf{Devolver a placa à turma}, sempre, ao terminar: o próximo grupo da
+fila espera por ela. No computador da placa, de dentro do seu clone:
 \begin{lstlisting}[style=sh]
 ./morphe-up.sh --down
 \end{lstlisting}
@@ -2212,7 +2318,10 @@ operações antigas param de funcionar & usou \emph{Assign Base Addresses}: os e
 a placa para depois de cerca de uma hora & sem a licença ativa; use o \arq{morphe-up.sh}, sem \texttt{sudo} \\ \addlinespace
 \texttt{qsys-generate} ou \texttt{quartus\_sh}: \emph{not found} & terminal em \texttt{ksh}; digite \texttt{bash} \\ \addlinespace
 \arq{morphe-up.sh}: \emph{não sei qual placa é a deste comando} & faltou o \texttt{-{}-board PLACA}, com o nome que aparece no \texttt{login:} da serial (A5) \\ \addlinespace
-\arq{morphe-up.sh}: \emph{placa em uso} & alguém mandou uma operação a ela no último minuto (pode ter sido você mesmo); espere um minuto e rode de novo \\
+\arq{morphe-up.sh}: \emph{placa em uso} & alguém mandou uma operação a ela no último minuto (pode ter sido você mesmo); espere um minuto e rode de novo \\ \addlinespace
+o \arq{morphe-up.sh} pede a senha do \texttt{root} várias vezes & a chave SSH não foi instalada neste computador: \texttt{./morphe-up.sh -{}-setup-ssh -{}-board PLACA} (quadro \emph{Sem placa no seu computador}, passo 4) \\ \addlinespace
+\texttt{scp}: \emph{Connection refused} ou \emph{Permission denied} & IP errado (confira com \texttt{hostname -I} no computador da placa) ou senha errada; se persistir, leve o pacote num pendrive \\ \addlinespace
+no computador da placa, o \arq{.sof} ou o \arq{hps_0.h} são os antigos & empacotou antes de compilar; compile no seu computador e leve o pacote de novo \\
 \bottomrule
 \end{tabularx}
 \end{center}
