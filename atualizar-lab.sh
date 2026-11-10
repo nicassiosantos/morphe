@@ -14,6 +14,11 @@
 #   ./atualizar-lab.sh --ramo RAMO     troca o /opt/morphe de cada um para RAMO
 #                                      (ex.: estagio/adc-fft) e atualiza; recusa
 #                                      se houver arquivo mexido a mao
+#   ./atualizar-lab.sh --atalhos --usuario alunopds
+#                                      poe na Area de Trabalho da conta do SSH
+#                                      os atalhos dos PDFs do /opt/morphe/docs
+#                                      (como funciona, roteiro da soma). Antes,
+#                                      uma vez: --preparar --usuario alunopds
 #
 # O --status e o --ramo tambem conferem, em cada computador, o que o aplicativo
 # precisa para gravar a FPGA pelo USB: Quartus 20.1 e a regra udev do USB-Blaster.
@@ -44,7 +49,8 @@ while [ $# -gt 0 ]; do
         --so)       shift; SO+=("${1:?--so precisa de um IP ou nome}") ;;
         --usuario)  shift; USUARIO="${1:?--usuario precisa de um nome}" ;;
         --ramo)     shift; RAMO_NOVO="${1:?--ramo precisa do nome do ramo}"; MODO="ramo" ;;
-        -h|--help)  sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --atalhos)  MODO="atalhos" ;;
+        -h|--help)  sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Opcao desconhecida: $1 (veja --help)"; exit 2 ;;
     esac
     shift
@@ -168,6 +174,37 @@ fi
 echo "RESULTADO ok ${ORIGINAL:-$ANTES} $AGORA"
 '
 
+# --atalhos: links (nao copias) na Area de Trabalho da conta do SSH. Apontam
+# para o /opt/morphe, entao o PDF corrigido chega sozinho no proximo
+# atualizar-lab. So cria o atalho de um PDF que exista naquele computador.
+REMOTO_ATALHOS='
+D=/opt/morphe
+if [ ! -d "$D" ]; then echo "RESULTADO sem_morphe"; exit 0; fi
+# O xdg-user-dir le o ~/.config/user-dirs.dirs; quem nunca entrou na tela
+# grafica nao tem esse arquivo e ele devolve a propria pasta pessoal.
+AREA=$(xdg-user-dir DESKTOP 2>/dev/null)
+if [ -z "$AREA" ] || [ "$AREA" = "$HOME" ]; then
+    AREA=""
+    for d in "$HOME/Área de Trabalho" "$HOME/Desktop"; do
+        [ -d "$d" ] && { AREA="$d"; break; }
+    done
+fi
+if [ -z "$AREA" ] || [ ! -d "$AREA" ]; then echo "RESULTADO sem_area"; exit 0; fi
+N=0
+while IFS="|" read -r ARQ NOME; do
+    if [ -f "$D/$ARQ" ]; then
+        ln -sfn "$D/$ARQ" "$AREA/$NOME" && N=$((N+1)) && echo "    $NOME"
+    else
+        echo "    (sem $ARQ neste computador)"
+    fi
+done <<FIM
+docs/como-funciona/como-funciona.pdf|Como o Morphe funciona.pdf
+docs/roteiro-modulo/roteiro-modulo.pdf|Roteiro da soma (modulo na FPGA).pdf
+FIM
+echo "RESULTADO atalhos $N $(basename "$AREA")"
+'
+[ "$MODO" = atalhos ] && REMOTO="$REMOTO_ATALHOS" && echo "Atalhos na Area de Trabalho da conta $USUARIO"
+
 # O placas.local.conf daqui (as placas acrescentadas sem commit) vai junto, em
 # base64 como argumento: chega igual em todos e e gravado pela conta dona.
 LOCAL_B64=""
@@ -214,6 +251,11 @@ for alvo in "${ALVOS[@]}"; do
             linha="SEM PERMISSAO: o dono do /opt/morphe e $2; use --usuario $2"; ERROS=$((ERROS+1)) ;;
         sem_morphe)
             linha="NAO TEM /opt/morphe (rodar o instala-morphe.sh nele)"; ERROS=$((ERROS+1)) ;;
+        atalhos)
+            linha="$2 atalho(s) em ~/${*:3}"
+            [ "$2" = 0 ] && { linha="NENHUM atalho: rodar ./atualizar-lab.sh antes (os PDFs vem com ele)"; ERROS=$((ERROS+1)); } ;;
+        sem_area)
+            linha="SEM AREA DE TRABALHO: a conta $USUARIO nunca entrou na tela grafica deste computador"; ERROS=$((ERROS+1)) ;;
         *)
             ERROS=$((ERROS+1))
             if [ $CODIGO = 255 ]; then
